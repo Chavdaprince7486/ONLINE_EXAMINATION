@@ -49,8 +49,7 @@ try {
         "UPDATE subscription_payments
          SET
             payment_status = 'Failed',
-            gateway_payment_id = COALESCE(NULLIF(?, ''), gateway_payment_id),
-            gateway_status = 'failed'
+            gateway_status = 'client_reported_failure'
          WHERE student_id = ?
            AND gateway_order_id = ?
            AND payment_status = 'Pending'
@@ -58,7 +57,6 @@ try {
     );
 
     $stmt->execute([
-        $paymentId,
         (int)$_SESSION['user_id'],
         $orderId,
     ]);

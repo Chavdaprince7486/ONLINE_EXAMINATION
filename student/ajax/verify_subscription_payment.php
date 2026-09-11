@@ -59,6 +59,14 @@ if (!preg_match('/^[a-f0-9]{64}$/i', $signature)) {
 try {
     $conn->beginTransaction();
 
+    $studentStatement = $conn->prepare(
+        "SELECT id FROM students WHERE id = ? AND status = 'Active' LIMIT 1 FOR UPDATE"
+    );
+    $studentStatement->execute([$studentId]);
+    if (!$studentStatement->fetchColumn()) {
+        throw new RuntimeException('The student account is unavailable.');
+    }
+
     $paymentStatement = $conn->prepare(
         "SELECT
             sp.id,
@@ -98,15 +106,25 @@ try {
     }
 
     if (!razorpay_verify_signature($serverOrderId, $paymentId, $signature)) {
-        $markFailed = $conn->prepare(
-            "UPDATE subscription_payments
-             SET payment_status = 'Failed', gateway_status = 'signature_failed'
-             WHERE id = ?
-             LIMIT 1"
-        );
-        $markFailed->execute([(int)$payment['id']]);
+        $conn->rollBack();
+        verify_response(false, 'Payment verification failed. No payment records were changed.', [], 422);
+    }
+
+    if ((string)$payment['payment_status'] === 'Paid') {
+        if (
+            empty($payment['subscription_id']) ||
+            !hash_equals((string)$payment['gateway_payment_id'], $paymentId)
+        ) {
+            throw new RuntimeException('The completed payment requires reconciliation.');
+        }
+
         $conn->commit();
-        verify_response(false, 'Payment verification failed. The subscription was not activated.', [], 422);
+        $_SESSION['payment_receipt'] = [
+            'reference' => (string)$payment['reference_no'],
+        ];
+        verify_response(true, 'Payment was already verified successfully.', [
+            'redirect' => 'payment_success.php',
+        ]);
     }
 
     $gatewayPayment = razorpay_fetch_payment($paymentId);
@@ -120,19 +138,7 @@ try {
     $expectedAmount = (int)round((float)$payment['amount'] * 100);
 
     if ($gatewayOrderId !== $serverOrderId || $gatewayAmount !== $expectedAmount || $gatewayCurrency !== RAZORPAY_CURRENCY) {
-        $markFailed = $conn->prepare(
-            "UPDATE subscription_payments
-             SET
-                payment_status = 'Failed',
-                gateway_payment_id = ?,
-                gateway_signature = ?,
-                gateway_status = 'amount_or_order_mismatch',
-                gateway_method = ?
-             WHERE id = ?
-             LIMIT 1"
-        );
-        $markFailed->execute([$paymentId, $signature, razorpay_payment_method_label($gatewayMethod), (int)$payment['id']]);
-        $conn->commit();
+        $conn->rollBack();
         verify_response(false, 'Payment details did not match the selected subscription amount. Access was not granted.', [], 422);
     }
 
@@ -143,8 +149,6 @@ try {
             "UPDATE subscription_payments
              SET
                 payment_status = ?,
-                gateway_payment_id = ?,
-                gateway_signature = ?,
                 gateway_status = ?,
                 gateway_method = ?
              WHERE id = ?
@@ -152,8 +156,6 @@ try {
         );
         $updatePending->execute([
             $localStatus,
-            $paymentId,
-            $signature,
             $gatewayStatus,
             razorpay_payment_method_label($gatewayMethod),
             (int)$payment['id'],
@@ -165,18 +167,6 @@ try {
             : 'Payment is not captured yet. Your subscription remains inactive until payment is confirmed.', [], 422);
     }
 
-    if ((string)$payment['payment_status'] === 'Paid' && !empty($payment['subscription_id'])) {
-        $conn->commit();
-
-        $_SESSION['payment_receipt'] = [
-            'reference' => (string)$payment['reference_no'],
-        ];
-
-        verify_response(true, 'Payment was already verified successfully.', [
-            'redirect' => 'payment_success.php',
-        ]);
-    }
-
     $durationMonths = (int)$payment['duration_months'];
     $planPrice = (float)$payment['plan_price'];
 
@@ -184,16 +174,27 @@ try {
         throw new RuntimeException('The subscription plan changed unexpectedly.');
     }
 
-    $startDate = new DateTimeImmutable('today');
-    $endDate = $startDate
-        ->modify('+' . $durationMonths . ' months')
-        ->modify('-1 day');
+    $accessStatement = $conn->prepare(
+        "SELECT end_date
+         FROM subscriptions
+         WHERE student_id = ? AND status = 'Active' AND end_date >= CURDATE()
+         ORDER BY end_date DESC
+         LIMIT 1
+         FOR UPDATE"
+    );
+    $accessStatement->execute([$studentId]);
+    $lastEndDate = $accessStatement->fetchColumn();
+    $startDate = $lastEndDate
+        ? (new DateTimeImmutable((string)$lastEndDate))->modify('+1 day')
+        : new DateTimeImmutable('today');
+    [$startDate, $endDate] = subscription_period($startDate, $durationMonths);
 
     $expireOld = $conn->prepare(
         "UPDATE subscriptions
          SET status = 'Expired'
          WHERE student_id = ?
-           AND status = 'Active'"
+           AND status = 'Active'
+           AND end_date < CURDATE()"
     );
     $expireOld->execute([$studentId]);
 

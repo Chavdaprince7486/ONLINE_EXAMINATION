@@ -44,7 +44,7 @@ try {
         "UPDATE subscription_payments
          SET
             payment_status = 'Cancelled',
-            gateway_status = 'cancelled'
+            gateway_status = 'client_dismissed'
          WHERE student_id = ?
            AND gateway_order_id = ?
            AND payment_status = 'Pending'
