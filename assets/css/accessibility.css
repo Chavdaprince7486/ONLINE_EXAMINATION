@@ -1,0 +1,118 @@
+/*
+|--------------------------------------------------------------------------
+| ExamSphere — Shared Accessibility & UX Enhancements
+|--------------------------------------------------------------------------
+*/
+
+:root {
+    --es-focus-ring: 0 0 0 4px rgba(85, 107, 47, .20);
+    --es-surface-shadow: 0 16px 40px rgba(62, 39, 35, .08);
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+}
+
+a,
+button,
+input,
+select,
+textarea {
+    touch-action: manipulation;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 0;
+    box-shadow: var(--es-focus-ring);
+}
+
+button,
+.btn,
+a.btn {
+    min-height: 42px;
+}
+
+img {
+    max-width: 100%;
+}
+
+.table-responsive {
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 767.98px) {
+
+    .table-responsive {
+        margin-inline: -0.25rem;
+    }
+
+    .btn {
+        max-width: 100%;
+    }
+
+    .form-control,
+    .form-select,
+    .form-check-input {
+        font-size: 16px;
+    }
+
+    .modal-dialog {
+        margin: .75rem;
+    }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+}
+
+@media (forced-colors: active) {
+
+    * {
+        forced-color-adjust: auto;
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+        outline: 2px solid ButtonText;
+    }
+
+}
+
+@media (prefers-contrast: more) {
+
+    body {
+        text-shadow: none;
+    }
+
+    .text-muted {
+        color: currentColor !important;
+    }
+
+}

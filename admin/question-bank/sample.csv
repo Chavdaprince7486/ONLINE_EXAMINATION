@@ -1,0 +1,5 @@
+exam_id,topic_id,question_text,question_type,option_a,option_b,option_c,option_d,correct_answer,explanation,difficulty,marks,negative_marks,estimated_time_seconds,status,position
+1,5,"What is PHP?","MCQ","Programming Language","Database","Browser","Operating System","A","PHP is a server-side scripting language.","Easy",1,0.25,45,Active,1
+1,5,"Which language is used to style web pages?","MCQ","HTML","CSS","PHP","SQL","B","CSS is used to style and design web pages.","Easy",1,0.25,40,Active,2
+1,5,"PHP is a server-side scripting language.","TrueFalse","True","False","","","A","PHP can execute code on the server.","Easy",1,0,30,Active,3
+1,6,"Which database is commonly used with PHP?","MCQ","MySQL","HTML","CSS","JavaScript","A","MySQL is commonly used with PHP applications.","Medium",1,0.25,45,Active,4

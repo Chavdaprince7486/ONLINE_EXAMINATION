@@ -1,0 +1,25 @@
+/* Keep the faculty navigation usable on short screens and at browser zoom. */
+.portal-sidebar {
+    height: 100vh !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #8a7667 transparent;
+}
+
+.portal-sidebar::-webkit-scrollbar { width: 8px; }
+.portal-sidebar::-webkit-scrollbar-track { background: transparent; }
+.portal-sidebar::-webkit-scrollbar-thumb { background: #8a7667; border-radius: 10px; }
+.portal-sidebar::-webkit-scrollbar-thumb:hover { background: #5d4037; }
+
+.teacher-logo,
+.portal-role,
+.portal-sidebar nav,
+.portal-logout { flex-shrink: 0; }
+
+.portal-sidebar nav { padding-bottom: 8px; }
+.portal-logout { min-height: 54px; }
+
+@media (max-width: 800px) {
+    .portal-sidebar { overflow-x: hidden !important; }
+}

@@ -1,0 +1,1452 @@
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 1A
+===================================================== */
+
+/* ===============================
+   DASHBOARD CONTAINER
+================================ */
+
+.dashboard-wrapper{
+
+    width:92%;
+    max-width:1600px;
+    margin:35px auto;
+    display:flex;
+    flex-direction:column;
+    gap:30px;
+
+}
+
+/* ===============================
+   HERO SECTION
+================================ */
+
+.dashboard-hero{
+
+    background:#FFFFFF;
+
+    border-radius:28px;
+
+    padding:45px;
+
+    display:grid;
+
+    grid-template-columns:1.8fr .9fr;
+
+    gap:35px;
+
+    border:1px solid #E8DFD3;
+
+    box-shadow:
+    0 15px 35px rgba(0,0,0,.06);
+
+    position:relative;
+
+    overflow:hidden;
+
+}
+
+.dashboard-hero::before{
+
+    content:"";
+
+    position:absolute;
+
+    left:0;
+    top:0;
+
+    width:100%;
+    height:6px;
+
+    background:linear-gradient(
+        90deg,
+        #5D4037,
+        #556B2F,
+        #5D4037
+    );
+
+}
+
+/* ===============================
+   LEFT AREA
+================================ */
+
+.dashboard-left{
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:center;
+
+}
+
+.dashboard-badge{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    width:max-content;
+
+    padding:12px 24px;
+
+    border-radius:50px;
+
+    background:#F5F5DC;
+
+    color:#5D4037;
+
+    font-weight:600;
+
+    font-size:15px;
+
+    margin-bottom:25px;
+
+}
+
+.dashboard-title{
+
+    font-size:48px;
+
+    font-weight:700;
+
+    color:#333333;
+
+    margin-bottom:15px;
+
+}
+
+.dashboard-line{
+
+    width:90px;
+
+    height:5px;
+
+    border-radius:50px;
+
+    background:#556B2F;
+
+    margin-bottom:22px;
+
+}
+
+.dashboard-description{
+
+    font-size:17px;
+
+    line-height:1.9;
+
+    color:#666666;
+
+    max-width:650px;
+
+}
+
+/* ===============================
+   BUTTON AREA
+================================ */
+
+.dashboard-buttons{
+
+    display:flex;
+
+    gap:18px;
+
+    flex-wrap:wrap;
+
+    margin-top:35px;
+
+}
+
+.dashboard-primary{
+
+    background:#5D4037;
+
+    color:#FFFFFF;
+
+    border:none;
+
+    border-radius:14px;
+
+    padding:16px 34px;
+
+    font-size:16px;
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    transition:.35s;
+
+}
+
+.dashboard-primary:hover{
+
+    transform:translateY(-4px);
+
+    box-shadow:
+    0 15px 30px rgba(93,64,55,.25);
+
+}
+
+.dashboard-secondary{
+
+    background:#FFFFFF;
+
+    color:#5D4037;
+
+    border:2px solid #5D4037;
+
+    border-radius:14px;
+
+    padding:16px 34px;
+
+    font-size:16px;
+
+    font-weight:600;
+
+    cursor:pointer;
+
+    transition:.35s;
+
+}
+
+.dashboard-secondary:hover{
+
+    background:#5D4037;
+
+    color:#FFFFFF;
+
+}
+
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 1B
+===================================================== */
+
+/* ===============================
+   RIGHT AREA
+================================ */
+
+.dashboard-right{
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:center;
+
+    align-items:center;
+
+    gap:25px;
+
+}
+
+/* ===============================
+   STUDENT IMAGE
+================================ */
+
+.dashboard-student-image{
+
+    width:290px;
+
+    max-width:100%;
+
+    height:auto;
+
+    object-fit:contain;
+
+    animation:dashboardFloat 5s ease-in-out infinite;
+
+    transition:.35s;
+
+}
+
+.dashboard-student-image:hover{
+
+    transform:translateY(-8px);
+
+}
+
+@keyframes dashboardFloat{
+
+    0%{
+
+        transform:translateY(0);
+
+    }
+
+    50%{
+
+        transform:translateY(-12px);
+
+    }
+
+    100%{
+
+        transform:translateY(0);
+
+    }
+
+}
+
+/* ===============================
+   DATE CARD
+================================ */
+
+.dashboard-date-card{
+
+    width:100%;
+
+    max-width:320px;
+
+    background:#FFFFFF;
+
+    border:1px solid #E7DED3;
+
+    border-radius:22px;
+
+    padding:28px;
+
+    text-align:center;
+
+    box-shadow:
+
+    0 12px 28px rgba(0,0,0,.06);
+
+}
+
+/* Calendar */
+
+.dashboard-calendar{
+
+    width:72px;
+
+    height:72px;
+
+    margin:auto;
+
+    border-radius:50%;
+
+    background:#F5F5DC;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    font-size:28px;
+
+    color:#556B2F;
+
+    margin-bottom:20px;
+
+}
+
+.dashboard-date-card h3{
+
+    font-size:28px;
+
+    color:#333333;
+
+    margin-bottom:12px;
+
+    font-weight:700;
+
+}
+
+.dashboard-date-card p{
+
+    font-size:18px;
+
+    color:#5D4037;
+
+    font-weight:600;
+
+}
+
+/* ===============================
+   INFO BOX
+================================ */
+
+.dashboard-info-box{
+
+    width:100%;
+
+    max-width:320px;
+
+    background:#556B2F;
+
+    color:#FFFFFF;
+
+    border-radius:20px;
+
+    padding:22px;
+
+    text-align:center;
+
+    box-shadow:
+
+    0 15px 35px rgba(85,107,47,.22);
+
+}
+
+.dashboard-info-box h4{
+
+    font-size:20px;
+
+    margin-bottom:12px;
+
+}
+
+.dashboard-info-box p{
+
+    font-size:15px;
+
+    line-height:1.8;
+
+    opacity:.95;
+
+}
+
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 1C
+===================================================== */
+
+/* ===============================
+   DASHBOARD STATS
+================================ */
+
+.dashboard-stats{
+
+    display:grid;
+
+    grid-template-columns:repeat(4,1fr);
+
+    gap:25px;
+
+    margin-top:30px;
+
+}
+
+.dashboard-stat-card{
+
+    background:#FFFFFF;
+
+    border-radius:22px;
+
+    padding:28px;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:18px;
+
+    border:1px solid #E8DFD3;
+
+    box-shadow:0 12px 30px rgba(0,0,0,.05);
+
+    transition:.35s;
+
+    position:relative;
+
+    overflow:hidden;
+
+}
+
+.dashboard-stat-card::before{
+
+    content:"";
+
+    position:absolute;
+
+    top:0;
+
+    left:0;
+
+    width:100%;
+
+    height:5px;
+
+    background:linear-gradient(
+        90deg,
+        #5D4037,
+        #556B2F
+    );
+
+}
+
+.dashboard-stat-card:hover{
+
+    transform:translateY(-8px);
+
+    box-shadow:0 18px 40px rgba(0,0,0,.10);
+
+}
+
+.dashboard-stat-icon{
+
+    width:72px;
+
+    height:72px;
+
+    border-radius:18px;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    font-size:28px;
+
+    flex-shrink:0;
+
+}
+
+.dashboard-stat-icon.exam{
+
+    background:#F5F5DC;
+
+    color:#5D4037;
+
+}
+
+.dashboard-stat-icon.completed{
+
+    background:#EEF7EC;
+
+    color:#556B2F;
+
+}
+
+.dashboard-stat-icon.score{
+
+    background:#FFF6D9;
+
+    color:#C49000;
+
+}
+
+.dashboard-stat-icon.rank{
+
+    background:#EEF2FF;
+
+    color:#3B5BDB;
+
+}
+
+.dashboard-stat-content{
+
+    flex:1;
+
+}
+
+.dashboard-stat-content h2{
+
+    font-size:36px;
+
+    color:#333333;
+
+    margin-bottom:6px;
+
+}
+
+.dashboard-stat-content h4{
+
+    font-size:17px;
+
+    color:#444444;
+
+    margin-bottom:5px;
+
+}
+
+.dashboard-stat-content p{
+
+    font-size:14px;
+
+    color:#777777;
+
+}
+
+/* ===============================
+   DASHBOARD ROW
+================================ */
+
+.dashboard-row{
+
+    display:grid;
+
+    grid-template-columns:2fr 1fr;
+
+    gap:25px;
+
+    margin-top:30px;
+
+}
+
+/* ===============================
+   DASHBOARD CARD
+================================ */
+
+.dashboard-card-new{
+
+    background:#FFFFFF;
+
+    border-radius:24px;
+
+    padding:30px;
+
+    border:1px solid #E8DFD3;
+
+    box-shadow:0 12px 30px rgba(0,0,0,.05);
+
+}
+
+.dashboard-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    margin-bottom:25px;
+
+}
+
+.dashboard-header h3{
+
+    font-size:22px;
+
+    color:#333333;
+
+    font-weight:700;
+
+}
+
+.dashboard-header a{
+
+    color:#556B2F;
+
+    text-decoration:none;
+
+    font-weight:600;
+
+}
+
+.dashboard-header a:hover{
+
+    color:#5D4037;
+
+}
+
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 2A
+===================================================== */
+
+/* =====================================
+   QUICK ACTIONS
+===================================== */
+
+.dashboard-actions{
+
+    display:grid;
+
+    grid-template-columns:repeat(2,1fr);
+
+    gap:18px;
+
+}
+
+.dashboard-action-btn{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:15px;
+
+    padding:18px;
+
+    border-radius:18px;
+
+    background:#F5F5DC;
+
+    text-decoration:none;
+
+    transition:.35s;
+
+    border:1px solid #E8DFD3;
+
+}
+
+.dashboard-action-btn:hover{
+
+    background:#5D4037;
+
+    transform:translateY(-5px);
+
+}
+
+.dashboard-action-btn:hover i,
+
+.dashboard-action-btn:hover h4,
+
+.dashboard-action-btn:hover span{
+
+    color:#FFFFFF;
+
+}
+
+.dashboard-action-btn i{
+
+    width:55px;
+
+    height:55px;
+
+    border-radius:14px;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    background:#FFFFFF;
+
+    color:#556B2F;
+
+    font-size:22px;
+
+}
+
+.dashboard-action-text{
+
+    display:flex;
+
+    flex-direction:column;
+
+}
+
+.dashboard-action-text h4{
+
+    color:#333333;
+
+    font-size:17px;
+
+    margin-bottom:5px;
+
+    transition:.3s;
+
+}
+
+.dashboard-action-text span{
+
+    color:#777777;
+
+    font-size:13px;
+
+    transition:.3s;
+
+}
+
+/* =====================================
+   STUDENT INFO
+===================================== */
+
+.dashboard-profile-card{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:18px;
+
+}
+
+.dashboard-profile-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    padding:14px 0;
+
+    border-bottom:1px solid #ECECEC;
+
+}
+
+.dashboard-profile-row:last-child{
+
+    border-bottom:none;
+
+}
+
+.dashboard-profile-title{
+
+    color:#666666;
+
+    font-size:15px;
+
+    font-weight:500;
+
+}
+
+.dashboard-profile-value{
+
+    color:#333333;
+
+    font-size:15px;
+
+    font-weight:600;
+
+}
+
+/* =====================================
+   UPCOMING EXAM
+===================================== */
+
+.dashboard-upcoming-list{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:18px;
+
+}
+
+.dashboard-upcoming-item{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    padding:18px;
+
+    border:1px solid #E8DFD3;
+
+    border-radius:18px;
+
+    transition:.35s;
+
+    background:#FFFFFF;
+
+}
+
+.dashboard-upcoming-item:hover{
+
+    transform:translateY(-4px);
+
+    box-shadow:0 12px 28px rgba(0,0,0,.08);
+
+}
+
+.dashboard-upcoming-date{
+
+    width:70px;
+
+    height:70px;
+
+    border-radius:18px;
+
+    background:#F5F5DC;
+
+    display:flex;
+
+    flex-direction:column;
+
+    justify-content:center;
+
+    align-items:center;
+
+}
+
+.dashboard-upcoming-date h3{
+
+    color:#5D4037;
+
+    font-size:24px;
+
+    font-weight:700;
+
+}
+
+.dashboard-upcoming-date span{
+
+    font-size:12px;
+
+    color:#666666;
+
+}
+
+.dashboard-upcoming-content{
+
+    flex:1;
+
+    margin-left:18px;
+
+}
+
+.dashboard-upcoming-content h4{
+
+    color:#333333;
+
+    font-size:18px;
+
+    margin-bottom:6px;
+
+}
+
+.dashboard-upcoming-content p{
+
+    color:#777777;
+
+    font-size:14px;
+
+}
+
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 2B
+===================================================== */
+
+/* =====================================
+   PERFORMANCE CARD
+===================================== */
+
+.dashboard-performance{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:25px;
+
+}
+
+.dashboard-chart{
+
+    width:230px;
+
+    height:230px;
+
+    position:relative;
+
+}
+
+.dashboard-chart canvas{
+
+    width:230px !important;
+
+    height:230px !important;
+
+}
+
+.dashboard-chart-center{
+
+    position:absolute;
+
+    top:50%;
+
+    left:50%;
+
+    transform:translate(-50%,-50%);
+
+    text-align:center;
+
+}
+
+.dashboard-chart-center h2{
+
+    font-size:36px;
+
+    color:#5D4037;
+
+    font-weight:700;
+
+}
+
+.dashboard-chart-center span{
+
+    font-size:14px;
+
+    color:#777777;
+
+}
+
+.dashboard-progress-list{
+
+    width:100%;
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:18px;
+
+}
+
+.dashboard-progress-item{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:8px;
+
+}
+
+.dashboard-progress-top{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+}
+
+.dashboard-progress-top h5{
+
+    font-size:15px;
+
+    color:#333333;
+
+}
+
+.dashboard-progress-top span{
+
+    font-size:14px;
+
+    color:#5D4037;
+
+    font-weight:600;
+
+}
+
+.dashboard-progress-bar{
+
+    width:100%;
+
+    height:10px;
+
+    background:#ECECEC;
+
+    border-radius:50px;
+
+    overflow:hidden;
+
+}
+
+.dashboard-progress-fill{
+
+    height:100%;
+
+    border-radius:50px;
+
+    background:linear-gradient(
+        90deg,
+        #556B2F,
+        #5D4037
+    );
+
+}
+
+/* =====================================
+   RECENT RESULTS
+===================================== */
+
+.dashboard-result-list{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:18px;
+
+}
+
+.dashboard-result-item{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    padding:18px 20px;
+
+    border-radius:18px;
+
+    border:1px solid #E8DFD3;
+
+    background:#FFFFFF;
+
+    transition:.35s;
+
+}
+
+.dashboard-result-item:hover{
+
+    transform:translateY(-4px);
+
+    box-shadow:0 12px 25px rgba(0,0,0,.08);
+
+}
+
+.dashboard-result-left h4{
+
+    color:#333333;
+
+    font-size:17px;
+
+    margin-bottom:5px;
+
+}
+
+.dashboard-result-left span{
+
+    color:#777777;
+
+    font-size:13px;
+
+}
+
+.dashboard-result-right{
+
+    text-align:right;
+
+}
+
+.dashboard-result-right h3{
+
+    color:#5D4037;
+
+    font-size:24px;
+
+    margin-bottom:5px;
+
+}
+
+.dashboard-result-right p{
+
+    color:#777777;
+
+    font-size:13px;
+
+}
+
+/* =====================================
+   STATUS BADGES
+===================================== */
+
+.dashboard-badge-success{
+
+    display:inline-block;
+
+    padding:8px 16px;
+
+    border-radius:30px;
+
+    background:#EAF7EC;
+
+    color:#2E7D32;
+
+    font-size:13px;
+
+    font-weight:600;
+
+}
+
+.dashboard-badge-pending{
+
+    display:inline-block;
+
+    padding:8px 16px;
+
+    border-radius:30px;
+
+    background:#FFF5DC;
+
+    color:#B7791F;
+
+    font-size:13px;
+
+    font-weight:600;
+
+}
+
+.dashboard-badge-failed{
+
+    display:inline-block;
+
+    padding:8px 16px;
+
+    border-radius:30px;
+
+    background:#FDECEC;
+
+    color:#C62828;
+
+    font-size:13px;
+
+    font-weight:600;
+
+}
+
+/* =====================================================
+   EXAMSPHERE PREMIUM DASHBOARD
+   PART 2C
+===================================================== */
+
+/* =====================================
+   ANNOUNCEMENTS
+===================================== */
+
+.dashboard-announcement-list{
+
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+
+}
+
+.dashboard-announcement-item{
+
+    display:flex;
+    align-items:flex-start;
+    gap:15px;
+
+    padding:18px;
+
+    border-radius:18px;
+
+    background:#FFFFFF;
+
+    border:1px solid #E8DFD3;
+
+    transition:.35s;
+
+}
+
+.dashboard-announcement-item:hover{
+
+    transform:translateY(-4px);
+
+    box-shadow:0 12px 25px rgba(0,0,0,.08);
+
+}
+
+.dashboard-announcement-icon{
+
+    width:55px;
+    height:55px;
+
+    border-radius:16px;
+
+    background:#F5F5DC;
+
+    color:#5D4037;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    font-size:22px;
+
+    flex-shrink:0;
+
+}
+
+.dashboard-announcement-content{
+
+    flex:1;
+
+}
+
+.dashboard-announcement-content h4{
+
+    font-size:17px;
+
+    color:#333333;
+
+    margin-bottom:6px;
+
+}
+
+.dashboard-announcement-content p{
+
+    font-size:14px;
+
+    color:#777777;
+
+    line-height:1.8;
+
+}
+
+.dashboard-announcement-time{
+
+    font-size:12px;
+
+    color:#999999;
+
+    margin-top:8px;
+
+}
+
+/* =====================================
+   DASHBOARD DIVIDER
+===================================== */
+
+.dashboard-divider{
+
+    width:100%;
+
+    height:1px;
+
+    background:#ECECEC;
+
+    margin:20px 0;
+
+}
+
+/* =====================================
+   RESPONSIVE
+===================================== */
+
+@media(max-width:1200px){
+
+.dashboard-hero{
+
+grid-template-columns:1fr;
+
+}
+
+.dashboard-stats{
+
+grid-template-columns:repeat(2,1fr);
+
+}
+
+.dashboard-row{
+
+grid-template-columns:1fr;
+
+}
+
+}
+
+@media(max-width:768px){
+
+.dashboard-wrapper{
+
+width:95%;
+
+}
+
+.dashboard-hero{
+
+padding:25px;
+
+}
+
+.dashboard-title{
+
+font-size:34px;
+
+}
+
+.dashboard-description{
+
+font-size:15px;
+
+}
+
+.dashboard-buttons{
+
+flex-direction:column;
+
+}
+
+.dashboard-primary,
+
+.dashboard-secondary{
+
+width:100%;
+
+}
+
+.dashboard-actions{
+
+grid-template-columns:1fr;
+
+}
+
+.dashboard-stats{
+
+grid-template-columns:1fr;
+
+}
+
+.dashboard-upcoming-item{
+
+flex-direction:column;
+
+align-items:flex-start;
+
+gap:15px;
+
+}
+
+.dashboard-result-item{
+
+flex-direction:column;
+
+align-items:flex-start;
+
+gap:12px;
+
+}
+
+.dashboard-result-right{
+
+text-align:left;
+
+}
+
+.dashboard-profile-row{
+
+flex-direction:column;
+
+align-items:flex-start;
+
+gap:8px;
+
+}
+
+}
+
+/* =====================================
+   END OF DASHBOARD CSS
+===================================== */

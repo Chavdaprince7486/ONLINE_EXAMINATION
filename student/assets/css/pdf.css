@@ -1,0 +1,1550 @@
+@page {
+
+    margin:
+        10mm
+        11mm
+        12mm
+        11mm;
+}
+
+
+body {
+
+    margin:
+        0;
+
+    padding:
+        0;
+
+    color:
+        #3E2723;
+
+    background:
+        #FFFFFF;
+
+    font-family:
+        dejavusans;
+
+    font-size:
+        8.2pt;
+
+    line-height:
+        1.4;
+}
+
+
+/* =========================================================
+   PAGE
+========================================================= */
+
+.pdf-page {
+
+    width:
+        100%;
+}
+
+
+/* =========================================================
+   HEADER
+========================================================= */
+
+.top-header {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+
+    padding-bottom:
+        4mm;
+
+    border-bottom:
+        1.4px solid
+        #556B2F;
+}
+
+
+.brand-side {
+
+    width:
+        68%;
+
+    vertical-align:
+        middle;
+}
+
+
+.logo {
+
+    width:
+        20mm;
+
+    height:
+        20mm;
+
+    object-fit:
+        contain;
+
+    vertical-align:
+        middle;
+}
+
+
+.brand-block {
+
+    display:
+        inline-block;
+
+    margin-left:
+        3mm;
+
+    vertical-align:
+        middle;
+}
+
+
+.brand-name {
+
+    color:
+        #3E2723;
+
+    font-size:
+        18pt;
+
+    line-height:
+        1;
+
+    font-weight:
+        bold;
+}
+
+
+.brand-line {
+
+    margin-top:
+        1.8mm;
+
+    color:
+        #7F776F;
+
+    font-size:
+        5.8pt;
+
+    letter-spacing:
+        .55px;
+}
+
+
+.report-side {
+
+    width:
+        32%;
+
+    text-align:
+        right;
+
+    vertical-align:
+        middle;
+}
+
+
+.report-kicker {
+
+    color:
+        #556B2F;
+
+    font-size:
+        6.2pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        1px;
+}
+
+
+.report-id {
+
+    margin-top:
+        1mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        8.8pt;
+
+    font-weight:
+        bold;
+}
+
+
+.report-attempt {
+
+    margin-top:
+        .7mm;
+
+    color:
+        #6D655E;
+
+    font-size:
+        6.7pt;
+}
+
+
+.report-date {
+
+    margin-top:
+        .5mm;
+
+    color:
+        #928A82;
+
+    font-size:
+        6.3pt;
+}
+
+
+/* =========================================================
+   HERO
+========================================================= */
+
+.hero-table {
+
+    width:
+        100%;
+
+    margin-top:
+        5mm;
+
+    border-collapse:
+        separate;
+
+    border-spacing:
+        0;
+}
+
+
+.hero-main {
+
+    width:
+        71%;
+
+    padding:
+        7mm;
+
+    background:
+        #F1F5E9;
+
+    border:
+        1px solid
+        #DCE5CE;
+
+    vertical-align:
+        middle;
+}
+
+
+.hero-overline {
+
+    color:
+        #556B2F;
+
+    font-size:
+        6.1pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        1px;
+}
+
+
+.hero-title {
+
+    margin-top:
+        2mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        18.5pt;
+
+    font-weight:
+        bold;
+
+    line-height:
+        1.15;
+}
+
+
+.hero-meta {
+
+    margin-top:
+        1.5mm;
+
+    color:
+        #6E665E;
+
+    font-size:
+        7.4pt;
+
+    font-weight:
+        600;
+}
+
+
+.hero-description {
+
+    width:
+        94%;
+
+    margin-top:
+        2.5mm;
+
+    color:
+        #867E76;
+
+    font-size:
+        6.7pt;
+
+    line-height:
+        1.55;
+}
+
+
+.hero-score {
+
+    width:
+        29%;
+
+    padding:
+        6mm 4mm;
+
+    color:
+        #FFFFFF;
+
+    background:
+        #5D4037;
+
+    text-align:
+        center;
+
+    vertical-align:
+        middle;
+}
+
+
+.score-caption {
+
+    color:
+        #E5DCD5;
+
+    font-size:
+        6.2pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        1px;
+}
+
+
+.score-value {
+
+    margin:
+        2mm 0;
+
+    color:
+        #FFFFFF;
+
+    font-size:
+        26pt;
+
+    line-height:
+        1;
+
+    font-weight:
+        bold;
+}
+
+
+.score-status {
+
+    font-size:
+        7pt;
+
+    font-weight:
+        bold;
+}
+
+
+/* =========================================================
+   SECTION CARDS
+========================================================= */
+
+.section-card {
+
+    margin-top:
+        3.5mm;
+
+    padding:
+        4mm;
+
+    border:
+        .75px solid
+        #E2DDD4;
+
+    border-radius:
+        3.5mm;
+
+    background:
+        #FFFFFF;
+}
+
+
+.section-heading {
+
+    margin-bottom:
+        3mm;
+
+    padding-bottom:
+        1.8mm;
+
+    border-bottom:
+        .7px solid
+        #E6EADF;
+
+    color:
+        #3E2723;
+
+    font-size:
+        8pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        .15px;
+}
+
+
+.section-number {
+
+    margin-right:
+        1.5mm;
+
+    color:
+        #556B2F;
+
+    font-size:
+        6.6pt;
+
+    font-weight:
+        bold;
+}
+
+
+/* =========================================================
+   STUDENT PROFILE
+========================================================= */
+
+.profile-grid {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.profile-grid td {
+
+    width:
+        33.33%;
+
+    padding:
+        2.4mm
+        2mm;
+
+    border-bottom:
+        .7px solid
+        #EEEAE4;
+
+    vertical-align:
+        top;
+}
+
+
+.profile-grid tr:last-child td {
+
+    border-bottom:
+        0;
+}
+
+
+.label {
+
+    color:
+        #8C847C;
+
+    font-size:
+        5.9pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        .45px;
+}
+
+
+.value {
+
+    margin-top:
+        .8mm;
+
+    color:
+        #4D4640;
+
+    font-size:
+        7.2pt;
+
+    font-weight:
+        600;
+}
+
+
+/* =========================================================
+   SNAPSHOT
+========================================================= */
+
+.snapshot-table {
+
+    width:
+        100%;
+
+    border-collapse:
+        separate;
+
+    border-spacing:
+        1.5mm
+        0;
+
+    margin-left:
+        -1.5mm;
+}
+
+
+.snapshot-table td {
+
+    width:
+        25%;
+
+    padding:
+        0;
+
+    vertical-align:
+        top;
+}
+
+
+.snapshot-card {
+
+    min-height:
+        19mm;
+
+    padding:
+        3.5mm;
+
+    border-radius:
+        2.8mm;
+
+    text-align:
+        center;
+}
+
+
+.snapshot-card.olive {
+
+    color:
+        #FFFFFF;
+
+    background:
+        #556B2F;
+}
+
+
+.snapshot-card.green {
+
+    color:
+        #FFFFFF;
+
+    background:
+        #71874D;
+}
+
+
+.snapshot-card.brown {
+
+    color:
+        #FFFFFF;
+
+    background:
+        #5D4037;
+}
+
+
+.snapshot-card.beige {
+
+    color:
+        #3E2723;
+
+    background:
+        #EEE4CF;
+}
+
+
+.snapshot-label {
+
+    font-size:
+        5.6pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        .6px;
+}
+
+
+.snapshot-value {
+
+    margin-top:
+        2mm;
+
+    font-size:
+        14pt;
+
+    line-height:
+        1;
+
+    font-weight:
+        bold;
+}
+
+
+.snapshot-value span {
+
+    font-size:
+        7pt;
+
+    font-weight:
+        normal;
+}
+
+
+.snapshot-value.dark {
+
+    color:
+        #3E2723;
+}
+
+
+/* =========================================================
+   QUESTION BREAKDOWN
+========================================================= */
+
+.breakdown-table {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.breakdown-table tr {
+
+    border-bottom:
+        .7px solid
+        #F0ECE6;
+}
+
+
+.breakdown-table tr:last-child {
+
+    border-bottom:
+        0;
+}
+
+
+.breakdown-name {
+
+    width:
+        20%;
+
+    padding:
+        2.2mm
+        1mm;
+
+    color:
+        #6F675F;
+
+    font-size:
+        6.8pt;
+}
+
+
+.breakdown-track-cell {
+
+    width:
+        64%;
+
+    padding:
+        2.2mm
+        2mm;
+}
+
+
+.bar-track {
+
+    height:
+        2mm;
+
+    border-radius:
+        99px;
+
+    background:
+        #ECE8E1;
+}
+
+
+.bar-fill {
+
+    height:
+        100%;
+
+    border-radius:
+        99px;
+}
+
+
+.bar-fill.attempted {
+
+    background:
+        #71874D;
+}
+
+
+.bar-fill.correct {
+
+    background:
+        #556B2F;
+}
+
+
+.bar-fill.wrong {
+
+    background:
+        #99584E;
+}
+
+
+.bar-fill.unanswered {
+
+    background:
+        #B7A27A;
+}
+
+
+.breakdown-value {
+
+    width:
+        16%;
+
+    padding:
+        2.2mm
+        1mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        6.8pt;
+
+    font-weight:
+        bold;
+
+    text-align:
+        right;
+}
+
+
+.breakdown-value span {
+
+    color:
+        #8A827A;
+
+    font-size:
+        5.8pt;
+
+    font-weight:
+        normal;
+}
+
+
+.total-row {
+
+    display:
+        table;
+
+    width:
+        100%;
+
+    margin-top:
+        2.8mm;
+
+    padding-top:
+        2.5mm;
+
+    border-top:
+        .8px solid
+        #E5DFD6;
+}
+
+
+.total-row span {
+
+    display:
+        table-cell;
+
+    color:
+        #8C847C;
+
+    font-size:
+        6.5pt;
+}
+
+
+.total-row strong {
+
+    display:
+        table-cell;
+
+    color:
+        #3E2723;
+
+    font-size:
+        7pt;
+
+    text-align:
+        right;
+}
+
+
+/* =========================================================
+   PAGE TWO
+========================================================= */
+
+.page-two-title {
+
+    display:
+        table;
+
+    width:
+        100%;
+
+    padding-bottom:
+        3mm;
+
+    border-bottom:
+        1px solid
+        #DDE5D0;
+}
+
+
+.small-kicker {
+
+    color:
+        #556B2F;
+
+    font-size:
+        6pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        1px;
+}
+
+
+.page-two-heading {
+
+    margin-top:
+        1mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        16pt;
+
+    font-weight:
+        bold;
+}
+
+
+.page-two-code {
+
+    display:
+        table-cell;
+
+    color:
+        #8A827A;
+
+    font-size:
+        6.5pt;
+
+    text-align:
+        right;
+
+    vertical-align:
+        middle;
+}
+
+
+/* =========================================================
+   DETAILS COLUMNS
+========================================================= */
+
+.details-columns {
+
+    width:
+        100%;
+
+    border-collapse:
+        separate;
+
+    border-spacing:
+        1.5mm
+        0;
+
+    margin-left:
+        -1.5mm;
+}
+
+
+.details-columns > tr > td {
+
+    width:
+        50%;
+
+    padding:
+        0;
+
+    vertical-align:
+        top;
+}
+
+
+.compact-card {
+
+    min-height:
+        55mm;
+}
+
+
+/* =========================================================
+   DETAIL TABLE
+========================================================= */
+
+.detail-table {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.detail-table tr {
+
+    border-bottom:
+        .7px solid
+        #EEEAE4;
+}
+
+
+.detail-table tr:last-child {
+
+    border-bottom:
+        0;
+}
+
+
+.detail-table td {
+
+    padding:
+        2.1mm
+        0;
+
+    color:
+        #766E67;
+
+    font-size:
+        6.6pt;
+}
+
+
+.detail-table td:last-child {
+
+    color:
+        #3E2723;
+
+    font-weight:
+        600;
+
+    text-align:
+        right;
+}
+
+
+.detail-table .green-value {
+
+    color:
+        #556B2F;
+}
+
+
+/* =========================================================
+   PERFORMANCE REVIEW
+========================================================= */
+
+.review-table {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.review-score {
+
+    width:
+        30%;
+
+    padding:
+        4mm;
+
+    background:
+        #F1F5E9;
+
+    border-radius:
+        3mm;
+
+    text-align:
+        center;
+
+    vertical-align:
+        middle;
+}
+
+
+.review-score-label {
+
+    color:
+        #78836B;
+
+    font-size:
+        6pt;
+
+    font-weight:
+        bold;
+
+    letter-spacing:
+        .7px;
+}
+
+
+.review-score-value {
+
+    margin-top:
+        2mm;
+
+    color:
+        #556B2F;
+
+    font-size:
+        22pt;
+
+    font-weight:
+        bold;
+}
+
+
+.review-main {
+
+    padding:
+        3mm
+        4mm;
+
+    vertical-align:
+        middle;
+}
+
+
+.review-status {
+
+    display:
+        inline-block;
+
+    padding:
+        1.5mm
+        2.5mm;
+
+    border-radius:
+        99px;
+
+    font-size:
+        6pt;
+
+    font-weight:
+        bold;
+}
+
+
+.review-title {
+
+    margin-top:
+        2mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        9pt;
+
+    font-weight:
+        bold;
+}
+
+
+.review-text {
+
+    margin-top:
+        1mm;
+
+    color:
+        #756D65;
+
+    font-size:
+        6.8pt;
+
+    line-height:
+        1.55;
+}
+
+
+/* =========================================================
+   SCORE POSITION
+========================================================= */
+
+.score-position {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.score-position > tr > td {
+
+    vertical-align:
+        middle;
+}
+
+
+.position-label {
+
+    color:
+        #8A827A;
+
+    font-size:
+        6pt;
+
+    font-weight:
+        bold;
+}
+
+
+.position-number {
+
+    margin-top:
+        1mm;
+
+    color:
+        #3E2723;
+
+    font-size:
+        14pt;
+
+    font-weight:
+        bold;
+}
+
+
+.position-line-cell {
+
+    width:
+        64%;
+
+    padding:
+        0
+        5mm;
+}
+
+
+.position-line {
+
+    height:
+        2.5mm;
+
+    border-radius:
+        99px;
+
+    background:
+        #EAE6DF;
+}
+
+
+.position-progress {
+
+    height:
+        100%;
+
+    border-radius:
+        99px;
+
+    background:
+        #556B2F;
+}
+
+
+.position-scale {
+
+    display:
+        table;
+
+    width:
+        100%;
+
+    margin-top:
+        1.3mm;
+
+    color:
+        #9A928A;
+
+    font-size:
+        5.4pt;
+}
+
+
+.position-scale span {
+
+    display:
+        table-cell;
+
+    text-align:
+        center;
+}
+
+
+.position-scale span:first-child {
+
+    text-align:
+        left;
+}
+
+
+.position-scale span:last-child {
+
+    text-align:
+        right;
+}
+
+
+.grade-box {
+
+    width:
+        15%;
+
+    padding:
+        3mm;
+
+    border:
+        1px solid
+        #D9E3CB;
+
+    border-radius:
+        2.7mm;
+
+    background:
+        #F2F6EA;
+
+    text-align:
+        center;
+}
+
+
+.grade-label {
+
+    color:
+        #7A856D;
+
+    font-size:
+        5.5pt;
+
+    font-weight:
+        bold;
+}
+
+
+.grade-value {
+
+    margin-top:
+        1mm;
+
+    color:
+        #556B2F;
+
+    font-size:
+        15pt;
+
+    font-weight:
+        bold;
+}
+
+
+/* =========================================================
+   EXAM DESCRIPTION
+========================================================= */
+
+.exam-description {
+
+    color:
+        #6F675F;
+
+    font-size:
+        7pt;
+
+    line-height:
+        1.65;
+}
+
+
+/* =========================================================
+   FINAL RESULT
+========================================================= */
+
+.final-banner {
+
+    margin-top:
+        3.5mm;
+
+    padding:
+        3.5mm;
+
+    border-radius:
+        3.5mm;
+}
+
+
+.final-banner.pass {
+
+    border:
+        1px solid
+        #D4E0C1;
+
+    background:
+        #EEF4E5;
+}
+
+
+.final-banner.fail {
+
+    border:
+        1px solid
+        #E5C8C1;
+
+    background:
+        #F9ECE9;
+}
+
+
+.final-banner table {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.final-icon {
+
+    width:
+        10%;
+
+    color:
+        #556B2F;
+
+    font-size:
+        16pt;
+
+    font-weight:
+        bold;
+
+    text-align:
+        center;
+
+    vertical-align:
+        middle;
+}
+
+
+.final-banner.fail
+.final-icon {
+
+    color:
+        #93483E;
+}
+
+
+.final-title {
+
+    color:
+        #3E2723;
+
+    font-size:
+        8.5pt;
+
+    font-weight:
+        bold;
+}
+
+
+.final-text {
+
+    margin-top:
+        1mm;
+
+    color:
+        #756D65;
+
+    font-size:
+        6.6pt;
+
+    line-height:
+        1.55;
+}
+
+
+.final-grade {
+
+    width:
+        13%;
+
+    color:
+        #556B2F;
+
+    font-size:
+        20pt;
+
+    font-weight:
+        bold;
+
+    text-align:
+        center;
+}
+
+
+/* =========================================================
+   FOOTER
+========================================================= */
+
+.pdf-footer {
+
+    margin-top:
+        5mm;
+
+    padding-top:
+        2.8mm;
+
+    border-top:
+        1px solid
+        #DDE4D2;
+
+    color:
+        #8C847C;
+
+    font-size:
+        6pt;
+}
+
+
+.pdf-footer table {
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}
+
+
+.pdf-footer strong {
+
+    color:
+        #3E2723;
+
+    font-size:
+        7pt;
+}
+
+
+.footer-right {
+
+    text-align:
+        right;
+}
+
+
+.footer-note {
+
+    margin-top:
+        1.5mm;
+
+    color:
+        #A09890;
+
+    font-size:
+        5.7pt;
+
+    text-align:
+        center;
+}

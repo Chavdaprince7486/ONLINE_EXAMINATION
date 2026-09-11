@@ -1,0 +1,21 @@
+.register-page .auth-main{padding-top:82px;padding-bottom:38px}
+.register-page .auth-card{width:min(100%,840px);padding:39px 48px 28px;border-radius:22px}
+.register-page .auth-card-logo{width:78px;height:78px;margin-top:-75px;margin-bottom:11px}
+.register-page .auth-card-logo img{width:64px;height:64px}
+.register-page .auth-heading{margin-bottom:20px}
+.register-page .auth-heading h2{font-size:1.48rem}
+.register-page .auth-heading p{font-size:.76rem}
+.register-page .form-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px}
+.register-page .form-group{margin-bottom:14px}
+.register-page .form-group label{margin-bottom:7px;font-size:.74rem}
+.register-page .input-box{min-height:47px;border-radius:10px}
+.register-page .input-box input{height:45px;font-size:.79rem}
+.register-page .input-box>i{font-size:.86rem}
+.register-page .input-box textarea{min-height:63px;padding:10px 9px;font-size:.79rem;resize:vertical}
+.register-page .textarea-box{align-items:flex-start;padding-top:9px}
+.register-page .textarea-box>i{padding-top:3px}
+.register-page .input-box select{height:45px;padding:0 8px;font-size:.79rem;cursor:pointer}
+.register-page .login-btn{min-height:49px;margin-top:4px;font-size:.82rem}
+.register-page .security-box{margin-top:17px;font-size:.68rem}
+.auth-switch{margin:16px 0 0;color:#7a726c;text-align:center;font-size:.76rem}.auth-switch a{color:var(--olive);font-weight:700;text-decoration:none}.auth-switch a:hover{text-decoration:underline}
+@media(max-width:1100px){.register-page .auth-card{width:min(100%,740px);padding:34px 38px 25px}}@media(max-width:900px){.register-page .auth-main{padding-top:75px}.register-page .auth-card{width:min(100%,700px)}}@media(max-width:540px){.register-page .auth-main{padding-top:68px}.register-page .auth-card{padding:30px 21px 20px}.register-page .form-row{grid-template-columns:1fr;gap:0}.register-page .form-group{margin-bottom:12px}.register-page .auth-card-logo{width:68px;height:68px;margin-top:-63px}.register-page .auth-card-logo img{width:56px;height:56px}}

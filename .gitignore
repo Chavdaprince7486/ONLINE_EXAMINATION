@@ -1,0 +1,38 @@
+# Environment / secrets
+.env
+.env.*
+
+# Sensitive configuration
+config/config.php
+config/db.php
+config/mail.php
+config/razorpay.php
+
+# Composer dependencies
+vendor/
+
+# Temporary / generated files
+tmp/
+student/temp/
+storage/logs/
+storage/pdf/
+storage/pdf-email/
+
+# User uploads
+uploads/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary/generated files
+*.tmp
+*.log
+
+# Archives
+admin/exams.zip
+auth_session_diagnostic.php
+create_admin_hash.php
+test_mail.php

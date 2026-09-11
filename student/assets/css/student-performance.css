@@ -1,0 +1,882 @@
+/* =========================================================
+   ExamSphere - Student Performance
+   ========================================================= */
+
+.student-performance-page {
+    min-height: 100vh;
+
+    padding: 38px 0 75px;
+
+    background:
+        radial-gradient(
+            circle at 5% 10%,
+            rgba(85,107,47,.07),
+            transparent 24%
+        ),
+        radial-gradient(
+            circle at 96% 86%,
+            rgba(93,64,55,.06),
+            transparent 25%
+        ),
+        #f7f6ee;
+}
+
+
+.student-performance-header {
+    display: flex;
+
+    align-items: flex-end;
+
+    justify-content: space-between;
+
+    gap: 25px;
+
+    margin-bottom: 24px;
+}
+
+
+.student-performance-kicker {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    color: #556b2f;
+
+    font-size: .62rem;
+
+    font-weight: 800;
+
+    letter-spacing: .13em;
+}
+
+
+.student-performance-header h1 {
+    margin: 11px 0 10px;
+
+    color: #3e2723;
+
+    font-size: clamp(
+        2.1rem,
+        4vw,
+        3.3rem
+    );
+
+    line-height: 1.07;
+
+    letter-spacing: -.05em;
+}
+
+
+.student-performance-header h1 em {
+    color: #556b2f;
+
+    font-style: normal;
+}
+
+
+.student-performance-header p {
+    max-width: 650px;
+
+    margin: 0;
+
+    color: #766f67;
+
+    font-size: .79rem;
+
+    line-height: 1.75;
+}
+
+
+.performance-back {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    padding: 10px 13px;
+
+    color: #5d4037;
+
+    border: 1px solid #ded8cd;
+
+    border-radius: 10px;
+
+    background: rgba(255,255,255,.82);
+
+    font-size: .61rem;
+
+    font-weight: 700;
+
+    text-decoration: none;
+
+    white-space: nowrap;
+}
+
+
+.performance-back:hover {
+    color: #556b2f;
+
+    border-color: #c7d1b2;
+}
+
+
+/* =========================================================
+   KPI
+   ========================================================= */
+
+.performance-kpi-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(4, minmax(0, 1fr));
+
+    gap: 11px;
+
+    margin-bottom: 17px;
+}
+
+
+.performance-kpi {
+    display: flex;
+
+    align-items: center;
+
+    gap: 10px;
+
+    min-height: 78px;
+
+    padding: 13px;
+
+    border: 1px solid #e4dfd5;
+
+    border-radius: 14px;
+
+    background: rgba(255,255,255,.90);
+
+    box-shadow:
+        0 8px 20px
+        rgba(62,39,35,.045);
+}
+
+
+.performance-kpi-icon {
+    display: grid;
+
+    place-items: center;
+
+    width: 38px;
+    height: 38px;
+
+    flex: 0 0 38px;
+
+    color: #556b2f;
+
+    border-radius: 10px;
+
+    background: #edf3e5;
+}
+
+
+.performance-kpi > div {
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 2px;
+}
+
+
+.performance-kpi small {
+    color: #8f877e;
+
+    font-size: .53rem;
+}
+
+
+.performance-kpi strong {
+    color: #3e2723;
+
+    font-size: 1rem;
+}
+
+
+/* =========================================================
+   PANELS
+   ========================================================= */
+
+.performance-panel {
+    padding: 20px;
+
+    border: 1px solid #e4dfd5;
+
+    border-radius: 17px;
+
+    background: rgba(255,255,255,.91);
+
+    box-shadow:
+        0 10px 24px
+        rgba(62,39,35,.05);
+}
+
+
+.performance-panel-heading {
+    display: flex;
+
+    align-items: flex-start;
+
+    justify-content: space-between;
+
+    gap: 15px;
+
+    margin-bottom: 17px;
+}
+
+
+.performance-panel-heading span {
+    display: block;
+
+    margin-bottom: 4px;
+
+    color: #556b2f;
+
+    font-size: .53rem;
+
+    font-weight: 800;
+
+    letter-spacing: .11em;
+}
+
+
+.performance-panel-heading h2 {
+    margin: 0;
+
+    color: #3e2723;
+
+    font-size: .99rem;
+}
+
+
+.performance-panel-heading > i {
+    color: #948b81;
+
+    font-size: .85rem;
+}
+
+
+/* =========================================================
+   CHARTS
+   ========================================================= */
+
+.performance-chart-grid {
+    display: grid;
+
+    grid-template-columns:
+        minmax(0, 1.15fr)
+        minmax(280px, .85fr);
+
+    gap: 16px;
+
+    margin-bottom: 16px;
+}
+
+
+.performance-line-chart {
+    position: relative;
+
+    height: 275px;
+}
+
+
+.performance-line-chart canvas {
+    width: 100% !important;
+
+    height: 100% !important;
+}
+
+
+.performance-doughnut-wrap {
+    display: grid;
+
+    grid-template-columns:
+        175px
+        minmax(0, 1fr);
+
+    align-items: center;
+
+    gap: 18px;
+
+    min-height: 225px;
+}
+
+
+.performance-doughnut {
+    width: 170px;
+    height: 170px;
+}
+
+
+.performance-doughnut canvas {
+    width: 100% !important;
+
+    height: 100% !important;
+}
+
+
+.performance-answer-legend {
+    display: grid;
+
+    gap: 11px;
+}
+
+
+.performance-answer-legend > div {
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 10px;
+
+    padding-bottom: 9px;
+
+    border-bottom: 1px solid #eee9e1;
+}
+
+
+.performance-answer-legend > div:last-child {
+    border-bottom: 0;
+}
+
+
+.performance-answer-legend span {
+    display: flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    color: #726b63;
+
+    font-size: .59rem;
+}
+
+
+.performance-answer-legend span i {
+    width: 9px;
+    height: 9px;
+
+    border-radius: 3px;
+}
+
+
+.correct-dot {
+    background: #556b2f;
+}
+
+
+.wrong-dot {
+    background: #a84538;
+}
+
+
+.unanswered-dot {
+    background: #b99b63;
+}
+
+
+.performance-answer-legend strong {
+    color: #3e2723;
+
+    font-size: .69rem;
+}
+
+
+/* =========================================================
+   SUBJECT
+   ========================================================= */
+
+.subject-performance-panel {
+    margin-bottom: 16px;
+}
+
+
+.subject-performance-list {
+    display: grid;
+
+    gap: 0;
+}
+
+
+.subject-performance-row {
+    display: grid;
+
+    grid-template-columns:
+        minmax(190px, 1fr)
+        minmax(210px, 1.2fr)
+        190px;
+
+    align-items: center;
+
+    gap: 17px;
+
+    padding: 13px 0;
+
+    border-bottom: 1px solid #eee9e1;
+}
+
+
+.subject-performance-row:last-child {
+    border-bottom: 0;
+
+    padding-bottom: 0;
+}
+
+
+.subject-performance-name {
+    display: flex;
+
+    align-items: center;
+
+    gap: 9px;
+
+    min-width: 0;
+}
+
+
+.subject-performance-icon {
+    display: grid;
+
+    place-items: center;
+
+    width: 34px;
+    height: 34px;
+
+    flex: 0 0 34px;
+
+    color: #556b2f;
+
+    border-radius: 9px;
+
+    background: #edf3e5;
+
+    font-size: .62rem;
+}
+
+
+.subject-performance-name > span:last-child {
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 2px;
+
+    min-width: 0;
+}
+
+
+.subject-performance-name strong {
+    overflow: hidden;
+
+    color: #3e2723;
+
+    font-size: .62rem;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+}
+
+
+.subject-performance-name small {
+    color: #958d84;
+
+    font-size: .5rem;
+}
+
+
+.subject-performance-meter {
+    min-width: 0;
+}
+
+
+.performance-meter-track {
+    width: 100%;
+
+    height: 7px;
+
+    margin-bottom: 5px;
+
+    overflow: hidden;
+
+    border-radius: 99px;
+
+    background: #e9e6dd;
+}
+
+
+.performance-meter-track span {
+    display: block;
+
+    height: 100%;
+
+    border-radius: inherit;
+
+    background:
+        linear-gradient(
+            90deg,
+            #788f57,
+            #556b2f
+        );
+}
+
+
+.subject-performance-meter small {
+    color: #8b837b;
+
+    font-size: .49rem;
+}
+
+
+.subject-performance-values {
+    display: flex;
+
+    justify-content: flex-end;
+
+    gap: 14px;
+}
+
+
+.subject-performance-values span {
+    display: flex;
+
+    flex-direction: column;
+
+    gap: 2px;
+
+    color: #938b82;
+
+    font-size: .48rem;
+
+    text-align: right;
+}
+
+
+.subject-performance-values strong {
+    color: #3e2723;
+
+    font-size: .6rem;
+}
+
+
+/* =========================================================
+   RECENT
+   ========================================================= */
+
+.recent-performance-panel {
+    margin-bottom: 17px;
+}
+
+
+.performance-view-results {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 6px;
+
+    color: #556b2f;
+
+    font-size: .57rem;
+
+    font-weight: 700;
+
+    text-decoration: none;
+}
+
+
+.performance-view-results:hover {
+    color: #5d4037;
+}
+
+
+.recent-performance-table-wrap {
+    overflow-x: auto;
+}
+
+
+.recent-performance-table {
+    width: 100%;
+
+    min-width: 650px;
+
+    border-collapse: collapse;
+}
+
+
+.recent-performance-table th {
+    padding: 9px;
+
+    color: #918980;
+
+    border-bottom: 1px solid #e7e1d8;
+
+    text-align: left;
+
+    font-size: .51rem;
+
+    text-transform: uppercase;
+
+    letter-spacing: .06em;
+}
+
+
+.recent-performance-table td {
+    padding: 11px 9px;
+
+    color: #6b645c;
+
+    border-bottom: 1px solid #eee9e1;
+
+    font-size: .59rem;
+}
+
+
+.recent-performance-table tr:last-child td {
+    border-bottom: 0;
+}
+
+
+.recent-performance-table td strong {
+    color: #3e2723;
+}
+
+
+.recent-correct {
+    color: #556b2f;
+
+    font-weight: 700;
+}
+
+
+.recent-wrong {
+    color: #a84538;
+
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   EMPTY
+   ========================================================= */
+
+.performance-empty {
+    padding: 75px 20px;
+
+    text-align: center;
+
+    border:
+        1px dashed
+        #cbc4ba;
+
+    border-radius: 19px;
+
+    background:
+        rgba(255,255,255,.70);
+}
+
+
+.performance-empty-icon {
+    display: grid;
+
+    place-items: center;
+
+    width: 60px;
+    height: 60px;
+
+    margin: 0 auto 14px;
+
+    color: #556b2f;
+
+    border-radius: 17px;
+
+    background: #edf3e5;
+}
+
+
+.performance-empty > span {
+    color: #556b2f;
+
+    font-size: .53rem;
+
+    font-weight: 800;
+
+    letter-spacing: .12em;
+}
+
+
+.performance-empty h2 {
+    max-width: 560px;
+
+    margin: 9px auto 7px;
+
+    color: #3e2723;
+
+    font-size: 1.15rem;
+}
+
+
+.performance-empty p {
+    max-width: 580px;
+
+    margin: 0 auto 19px;
+
+    color: #786f68;
+
+    font-size: .66rem;
+
+    line-height: 1.75;
+}
+
+
+.performance-empty-btn {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    padding: 11px 14px;
+
+    color: #fff;
+
+    border-radius: 10px;
+
+    background: #5d4037;
+
+    font-size: .6rem;
+
+    font-weight: 700;
+
+    text-decoration: none;
+}
+
+
+.performance-empty-btn:hover {
+    color: #fff;
+
+    background: #556b2f;
+}
+
+
+.performance-empty-small {
+    padding: 35px;
+
+    color: #8b837a;
+
+    border-radius: 10px;
+
+    background: #faf9f5;
+
+    text-align: center;
+
+    font-size: .61rem;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1000px) {
+
+    .performance-kpi-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+
+    .performance-chart-grid {
+        grid-template-columns: 1fr;
+    }
+
+
+    .subject-performance-row {
+        grid-template-columns:
+            1fr
+            1fr;
+    }
+
+
+    .subject-performance-values {
+        justify-content: flex-start;
+    }
+
+
+    .subject-performance-values span {
+        text-align: left;
+    }
+
+}
+
+
+@media (max-width: 700px) {
+
+    .student-performance-header {
+        align-items: flex-start;
+
+        flex-direction: column;
+    }
+
+
+    .performance-doughnut-wrap {
+        grid-template-columns: 1fr;
+
+        justify-items: center;
+    }
+
+
+    .performance-answer-legend {
+        width: 100%;
+    }
+
+
+    .subject-performance-row {
+        grid-template-columns: 1fr;
+
+        gap: 10px;
+    }
+
+}
+
+
+@media (max-width: 520px) {
+
+    .student-performance-page {
+        padding: 25px 0 55px;
+    }
+
+
+    .performance-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+
+    .performance-panel {
+        padding: 16px;
+    }
+
+
+    .performance-line-chart {
+        height: 225px;
+    }
+
+
+    .performance-empty {
+        padding: 55px 17px;
+    }
+
+}

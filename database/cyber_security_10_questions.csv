@@ -1,0 +1,11 @@
+question,option_a,option_b,option_c,option_d,correct_answer,marks,negative_marks,difficulty
+What is the primary purpose of a firewall?,To cool computer hardware,To monitor and control network traffic,To create backup files,To increase internet speed,B,1,0,Easy
+Which attack tries many password combinations until one works?,Phishing,Brute-force attack,SQL backup,Defragmentation,B,1,0.25,Easy
+What does HTTPS provide compared with HTTP?,Encrypted communication,More storage space,Faster keyboard input,Automatic virus removal,A,1,0.25,Medium
+Which is the strongest password practice?,Use your name and birth year,Use the same password everywhere,Use a long unique password with mixed characters,Share passwords with friends,C,1,0.25,Easy
+What is phishing?,A method to speed up a network,A fraudulent attempt to steal sensitive information,A tool for deleting temporary files,A type of computer monitor,B,1,0.25,Easy
+What is malware?,Software designed to harm or exploit systems,Software used only for accounting,A safe cloud backup,A computer hardware component,A,1,0.25,Easy
+Which principle gives users only the access they need?,Least privilege,Open access,Full control,Shared ownership,A,1,0.5,Medium
+What is two-factor authentication?,Using two usernames,Using two different browsers,Using a password plus a second verification method,Changing a password twice,C,1,0.25,Easy
+Which attack sends fake emails that appear to come from a trusted source?,Phishing,Firewall attack,Data compression,Disk cleanup,A,1,0.25,Medium
+What should you do after discovering a suspicious login on your account?,Ignore it,Share your password immediately,Change the password and report the activity,Delete all your files,C,1,0.25,Medium

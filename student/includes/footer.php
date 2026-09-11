@@ -1,0 +1,1 @@
+<footer class="student-footer"><div><b>ExamSphere</b><span>Smart · Secure · Success</span></div><p>© <?= date('Y') ?> ExamSphere. Keep learning, keep growing.</p><a href="../index.php"><i class="fa-solid fa-house"></i> Back to Home</a></footer>

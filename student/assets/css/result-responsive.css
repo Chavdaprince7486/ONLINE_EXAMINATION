@@ -1,0 +1,40 @@
+/* =========================================================
+   ExamSphere - Result Responsive Compatibility
+   ========================================================= */
+
+@media (max-width: 992px) {
+
+    .result-stats {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+}
+
+
+@media (max-width: 600px) {
+
+    .result-stats {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+
+@media (max-width: 992px) {
+
+    .info-grid,
+    .analytics-grid {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+
+@media (max-width: 600px) {
+
+    .chart-box {
+        width: 100%;
+    }
+
+}

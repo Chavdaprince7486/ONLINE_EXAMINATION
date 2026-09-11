@@ -1,0 +1,305 @@
+/* =========================================================
+   ExamSphere - Homepage FAQ
+   ========================================================= */
+
+.homepage-faq-section {
+    position: relative;
+
+    overflow: hidden;
+
+    background:
+        radial-gradient(
+            circle at 7% 15%,
+            rgba(85, 107, 47, .07),
+            transparent 25%
+        ),
+        #f8f7ef;
+}
+
+
+.homepage-faq-section::before {
+    content: "";
+
+    position: absolute;
+
+    width: 390px;
+    height: 390px;
+
+    right: -190px;
+    bottom: -220px;
+
+    border:
+        1px solid
+        rgba(85, 107, 47, .09);
+
+    border-radius: 50%;
+}
+
+
+.homepage-faq-grid {
+    position: relative;
+
+    z-index: 1;
+
+    display: grid;
+
+    grid-template-columns:
+        .78fr 1.22fr;
+
+    gap: 76px;
+
+    align-items: start;
+}
+
+
+.homepage-faq-intro {
+    position: sticky;
+
+    top: 100px;
+}
+
+
+.homepage-faq-kicker {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    color: var(--lp-olive);
+
+    font-size: .69rem;
+
+    font-weight: 800;
+
+    letter-spacing: .15em;
+}
+
+
+.homepage-faq-intro h2 {
+    max-width: 480px;
+
+    margin: 13px 0 15px;
+
+    color: var(--lp-dark);
+
+    font-size:
+        clamp(
+            2.15rem,
+            4vw,
+            3.35rem
+        );
+
+    line-height: 1.08;
+
+    letter-spacing: -.05em;
+}
+
+
+.homepage-faq-intro h2 em {
+    display: inline;
+
+    color: var(--lp-olive);
+
+    font-style: normal;
+}
+
+
+.homepage-faq-intro p {
+    max-width: 430px;
+
+    margin: 0;
+
+    color: #756e66;
+
+    font-size: .86rem;
+
+    line-height: 1.82;
+}
+
+
+.homepage-faq-help-link {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    margin-top: 24px;
+
+    color: var(--lp-olive);
+
+    font-size: .7rem;
+
+    font-weight: 700;
+
+    transition:
+        gap .2s ease;
+}
+
+
+.homepage-faq-help-link:hover {
+    color: var(--lp-brown);
+
+    gap: 12px;
+}
+
+
+.homepage-faq-list {
+    display: grid;
+
+    gap: 10px;
+}
+
+
+.homepage-faq-list details {
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--lp-border);
+
+    border-radius: 14px;
+
+    background:
+        rgba(255, 255, 255, .89);
+
+    box-shadow:
+        0 8px 20px
+        rgba(62, 39, 35, .035);
+
+    transition:
+        border-color .2s ease,
+        box-shadow .2s ease;
+}
+
+
+.homepage-faq-list details:hover {
+    border-color:
+        rgba(85, 107, 47, .25);
+
+    box-shadow:
+        0 13px 25px
+        rgba(62, 39, 35, .06);
+}
+
+
+.homepage-faq-list summary {
+    display: flex;
+
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 20px;
+
+    padding: 18px 19px;
+
+    color: var(--lp-dark);
+
+    cursor: pointer;
+
+    list-style: none;
+
+    font-size: .79rem;
+
+    font-weight: 700;
+}
+
+
+.homepage-faq-list summary::-webkit-details-marker {
+    display: none;
+}
+
+
+.homepage-faq-list summary > span {
+    line-height: 1.45;
+}
+
+
+.homepage-faq-list summary > i {
+    display: grid;
+
+    place-items: center;
+
+    width: 26px;
+    height: 26px;
+
+    flex: 0 0 26px;
+
+    color: var(--lp-olive);
+
+    border-radius: 50%;
+
+    background: #eef3e6;
+
+    font-size: .63rem;
+
+    transition:
+        transform .2s ease;
+}
+
+
+.homepage-faq-list details[open] summary > i {
+    transform: rotate(45deg);
+}
+
+
+.homepage-faq-list details > div {
+    padding:
+        0 19px 18px;
+}
+
+
+.homepage-faq-list p {
+    max-width: 720px;
+
+    margin: 0;
+
+    color: #766f68;
+
+    font-size: .71rem;
+
+    line-height: 1.78;
+}
+
+
+@media (max-width: 820px) {
+
+    .homepage-faq-grid {
+        grid-template-columns: 1fr;
+
+        gap: 38px;
+    }
+
+
+    .homepage-faq-intro {
+        position: static;
+    }
+
+}
+
+
+@media (max-width: 520px) {
+
+    .homepage-faq-section {
+        padding-top: 70px !important;
+        padding-bottom: 70px !important;
+    }
+    .homepage-faq-intro h2 {
+        font-size: 2.2rem;
+    }
+
+
+    .homepage-faq-list summary {
+        padding: 16px;
+
+        font-size: .74rem;
+    }
+
+
+    .homepage-faq-list details > div {
+        padding:
+            0 16px 16px;
+    }
+
+}

@@ -1,0 +1,119 @@
+<?php
+
+declare(strict_types=1);
+
+use PHPMailer\PHPMailer\PHPMailer;
+
+require_once __DIR__ . '/../vendor/PHPMailer/Exception.php';
+require_once __DIR__ . '/../vendor/PHPMailer/PHPMailer.php';
+require_once __DIR__ . '/../vendor/PHPMailer/SMTP.php';
+
+
+function getMailer(): PHPMailer
+{
+    $host =
+        trim(
+            (string) (
+                getenv('EXAMSPHERE_SMTP_HOST')
+                ?: 'smtp.gmail.com'
+            )
+        );
+
+    $username =
+        trim(
+            (string) (
+                getenv('EXAMSPHERE_SMTP_USERNAME')
+                ?: 'chavdaprince7486@gmail.com'
+            )
+        );
+
+    $password =
+        (string) (
+            getenv('EXAMSPHERE_SMTP_PASSWORD')
+            ?: 'gjnz abcr gqvl sexj'
+        );
+
+    $fromEmail =
+        trim(
+            (string) (
+                getenv('EXAMSPHERE_MAIL_FROM')
+                ?: $username
+            )
+        );
+
+    $fromName =
+        trim(
+            (string) (
+                getenv('EXAMSPHERE_MAIL_NAME')
+                ?: 'ExamSphere'
+            )
+        );
+
+
+    if (
+        $host === ''
+        ||
+        $username === ''
+        ||
+        $password === ''
+    ) {
+
+        throw new RuntimeException(
+            'ExamSphere SMTP configuration is missing. Set EXAMSPHERE_SMTP_HOST, EXAMSPHERE_SMTP_USERNAME and EXAMSPHERE_SMTP_PASSWORD.'
+        );
+    }
+
+
+    if (
+        $fromEmail === ''
+    ) {
+
+        throw new RuntimeException(
+            'ExamSphere sender email is not configured.'
+        );
+    }
+
+
+    $mail =
+        new PHPMailer(true);
+
+
+    $mail->isSMTP();
+
+    $mail->Host =
+        $host;
+
+    $mail->SMTPAuth =
+        true;
+
+    $mail->Username =
+        $username;
+
+    $mail->Password =
+        $password;
+
+    $mail->SMTPSecure =
+        PHPMailer::ENCRYPTION_STARTTLS;
+
+    $mail->Port =
+        587;
+
+
+    $mail->setFrom(
+        $fromEmail,
+        $fromName !== ''
+            ? $fromName
+            : 'ExamSphere'
+    );
+
+
+    $mail->isHTML(
+        true
+    );
+
+    $mail->CharSet =
+        'UTF-8';
+
+
+    return $mail;
+}
