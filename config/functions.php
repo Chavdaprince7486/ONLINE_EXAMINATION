@@ -21,6 +21,25 @@ function e($value)
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+function subscription_period(DateTimeImmutable $startDate, int $durationMonths): array
+{
+    if ($durationMonths < 1 || $durationMonths > 255) {
+        throw new InvalidArgumentException('Invalid subscription duration.');
+    }
+
+    $startDate = $startDate->setTime(0, 0);
+    $targetMonth = $startDate->modify('first day of this month')
+        ->modify('+' . $durationMonths . ' months');
+    $anniversaryDay = min((int)$startDate->format('d'), (int)$targetMonth->format('t'));
+    $exclusiveEnd = $targetMonth->setDate(
+        (int)$targetMonth->format('Y'),
+        (int)$targetMonth->format('m'),
+        $anniversaryDay
+    );
+
+    return [$startDate, $exclusiveEnd->modify('-1 day')];
+}
+
 function has_active_subscription($conn, $student_id)
 {
     $stmt = $conn->prepare(
@@ -60,7 +79,7 @@ function live_exam_access_message($conn, $student_id, $exam)
         ]);
 
         if (!$stmt->fetchColumn()) {
-            return 'Demo payment is required for this live exam.';
+            return 'A verified payment is required for this live exam.';
         }
     }
 

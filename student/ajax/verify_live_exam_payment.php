@@ -39,6 +39,7 @@ try {
     $paymentStmt->execute([$studentId,$examId,$orderId]);
     $record=$paymentStmt->fetch(PDO::FETCH_ASSOC);
     if (!$record) throw new RuntimeException('Payment order was not found for this student and examination.');
+    if (!razorpay_verify_signature((string)$record['gateway_order_id'],$paymentId,$signature)) throw new RuntimeException('Payment signature verification failed.');
     if ((string)$record['payment_status'] === 'Paid') {
         if ((string)($record['gateway_payment_id'] ?? '') === $paymentId) {
             $conn->commit();
@@ -52,8 +53,6 @@ try {
     $exam=$examStmt->fetch(PDO::FETCH_ASSOC);
     if (!$exam || (string)$exam['exam_type']!=='Live') throw new RuntimeException('This live examination is not available.');
     if (abs(((float)$exam['exam_fee']) - ((float)$record['amount'])) > 0.00001) throw new RuntimeException('Payment amount does not match the examination fee.');
-    if (!razorpay_verify_signature($orderId,$paymentId,$signature)) throw new RuntimeException('Payment signature verification failed.');
-
     $gatewayPayment=razorpay_fetch_payment($paymentId);
     $gatewayOrderId=(string)($gatewayPayment['order_id']??'');
     $gatewayAmount=(int)($gatewayPayment['amount']??0);
@@ -76,5 +75,5 @@ try {
 } catch (Throwable $e) {
     if ($conn->inTransaction()) $conn->rollBack();
     error_log('Live exam payment verification failed: '.$e->getMessage());
-    live_verify_json(false,$e->getMessage(),[],422);
+    live_verify_json(false,'Unable to verify this payment safely. Please retry or contact support with your payment reference.',[],422);
 }

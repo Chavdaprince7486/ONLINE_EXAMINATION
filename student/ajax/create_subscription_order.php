@@ -49,6 +49,14 @@ if ($planId === false || $planId === null || $planId <= 0) {
 try {
     $conn->beginTransaction();
 
+    $studentStatement = $conn->prepare(
+        "SELECT id FROM students WHERE id = ? AND status = 'Active' LIMIT 1 FOR UPDATE"
+    );
+    $studentStatement->execute([$studentId]);
+    if (!$studentStatement->fetchColumn()) {
+        throw new RuntimeException('The student account is unavailable.');
+    }
+
     $planStatement = $conn->prepare(
         "SELECT id, name, duration_months, price
          FROM subscription_plans
