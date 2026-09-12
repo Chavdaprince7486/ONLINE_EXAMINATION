@@ -91,16 +91,18 @@ try {
 
     $statsStatement = $conn->prepare(
         "SELECT
-            COUNT(*) AS attempted,
-            COALESCE(SUM(CASE WHEN result_status IN ('Pass','Fail') THEN 1 ELSE 0 END), 0) AS completed,
-            COALESCE(AVG(CASE WHEN result_status IN ('Pass','Fail') THEN percentage ELSE NULL END), 0) AS average_score,
-            COALESCE(MAX(CASE WHEN result_status IN ('Pass','Fail') THEN percentage ELSE NULL END), 0) AS best_score,
+            (SELECT COUNT(*)
+             FROM exam_attempts ea
+             WHERE ea.student_id = ?) AS attempted,
+            COUNT(*) AS completed,
+            COALESCE(AVG(percentage), 0) AS average_score,
+            COALESCE(MAX(percentage), 0) AS best_score,
             COALESCE(SUM(CASE WHEN result_status = 'Pass' THEN 1 ELSE 0 END), 0) AS passed,
             COALESCE(SUM(CASE WHEN result_status = 'Fail' THEN 1 ELSE 0 END), 0) AS failed
          FROM results
          WHERE student_id = ?"
     );
-    $statsStatement->execute([$studentId]);
+    $statsStatement->execute([$studentId, $studentId]);
     $stats = $statsStatement->fetch(PDO::FETCH_ASSOC);
 
     if (is_array($stats)) {
@@ -224,32 +226,18 @@ if ($activeSubscription) {
             <div class="profile-header">
                 <div class="profile-left">
                     <div class="profile-image">
-                        <img
-                            src="<?= profile_escape($profilePhoto) ?>"
-                            id="profilePreview"
-                            alt="Profile photo of <?= profile_escape($student['full_name']) ?>"
-                        >
+                        <img src="<?= profile_escape($profilePhoto) ?>" id="profilePreview" alt="Profile photo of <?= profile_escape($student['full_name']) ?>">
                         <label for="profilePhoto" class="upload-photo" title="Change profile photo">
                             <i class="fa-solid fa-camera"></i>
                             <span class="sr-only">Change profile photo</span>
                         </label>
-                        <input
-                            type="file"
-                            id="profilePhoto"
-                            name="profile_photo"
-                            accept="image/jpeg,image/png"
-                            hidden
-                        >
+                        <input type="file" id="profilePhoto" name="profile_photo" accept="image/jpeg,image/png" hidden>
                     </div>
 
                     <div class="profile-user">
-                        <span class="profile-kicker">
-                            <i class="fa-solid fa-circle-check"></i>
-                            Student account
-                        </span>
+                        <span class="profile-kicker"><i class="fa-solid fa-circle-check"></i> Student account</span>
                         <h1><?= profile_escape($student['full_name']) ?></h1>
                         <span class="student-id"><?= profile_escape($studentCode) ?></span>
-
                         <div class="profile-meta">
                             <span><i class="fa-solid fa-envelope"></i><?= profile_escape($student['email']) ?></span>
                             <span><i class="fa-solid fa-phone"></i><?= profile_escape($student['mobile']) ?></span>
@@ -261,10 +249,7 @@ if ($activeSubscription) {
                 </div>
 
                 <div class="profile-actions">
-                    <button type="button" class="edit-profile-btn" data-scroll-to="personal-panel">
-                        <i class="fa-solid fa-pen"></i>
-                        Edit Profile
-                    </button>
+                    <button type="button" class="edit-profile-btn" data-scroll-to="personal-panel"><i class="fa-solid fa-pen"></i> Edit Profile</button>
                 </div>
             </div>
 
@@ -278,22 +263,10 @@ if ($activeSubscription) {
         </section>
 
         <section class="stats-section" aria-label="Profile performance summary">
-            <article class="stat-card">
-                <div class="stat-icon brown"><i class="fa-solid fa-file-circle-check"></i></div>
-                <div class="stat-content"><h2><?= $profileStats['attempted'] ?></h2><p>Exams Attempted</p><small>Recorded attempts</small></div>
-            </article>
-            <article class="stat-card">
-                <div class="stat-icon green"><i class="fa-solid fa-circle-check"></i></div>
-                <div class="stat-content"><h2><?= $profileStats['completed'] ?></h2><p>Completed</p><small><?= $profileStats['passed'] ?> passed · <?= $profileStats['failed'] ?> failed</small></div>
-            </article>
-            <article class="stat-card">
-                <div class="stat-icon gold"><i class="fa-solid fa-chart-line"></i></div>
-                <div class="stat-content"><h2><?= number_format($profileStats['average_score'], 2) ?>%</h2><p>Average Score</p><small>Across completed results</small></div>
-            </article>
-            <article class="stat-card">
-                <div class="stat-icon blue"><i class="fa-solid fa-ranking-star"></i></div>
-                <div class="stat-content"><h2><?= number_format($profileStats['best_score'], 2) ?>%</h2><p>Best Score</p><small>Highest recorded result</small></div>
-            </article>
+            <article class="stat-card"><div class="stat-icon brown"><i class="fa-solid fa-file-circle-check"></i></div><div class="stat-content"><h2><?= $profileStats['attempted'] ?></h2><p>Exams Attempted</p><small>Recorded attempts</small></div></article>
+            <article class="stat-card"><div class="stat-icon green"><i class="fa-solid fa-circle-check"></i></div><div class="stat-content"><h2><?= $profileStats['completed'] ?></h2><p>Completed</p><small><?= $profileStats['passed'] ?> passed · <?= $profileStats['failed'] ?> failed</small></div></article>
+            <article class="stat-card"><div class="stat-icon gold"><i class="fa-solid fa-chart-line"></i></div><div class="stat-content"><h2><?= number_format($profileStats['average_score'], 2) ?>%</h2><p>Average Score</p><small>Across completed results</small></div></article>
+            <article class="stat-card"><div class="stat-icon blue"><i class="fa-solid fa-ranking-star"></i></div><div class="stat-content"><h2><?= number_format($profileStats['best_score'], 2) ?>%</h2><p>Best Score</p><small>Highest recorded result</small></div></article>
         </section>
 
         <nav class="profile-tabs" aria-label="Profile sections">
@@ -308,74 +281,22 @@ if ($activeSubscription) {
             <div class="profile-content">
                 <div class="left-panel">
                     <div class="content-card profile-form-card">
-                        <div class="section-heading">
-                            <div>
-                                <span class="section-kicker">PROFILE DETAILS</span>
-                                <h2>Personal Information</h2>
-                                <p>Update the personal and contact information stored on your student account.</p>
-                            </div>
-                            <span class="heading-icon"><i class="fa-solid fa-user"></i></span>
-                        </div>
-
+                        <div class="section-heading"><div><span class="section-kicker">PROFILE DETAILS</span><h2>Personal Information</h2><p>Update the personal and contact information stored on your student account.</p></div><span class="heading-icon"><i class="fa-solid fa-user"></i></span></div>
                         <form id="profileForm" novalidate>
                             <input type="hidden" name="csrf_token" value="<?= profile_escape(csrf_token()) ?>">
-
                             <div class="form-grid">
-                                <div class="form-group">
-                                    <label for="fullName">Full Name <span>*</span></label>
-                                    <div class="field-shell"><i class="fa-solid fa-user"></i><input id="fullName" type="text" name="full_name" maxlength="100" autocomplete="name" value="<?= profile_escape($student['full_name']) ?>" required></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="studentCode">Student Code</label>
-                                    <div class="field-shell readonly-field"><i class="fa-solid fa-id-card"></i><input id="studentCode" type="text" value="<?= profile_escape($studentCode) ?>" readonly></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="email">Email</label>
-                                    <div class="field-shell readonly-field"><i class="fa-solid fa-envelope"></i><input id="email" type="email" value="<?= profile_escape($student['email']) ?>" readonly></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="mobile">Mobile <span>*</span></label>
-                                    <div class="field-shell"><i class="fa-solid fa-phone"></i><input id="mobile" type="tel" name="mobile" inputmode="numeric" maxlength="20" autocomplete="tel" value="<?= profile_escape($student['mobile']) ?>" required></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="gender">Gender</label>
-                                    <div class="field-shell"><i class="fa-solid fa-venus-mars"></i><select id="gender" name="gender"><option value="">Select</option><option value="Male" <?= $student['gender'] === 'Male' ? 'selected' : '' ?>>Male</option><option value="Female" <?= $student['gender'] === 'Female' ? 'selected' : '' ?>>Female</option><option value="Other" <?= $student['gender'] === 'Other' ? 'selected' : '' ?>>Other</option></select></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="dob">Date of Birth</label>
-                                    <div class="field-shell"><i class="fa-solid fa-calendar-days"></i><input id="dob" type="date" name="dob" value="<?= profile_escape((string) $student['dob']) ?>"></div>
-                                </div>
-
-                                <div class="form-group full-width">
-                                    <label for="address">Address</label>
-                                    <div class="field-shell textarea-shell"><i class="fa-solid fa-location-dot"></i><textarea id="address" name="address" rows="4" maxlength="2000"><?= profile_escape((string) $student['address']) ?></textarea></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="city">City</label>
-                                    <div class="field-shell"><i class="fa-solid fa-city"></i><input id="city" type="text" name="city" maxlength="80" autocomplete="address-level2" value="<?= profile_escape((string) $student['city']) ?>"></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="state">State</label>
-                                    <div class="field-shell"><i class="fa-solid fa-map-location-dot"></i><input id="state" type="text" name="state" maxlength="80" autocomplete="address-level1" value="<?= profile_escape((string) $student['state']) ?>"></div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="pincode">Pincode</label>
-                                    <div class="field-shell"><i class="fa-solid fa-location-crosshairs"></i><input id="pincode" type="text" name="pincode" inputmode="numeric" maxlength="10" autocomplete="postal-code" value="<?= profile_escape((string) $student['pincode']) ?>"></div>
-                                </div>
+                                <div class="form-group"><label for="fullName">Full Name <span>*</span></label><div class="field-shell"><i class="fa-solid fa-user"></i><input id="fullName" type="text" name="full_name" maxlength="100" autocomplete="name" value="<?= profile_escape($student['full_name']) ?>" required></div></div>
+                                <div class="form-group"><label for="studentCode">Student Code</label><div class="field-shell readonly-field"><i class="fa-solid fa-id-card"></i><input id="studentCode" type="text" value="<?= profile_escape($studentCode) ?>" readonly></div></div>
+                                <div class="form-group"><label for="email">Email</label><div class="field-shell readonly-field"><i class="fa-solid fa-envelope"></i><input id="email" type="email" value="<?= profile_escape($student['email']) ?>" readonly></div></div>
+                                <div class="form-group"><label for="mobile">Mobile <span>*</span></label><div class="field-shell"><i class="fa-solid fa-phone"></i><input id="mobile" type="tel" name="mobile" inputmode="numeric" maxlength="20" autocomplete="tel" value="<?= profile_escape($student['mobile']) ?>" required></div></div>
+                                <div class="form-group"><label for="gender">Gender</label><div class="field-shell"><i class="fa-solid fa-venus-mars"></i><select id="gender" name="gender"><option value="">Select</option><option value="Male" <?= $student['gender'] === 'Male' ? 'selected' : '' ?>>Male</option><option value="Female" <?= $student['gender'] === 'Female' ? 'selected' : '' ?>>Female</option><option value="Other" <?= $student['gender'] === 'Other' ? 'selected' : '' ?>>Other</option></select></div></div>
+                                <div class="form-group"><label for="dob">Date of Birth</label><div class="field-shell"><i class="fa-solid fa-calendar-days"></i><input id="dob" type="date" name="dob" value="<?= profile_escape((string) $student['dob']) ?>"></div></div>
+                                <div class="form-group full-width"><label for="address">Address</label><div class="field-shell textarea-shell"><i class="fa-solid fa-location-dot"></i><textarea id="address" name="address" rows="4" maxlength="2000"><?= profile_escape((string) $student['address']) ?></textarea></div></div>
+                                <div class="form-group"><label for="city">City</label><div class="field-shell"><i class="fa-solid fa-city"></i><input id="city" type="text" name="city" maxlength="80" autocomplete="address-level2" value="<?= profile_escape((string) $student['city']) ?>"></div></div>
+                                <div class="form-group"><label for="state">State</label><div class="field-shell"><i class="fa-solid fa-map-location-dot"></i><input id="state" type="text" name="state" maxlength="80" autocomplete="address-level1" value="<?= profile_escape((string) $student['state']) ?>"></div></div>
+                                <div class="form-group"><label for="pincode">Pincode</label><div class="field-shell"><i class="fa-solid fa-location-crosshairs"></i><input id="pincode" type="text" name="pincode" inputmode="numeric" maxlength="10" autocomplete="postal-code" value="<?= profile_escape((string) $student['pincode']) ?>"></div></div>
                             </div>
-
-                            <div class="form-actions">
-                                <button type="submit" class="primary-btn" id="saveProfileButton"><i class="fa-solid fa-floppy-disk"></i>Save Changes</button>
-                                <span class="form-hint"><i class="fa-solid fa-circle-info"></i> Email and student code cannot be changed here.</span>
-                            </div>
+                            <div class="form-actions"><button type="submit" class="primary-btn" id="saveProfileButton"><i class="fa-solid fa-floppy-disk"></i>Save Changes</button><span class="form-hint"><i class="fa-solid fa-circle-info"></i> Email and student code cannot be changed here.</span></div>
                         </form>
                     </div>
                 </div>
@@ -391,7 +312,6 @@ if ($activeSubscription) {
                             <div class="status-item"><span>Member Since</span><strong><?= profile_escape(profile_date($student['created_at'])) ?></strong></div>
                         </div>
                     </div>
-
                     <div class="content-card info-card subscription-card">
                         <div class="section-heading compact-heading"><div><span class="section-kicker">MEMBERSHIP</span><h2>Subscription</h2></div><span class="heading-icon"><i class="fa-solid fa-gem"></i></span></div>
                         <?php if ($activeSubscription): ?>
@@ -405,82 +325,22 @@ if ($activeSubscription) {
         </section>
 
         <section id="academic-panel" class="profile-tab-panel">
-            <div class="profile-content single-column">
-                <div class="content-card">
-                    <div class="section-heading">
-                        <div><span class="section-kicker">ACADEMIC PROFILE</span><h2>Learning Account</h2><p>Your current student record and learning context.</p></div>
-                        <span class="heading-icon"><i class="fa-solid fa-graduation-cap"></i></span>
-                    </div>
-                    <div class="academic-grid">
-                        <article><span>Student Code</span><strong><?= profile_escape($studentCode) ?></strong><small>Unique identifier for your account</small></article>
-                        <article><span>Registered Email</span><strong><?= profile_escape($student['email']) ?></strong><small><?= $emailVerified ? 'Email verification completed' : 'Email verification pending' ?></small></article>
-                        <article><span>Primary Location</span><strong><?= profile_escape(trim((string) $student['city'] . ', ' . (string) $student['state'], ' ,') ?: 'Not provided') ?></strong><small>Stored in your profile</small></article>
-                        <article><span>Profile Status</span><strong><?= profile_escape($student['status']) ?></strong><small>Access is controlled by your account status</small></article>
-                    </div>
-                    <div class="schema-note"><i class="fa-solid fa-circle-info"></i><div><strong>Academic fields</strong><p>The current student database record does not contain a separate institution, course or qualification field, so this profile does not invent or store those values.</p></div></div>
-                </div>
-            </div>
+            <div class="profile-content single-column"><div class="content-card"><div class="section-heading"><div><span class="section-kicker">ACADEMIC PROFILE</span><h2>Learning Account</h2><p>Your current student record and learning context.</p></div><span class="heading-icon"><i class="fa-solid fa-graduation-cap"></i></span></div><div class="academic-grid"><article><span>Student Code</span><strong><?= profile_escape($studentCode) ?></strong><small>Unique identifier for your account</small></article><article><span>Registered Email</span><strong><?= profile_escape($student['email']) ?></strong><small><?= $emailVerified ? 'Email verification completed' : 'Email verification pending' ?></small></article><article><span>Primary Location</span><strong><?= profile_escape(trim((string) $student['city'] . ', ' . (string) $student['state'], ' ,') ?: 'Not provided') ?></strong><small>Stored in your profile</small></article><article><span>Profile Status</span><strong><?= profile_escape($student['status']) ?></strong><small>Access is controlled by your account status</small></article></div><div class="schema-note"><i class="fa-solid fa-circle-info"></i><div><strong>Academic fields</strong><p>The current student database record does not contain a separate institution, course or qualification field, so this profile does not invent or store those values.</p></div></div></div></div>
         </section>
 
         <section id="performance-panel" class="profile-tab-panel">
-            <div class="performance-summary-grid">
-                <article class="performance-summary-card"><span>Passed</span><strong><?= $profileStats['passed'] ?></strong><small>Completed results</small></article>
-                <article class="performance-summary-card"><span>Failed</span><strong><?= $profileStats['failed'] ?></strong><small>Completed results</small></article>
-                <article class="performance-summary-card"><span>Average</span><strong><?= number_format($profileStats['average_score'], 2) ?>%</strong><small>All recorded results</small></article>
-                <article class="performance-summary-card"><span>Best</span><strong><?= number_format($profileStats['best_score'], 2) ?>%</strong><small>Highest percentage</small></article>
-            </div>
-
-            <div class="content-card results-card">
-                <div class="section-heading"><div><span class="section-kicker">RECENT RESULTS</span><h2>Performance History</h2><p>Your five most recent completed results.</p></div><a href="results.php" class="secondary-btn">All Results <i class="fa-solid fa-arrow-right"></i></a></div>
-                <?php if ($recentResults): ?>
-                    <div class="result-list">
-                        <?php foreach ($recentResults as $result): ?>
-                            <article class="result-row">
-                                <div class="result-leading"><span class="result-icon"><i class="fa-solid fa-file-lines"></i></span><div><h3><?= profile_escape($result['exam_title']) ?></h3><p><?= profile_escape($result['subject_name'] ?: 'General') ?> · <?= profile_escape($result['exam_type']) ?></p></div></div>
-                                <div class="result-score"><strong><?= number_format((float) $result['percentage'], 2) ?>%</strong><span class="result-status <?= $result['result_status'] === 'Pass' ? 'pass' : 'fail' ?>"><?= profile_escape($result['result_status']) ?></span><small><?= profile_escape(profile_date((string) $result['created_at'])) ?></small></div>
-                            </article>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <div class="empty-state"><i class="fa-solid fa-chart-column"></i><h3>No results yet</h3><p>Complete an exam to see your performance history here.</p><a href="practice_exams.php" class="secondary-btn">Start Practice <i class="fa-solid fa-arrow-right"></i></a></div>
-                <?php endif; ?>
+            <div class="performance-summary-grid"><article class="performance-summary-card"><span>Passed</span><strong><?= $profileStats['passed'] ?></strong><small>Completed results</small></article><article class="performance-summary-card"><span>Failed</span><strong><?= $profileStats['failed'] ?></strong><small>Completed results</small></article><article class="performance-summary-card"><span>Average</span><strong><?= number_format($profileStats['average_score'], 2) ?>%</strong><small>All recorded results</small></article><article class="performance-summary-card"><span>Best</span><strong><?= number_format($profileStats['best_score'], 2) ?>%</strong><small>Highest percentage</small></article></div>
+            <div class="content-card results-card"><div class="section-heading"><div><span class="section-kicker">RECENT RESULTS</span><h2>Performance History</h2><p>Your five most recent completed results.</p></div><a href="results.php" class="secondary-btn">All Results <i class="fa-solid fa-arrow-right"></i></a></div>
+                <?php if ($recentResults): ?><div class="result-list"><?php foreach ($recentResults as $result): ?><article class="result-row"><div class="result-leading"><span class="result-icon"><i class="fa-solid fa-file-lines"></i></span><div><h3><?= profile_escape($result['exam_title']) ?></h3><p><?= profile_escape($result['subject_name'] ?: 'General') ?> · <?= profile_escape($result['exam_type']) ?></p></div></div><div class="result-score"><strong><?= number_format((float) $result['percentage'], 2) ?>%</strong><span class="result-status <?= $result['result_status'] === 'Pass' ? 'pass' : 'fail' ?>"><?= profile_escape($result['result_status']) ?></span><small><?= profile_escape(profile_date((string) $result['created_at'])) ?></small></div></article><?php endforeach; ?></div><?php else: ?><div class="empty-state"><i class="fa-solid fa-chart-column"></i><h3>No results yet</h3><p>Complete an exam to see your performance history here.</p><a href="practice_exams.php" class="secondary-btn">Start Practice <i class="fa-solid fa-arrow-right"></i></a></div><?php endif; ?>
             </div>
         </section>
 
         <section id="security-panel" class="profile-tab-panel">
-            <div class="profile-content single-column">
-                <div class="content-card security-card">
-                    <div class="section-heading"><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>Password & Security</h2><p>Protect your account with a strong password and secure session controls.</p></div><span class="heading-icon"><i class="fa-solid fa-shield-halved"></i></span></div>
-                    <div class="security-grid">
-                        <article class="security-item"><span class="security-icon green"><i class="fa-solid fa-key"></i></span><div><h3>Password</h3><p>Your password is stored as a secure hash and can be changed at any time.</p></div><button type="button" class="primary-btn compact-btn change-password-trigger"><i class="fa-solid fa-key"></i>Change Password</button></article>
-                        <article class="security-item"><span class="security-icon blue"><i class="fa-solid fa-lock"></i></span><div><h3>Session Protection</h3><p>Your account uses server-side authentication, secure session cookies and CSRF protection.</p></div><span class="security-state"><i class="fa-solid fa-circle-check"></i>Protected</span></article>
-                        <article class="security-item"><span class="security-icon gold"><i class="fa-solid fa-envelope-circle-check"></i></span><div><h3>Email Verification</h3><p><?= $emailVerified ? 'Your registered email address is verified.' : 'Your registered email address is not yet verified.' ?></p></div><span class="security-state <?= $emailVerified ? '' : 'warning-state' ?>"><i class="fa-solid <?= $emailVerified ? 'fa-circle-check' : 'fa-clock' ?>"></i><?= $emailVerified ? 'Verified' : 'Pending' ?></span></article>
-                    </div>
-                </div>
-            </div>
+            <div class="profile-content single-column"><div class="content-card security-card"><div class="section-heading"><div><span class="section-kicker">ACCOUNT SECURITY</span><h2>Password & Security</h2><p>Protect your account with a strong password and secure session controls.</p></div><span class="heading-icon"><i class="fa-solid fa-shield-halved"></i></span></div><div class="security-grid"><article class="security-item"><span class="security-icon green"><i class="fa-solid fa-key"></i></span><div><h3>Password</h3><p>Your password is stored as a secure hash and can be changed at any time.</p></div><button type="button" class="primary-btn compact-btn change-password-trigger"><i class="fa-solid fa-key"></i>Change Password</button></article><article class="security-item"><span class="security-icon blue"><i class="fa-solid fa-lock"></i></span><div><h3>Session Protection</h3><p>Your account uses server-side authentication, secure session cookies and CSRF protection.</p></div><span class="security-state"><i class="fa-solid fa-circle-check"></i>Protected</span></article><article class="security-item"><span class="security-icon gold"><i class="fa-solid fa-envelope-circle-check"></i></span><div><h3>Email Verification</h3><p><?= $emailVerified ? 'Your registered email address is verified.' : 'Your registered email address is not yet verified.' ?></p></div><span class="security-state <?= $emailVerified ? '' : 'warning-state' ?>"><i class="fa-solid <?= $emailVerified ? 'fa-circle-check' : 'fa-clock' ?>"></i><?= $emailVerified ? 'Verified' : 'Pending' ?></span></article></div></div></div>
         </section>
 
         <section id="settings-panel" class="profile-tab-panel">
-            <div class="profile-content">
-                <div class="left-panel">
-                    <div class="content-card">
-                        <div class="section-heading"><div><span class="section-kicker">ACCOUNT SETTINGS</span><h2>Profile Preferences</h2><p>Manage available profile actions and account shortcuts.</p></div><span class="heading-icon"><i class="fa-solid fa-gear"></i></span></div>
-                        <div class="settings-list">
-                            <div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-user-pen"></i></span><div><h3>Personal details</h3><p>Edit your name, mobile number and location information.</p></div></div><button type="button" class="secondary-btn setting-action" data-scroll-to="personal-panel">Open <i class="fa-solid fa-arrow-right"></i></button></div>
-                            <div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-image"></i></span><div><h3>Profile photo</h3><p>Upload a JPG or PNG image up to 2 MB.</p></div></div><button type="button" class="secondary-btn setting-action" data-photo-trigger="true">Change <i class="fa-solid fa-camera"></i></button></div>
-                            <div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-lock"></i></span><div><h3>Password</h3><p>Change your password using the secure account flow.</p></div></div><button type="button" class="secondary-btn setting-action change-password-trigger">Change <i class="fa-solid fa-arrow-right"></i></button></div>
-                            <div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-right-from-bracket"></i></span><div><h3>Logout</h3><p>End your current ExamSphere session securely.</p></div></div><a href="../auth/logout.php" class="danger-btn">Logout <i class="fa-solid fa-arrow-right"></i></a></div>
-                        </div>
-                    </div>
-                </div>
-
-                <aside class="right-panel">
-                    <div class="content-card account-summary-card">
-                        <div class="section-heading compact-heading"><div><span class="section-kicker">SUMMARY</span><h2>Your Account</h2></div><span class="heading-icon"><i class="fa-solid fa-address-card"></i></span></div>
-                        <div class="account-summary-list"><div><span>Account status</span><strong class="status-success"><?= profile_escape($student['status']) ?></strong></div><div><span>Email status</span><strong class="<?= $emailVerified ? 'status-success' : 'status-warning' ?>"><?= $emailVerified ? 'Verified' : 'Pending' ?></strong></div><div><span>Results</span><strong><?= $profileStats['completed'] ?></strong></div><div><span>Best score</span><strong><?= number_format($profileStats['best_score'], 2) ?>%</strong></div></div>
-                    </div>
-                </aside>
-            </div>
+            <div class="profile-content"><div class="left-panel"><div class="content-card"><div class="section-heading"><div><span class="section-kicker">ACCOUNT SETTINGS</span><h2>Profile Preferences</h2><p>Manage available profile actions and account shortcuts.</p></div><span class="heading-icon"><i class="fa-solid fa-gear"></i></span></div><div class="settings-list"><div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-user-pen"></i></span><div><h3>Personal details</h3><p>Edit your name, mobile number and location information.</p></div></div><button type="button" class="secondary-btn setting-action" data-scroll-to="personal-panel">Open <i class="fa-solid fa-arrow-right"></i></button></div><div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-image"></i></span><div><h3>Profile photo</h3><p>Upload a JPG or PNG image up to 2 MB.</p></div></div><button type="button" class="secondary-btn setting-action" data-photo-trigger="true">Change <i class="fa-solid fa-camera"></i></button></div><div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-lock"></i></span><div><h3>Password</h3><p>Change your password using the secure account flow.</p></div></div><button type="button" class="secondary-btn setting-action change-password-trigger">Change <i class="fa-solid fa-arrow-right"></i></button></div><div class="setting-row"><div><span class="setting-icon"><i class="fa-solid fa-right-from-bracket"></i></span><div><h3>Logout</h3><p>End your current ExamSphere session securely.</p></div></div><a href="../auth/logout.php" class="danger-btn">Logout <i class="fa-solid fa-arrow-right"></i></a></div></div></div></div><aside class="right-panel"><div class="content-card account-summary-card"><div class="section-heading compact-heading"><div><span class="section-kicker">SUMMARY</span><h2>Your Account</h2></div><span class="heading-icon"><i class="fa-solid fa-address-card"></i></span></div><div class="account-summary-list"><div><span>Account status</span><strong class="status-success"><?= profile_escape($student['status']) ?></strong></div><div><span>Email status</span><strong class="<?= $emailVerified ? 'status-success' : 'status-warning' ?>"><?= $emailVerified ? 'Verified' : 'Pending' ?></strong></div><div><span>Results</span><strong><?= $profileStats['completed'] ?></strong></div><div><span>Best score</span><strong><?= number_format($profileStats['best_score'], 2) ?>%</strong></div></div></div></aside></div>
         </section>
 
     </div>
