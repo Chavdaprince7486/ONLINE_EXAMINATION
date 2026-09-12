@@ -2,8 +2,32 @@
 
 declare(strict_types=1);
 
-require_once "../config/config.php";
-require_once "../config/session.php";
+/*
+|--------------------------------------------------------------------------
+| EXAMSPHERE LOGIN PROCESS
+|--------------------------------------------------------------------------
+|
+| Supports:
+|
+| - Student login
+| - Teacher login
+| - Admin login
+| - password_hash() / password_verify()
+| - bcrypt
+| - Argon2
+| - legacy MD5
+| - legacy SHA1
+| - legacy plain-text passwords
+|
+| Legacy/plain passwords are automatically migrated to password_hash()
+| after a successful login.
+|
+|--------------------------------------------------------------------------
+*/
+
+require_once '../config/config.php';
+require_once '../config/session.php';
+require_once '../config/auth.php';
 
 
 /*
@@ -14,97 +38,145 @@ require_once "../config/session.php";
 
 if (
     strtoupper(
-        (string) (
-            $_SERVER["REQUEST_METHOD"]
-            ?? "GET"
+        (string)(
+            $_SERVER['REQUEST_METHOD']
+            ??
+            'GET'
         )
-    ) !== "POST"
+    ) !==
+    'POST'
 ) {
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| FORM DATA
+| CSRF PROTECTION
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !verify_csrf_token(
+        $_POST['csrf_token']
+        ??
+        null
+    )
+) {
+
+    $_SESSION['error'] =
+        'Your session expired. Please refresh the login page and try again.';
+
+    header(
+        'Location: login.php'
+    );
+
+    exit;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INPUT
 |--------------------------------------------------------------------------
 */
 
 $role =
     strtolower(
         trim(
-            (string) (
-                $_POST["role"]
-                ?? ""
+            (string)(
+                $_POST['role']
+                ??
+                ''
             )
         )
     );
 
+
 $email =
-    trim(
-        (string) (
-            $_POST["email"]
-            ?? ""
+    strtolower(
+        trim(
+            (string)(
+                $_POST['email']
+                ??
+                ''
+            )
         )
     );
 
+
 $password =
-    (string) (
-        $_POST["password"]
-        ?? ""
+    (string)(
+        $_POST['password']
+        ??
+        ''
     );
 
 
 /*
 |--------------------------------------------------------------------------
-| VALIDATION
+| BASIC VALIDATION
 |--------------------------------------------------------------------------
 */
 
 if (
-    $role === "" ||
-    $email === "" ||
-    $password === ""
+    $role === ''
+    ||
+    $email === ''
+    ||
+    $password === ''
 ) {
 
-    $_SESSION["error"] =
-        "Please fill all fields.";
+    $_SESSION['error'] =
+        'Please fill in all login fields.';
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| ROLE VALIDATION
+|--------------------------------------------------------------------------
+*/
 
 if (
     !in_array(
         $role,
         [
-            "student",
-            "teacher",
-            "admin"
+            'student',
+            'teacher',
+            'admin'
         ],
         true
     )
 ) {
 
-    $_SESSION["error"] =
-        "Invalid Login Role.";
+    $_SESSION['error'] =
+        'Invalid login role.';
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| EMAIL VALIDATION
+|--------------------------------------------------------------------------
+*/
 
 if (
     !filter_var(
@@ -113,95 +185,146 @@ if (
     )
 ) {
 
-    $_SESSION["error"] =
-        "Invalid Email Address.";
+    $_SESSION['error'] =
+        'Please enter a valid email address.';
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| TABLE / DASHBOARD
+| TABLE CONFIGURATION
 |--------------------------------------------------------------------------
 */
 
 $tableMap = [
 
-    "student" => [
-        "table" =>
-            "students",
+    'student' => [
 
-        "dashboard" =>
-            "../student/dashboard.php"
+        'table' =>
+            'students',
+
+        'dashboard' =>
+            BASE_URL .
+            'student/dashboard.php'
+
     ],
 
-    "teacher" => [
-        "table" =>
-            "teachers",
+    'teacher' => [
 
-        "dashboard" =>
-            "../teacher/dashboard.php"
+        'table' =>
+            'teachers',
+
+        'dashboard' =>
+            BASE_URL .
+            'teacher/dashboard.php'
+
     ],
 
-    "admin" => [
-        "table" =>
-            "admins",
+    'admin' => [
 
-        "dashboard" =>
-            "../admin/dashboard.php"
+        'table' =>
+            'admins',
+
+        'dashboard' =>
+            BASE_URL .
+            'admin/dashboard.php'
+
     ]
 
 ];
 
 
 $table =
-    $tableMap[$role]["table"];
+    $tableMap[
+        $role
+    ]['table'];
+
 
 $dashboard =
-    $tableMap[$role]["dashboard"];
+    $tableMap[
+        $role
+    ]['dashboard'];
 
 
 /*
 |--------------------------------------------------------------------------
-| LOAD USER
+| FIND USER
 |--------------------------------------------------------------------------
 */
 
-$stmt =
-    $conn->prepare(
-        "SELECT *
-         FROM {$table}
-         WHERE email = ?
-         LIMIT 1"
+try {
+
+    $stmt =
+        $conn->prepare(
+            "
+            SELECT *
+
+            FROM {$table}
+
+            WHERE email = ?
+
+            LIMIT 1
+            "
+        );
+
+    $stmt->execute([
+        $email
+    ]);
+
+    $user =
+        $stmt->fetch(
+            PDO::FETCH_ASSOC
+        );
+
+} catch (
+    Throwable $exception
+) {
+
+    error_log(
+        'ExamSphere login database query failed: ' .
+        $exception->getMessage()
     );
 
-$stmt->execute([
-    $email
-]);
+    $_SESSION['error'] =
+        'Unable to process login right now. Please try again.';
 
-$user =
-    $stmt->fetch(
-        PDO::FETCH_ASSOC
+    header(
+        'Location: login.php'
     );
 
+    exit;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| USER NOT FOUND
+|--------------------------------------------------------------------------
+*/
 
 if (
     !$user
 ) {
 
-    $_SESSION["error"] =
-        "Email not found.";
+    /*
+     * Keep the browser message generic enough
+     * to avoid exposing unnecessary account data.
+     */
+
+    $_SESSION['error'] =
+        'Invalid email or password.';
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
 
@@ -211,142 +334,474 @@ if (
 |--------------------------------------------------------------------------
 */
 
-if (
-    !isset(
-        $user["status"]
-    )
-    ||
-    strcasecmp(
-        trim(
-            (string) $user["status"]
-        ),
-        "Active"
-    ) !== 0
-) {
-
-    $_SESSION["error"] =
-        "Your account is inactive.";
-
-    header(
-        "Location: login.php"
+$status =
+    trim(
+        (string)(
+            $user['status']
+            ??
+            ''
+        )
     );
 
-    exit();
+
+if (
+    strcasecmp(
+        $status,
+        'Active'
+    ) !==
+    0
+) {
+
+    $_SESSION['error'] =
+        'Your account is inactive. Please contact the administrator.';
+
+    header(
+        'Location: login.php'
+    );
+
+    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| PASSWORD
+| STORED PASSWORD
 |--------------------------------------------------------------------------
 */
 
-$userPassword =
-    (string) (
-        $user["password"]
-        ?? ""
+$storedPassword =
+    trim(
+        (string)(
+            $user['password']
+            ??
+            ''
+        )
     );
 
-$passwordValid = false;
+
+if (
+    $storedPassword === ''
+) {
+
+    $_SESSION['error'] =
+        'This account does not have a valid password. Please contact the administrator.';
+
+    header(
+        'Location: login.php'
+    );
+
+    exit;
+}
 
 
 /*
 |--------------------------------------------------------------------------
-| Normal password_hash() verification
+| PASSWORD VERIFICATION
 |--------------------------------------------------------------------------
 */
 
-if (
-    $userPassword !== ""
-) {
+$passwordValid =
+    false;
+
+
+/*
+|--------------------------------------------------------------------------
+| PASSWORD HASH VERIFICATION
+|--------------------------------------------------------------------------
+|
+| password_verify() supports:
+|
+| - bcrypt
+| - Argon2
+| - other password_hash() algorithms
+|
+|--------------------------------------------------------------------------
+*/
+
+try {
 
     $passwordValid =
         password_verify(
             $password,
-            $userPassword
+            $storedPassword
         );
 
+} catch (
+    Throwable $exception
+) {
 
-    /*
-    |--------------------------------------------------------------------------
-    | Backward-compatible plain-password check
-    |--------------------------------------------------------------------------
-    |
-    | Only used when the stored value is not a password_hash format.
-    | This lets an existing local installation keep working while accounts
-    | are migrated to password_hash().
-    |
-    */
+    $passwordValid =
+        false;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| PASSWORD MIGRATION FLAG
+|--------------------------------------------------------------------------
+|
+| true when successful authentication was performed against a
+| legacy password representation.
+|
+|--------------------------------------------------------------------------
+*/
+
+$legacyPassword =
+    false;
+
+
+/*
+|--------------------------------------------------------------------------
+| LEGACY MD5
+|--------------------------------------------------------------------------
+|
+| Supported only for migration of an existing local installation.
+|
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !$passwordValid
+    &&
+    preg_match(
+        '/^[a-f0-9]{32}$/i',
+        $storedPassword
+    )
+) {
+
+    $legacyHash =
+        md5(
+            $password
+        );
 
     if (
-        !$passwordValid &&
-        !str_starts_with(
-            $userPassword,
-            '$2y$'
-        ) &&
-        !str_starts_with(
-            $userPassword,
-            '$2a$'
-        ) &&
-        !str_starts_with(
-            $userPassword,
-            '$2b$'
+        hash_equals(
+            strtolower(
+                $storedPassword
+            ),
+            strtolower(
+                $legacyHash
+            )
         )
     ) {
 
         $passwordValid =
-            hash_equals(
-                $userPassword,
-                $password
-            );
+            true;
+
+        $legacyPassword =
+            true;
     }
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| LEGACY SHA1
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !$passwordValid
+    &&
+    preg_match(
+        '/^[a-f0-9]{40}$/i',
+        $storedPassword
+    )
+) {
+
+    $legacyHash =
+        sha1(
+            $password
+        );
+
+    if (
+        hash_equals(
+            strtolower(
+                $storedPassword
+            ),
+            strtolower(
+                $legacyHash
+            )
+        )
+    ) {
+
+        $passwordValid =
+            true;
+
+        $legacyPassword =
+            true;
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LEGACY PLAIN TEXT
+|--------------------------------------------------------------------------
+|
+| Used only if the stored value does not look like a password_hash()
+| value and is not MD5/SHA1.
+|
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !$passwordValid
+    &&
+    !preg_match(
+        '/^\$2[aby]\$/',
+        $storedPassword
+    )
+    &&
+    !preg_match(
+        '/^\$argon2(id|i|d)\$/',
+        $storedPassword
+    )
+    &&
+    !preg_match(
+        '/^[a-f0-9]{32}$/i',
+        $storedPassword
+    )
+    &&
+    !preg_match(
+        '/^[a-f0-9]{40}$/i',
+        $storedPassword
+    )
+) {
+
+    if (
+        hash_equals(
+            $storedPassword,
+            $password
+        )
+    ) {
+
+        $passwordValid =
+            true;
+
+        $legacyPassword =
+            true;
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FINAL PASSWORD CHECK
+|--------------------------------------------------------------------------
+*/
 
 if (
     !$passwordValid
 ) {
 
-    $_SESSION["error"] =
-        "Incorrect Password.";
+    $_SESSION['error'] =
+        'Invalid email or password.';
 
     header(
-        "Location: login.php"
+        'Location: login.php'
     );
 
-    exit();
+    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| REGULAR LAST LOGIN UPDATE
+| MIGRATE LEGACY PASSWORD
+|--------------------------------------------------------------------------
+|
+| After successful authentication, immediately convert legacy passwords
+| to the modern secure password_hash() format.
+|
 |--------------------------------------------------------------------------
 */
 
 if (
-    array_key_exists(
-        "last_login",
-        $user
-    )
+    $legacyPassword
 ) {
 
-    $update =
-        $conn->prepare(
-            "UPDATE {$table}
-             SET last_login = NOW()
-             WHERE id = ?"
+    try {
+
+        $newHash =
+            password_hash(
+                $password,
+                PASSWORD_DEFAULT
+            );
+
+        if (
+            $newHash !== false
+        ) {
+
+            $updatePassword =
+                $conn->prepare(
+                    "
+                    UPDATE {$table}
+
+                    SET password = ?
+
+                    WHERE id = ?
+
+                    LIMIT 1
+                    "
+                );
+
+            $updatePassword->execute([
+
+                $newHash,
+
+                (int)$user['id']
+
+            ]);
+
+        }
+
+    } catch (
+        Throwable $exception
+    ) {
+
+        /*
+         * Login should still succeed.
+         * Password migration failure is logged,
+         * but does not block the authenticated user.
+         */
+
+        error_log(
+            'ExamSphere password migration failed: ' .
+            $exception->getMessage()
         );
 
-    $update->execute([
-        $user["id"]
-    ]);
+    }
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| CREATE SECURE SESSION
+| OPTIONAL PASSWORD REHASH
+|--------------------------------------------------------------------------
+|
+| If an already-hashed password uses an outdated work factor,
+| migrate it automatically.
+|
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !$legacyPassword
+    &&
+    $passwordValid
+) {
+
+    try {
+
+        if (
+            password_needs_rehash(
+                $storedPassword,
+                PASSWORD_DEFAULT
+            )
+        ) {
+
+            $newHash =
+                password_hash(
+                    $password,
+                    PASSWORD_DEFAULT
+                );
+
+            if (
+                $newHash !== false
+            ) {
+
+                $rehash =
+                    $conn->prepare(
+                        "
+                        UPDATE {$table}
+
+                        SET password = ?
+
+                        WHERE id = ?
+
+                        LIMIT 1
+                        "
+                    );
+
+                $rehash->execute([
+
+                    $newHash,
+
+                    (int)$user['id']
+
+                ]);
+
+            }
+
+        }
+
+    } catch (
+        Throwable $exception
+    ) {
+
+        error_log(
+            'ExamSphere password rehash failed: ' .
+            $exception->getMessage()
+        );
+
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LAST LOGIN
+|--------------------------------------------------------------------------
+*/
+
+try {
+
+    if (
+        array_key_exists(
+            'last_login',
+            $user
+        )
+    ) {
+
+        $updateLogin =
+            $conn->prepare(
+                "
+                UPDATE {$table}
+
+                SET last_login = NOW()
+
+                WHERE id = ?
+
+                LIMIT 1
+                "
+            );
+
+        $updateLogin->execute([
+            (int)$user['id']
+        ]);
+
+    }
+
+} catch (
+    Throwable $exception
+) {
+
+    /*
+     * Do not block successful authentication
+     * because of an analytics/login-time update problem.
+     */
+
+    error_log(
+        'ExamSphere last login update failed: ' .
+        $exception->getMessage()
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| SECURE SESSION REGENERATION
 |--------------------------------------------------------------------------
 */
 
@@ -355,56 +810,110 @@ session_regenerate_id(
 );
 
 
-$_SESSION[
-    "user_id"
-] =
-    (int) $user["id"];
+/*
+|--------------------------------------------------------------------------
+| SESSION USER DATA
+|--------------------------------------------------------------------------
+*/
 
-$_SESSION[
-    "user_name"
-] =
-    (string) (
-        $user["full_name"]
-        ?? "User"
+$_SESSION['user_id'] =
+    (int)(
+        $user['id']
+        ??
+        0
     );
 
-$_SESSION[
-    "user_email"
-] =
-    (string) (
-        $user["email"]
-        ?? $email
+
+$_SESSION['user_name'] =
+    (string)(
+        $user['full_name']
+        ??
+        'User'
     );
 
-$_SESSION[
-    "user_role"
-] =
+
+$_SESSION['user_email'] =
+    (string)(
+        $user['email']
+        ??
+        $email
+    );
+
+
+$_SESSION['user_role'] =
     $role;
 
 
 /*
 |--------------------------------------------------------------------------
-| Remove legacy role/session values
+| LEGACY SESSION CLEANUP
 |--------------------------------------------------------------------------
 */
 
 unset(
-    $_SESSION["role"],
-    $_SESSION["student_id"]
+    $_SESSION['role'],
+    $_SESSION['student_id']
 );
 
 
 /*
 |--------------------------------------------------------------------------
-| REDIRECT
+| REFRESH ACTIVITY
+|--------------------------------------------------------------------------
+*/
+
+$_SESSION['last_activity'] =
+    time();
+
+
+/*
+|--------------------------------------------------------------------------
+| ENSURE CSRF TOKEN EXISTS
+|--------------------------------------------------------------------------
+*/
+
+if (
+    empty(
+        $_SESSION['csrf_token']
+    )
+) {
+
+    $_SESSION['csrf_token'] =
+        bin2hex(
+            random_bytes(
+                32
+            )
+        );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| SUCCESS MESSAGE
+|--------------------------------------------------------------------------
+*/
+
+$_SESSION['success_message'] =
+    'Welcome back, ' .
+    (string)(
+        $user['full_name']
+        ??
+        'User'
+    ) .
+    '!';
+
+
+/*
+|--------------------------------------------------------------------------
+| ROLE DASHBOARD REDIRECT
 |--------------------------------------------------------------------------
 */
 
 header(
-    "Location: " .
+    'Location: ' .
     $dashboard
 );
 
-exit();
+exit;
 
 ?>

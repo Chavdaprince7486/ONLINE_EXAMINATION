@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 require_once '../config/session.php';
 
-
 /*
 |--------------------------------------------------------------------------
-| PENDING REGISTRATION
+| PENDING REGISTRATION CHECK
 |--------------------------------------------------------------------------
 */
 
@@ -31,16 +30,14 @@ if (
     exit;
 }
 
-
 $data =
     $_SESSION[
         'pending_registration'
     ];
 
-
 /*
 |--------------------------------------------------------------------------
-| REQUIRED SESSION FIELDS
+| REQUIRED REGISTRATION DATA
 |--------------------------------------------------------------------------
 */
 
@@ -53,10 +50,8 @@ $requiredFields = [
 
 ];
 
-
 foreach (
-    $requiredFields
-    as $field
+    $requiredFields as $field
 ) {
 
     if (
@@ -83,7 +78,6 @@ foreach (
     }
 }
 
-
 /*
 |--------------------------------------------------------------------------
 | OTP EXPIRY
@@ -91,19 +85,16 @@ foreach (
 */
 
 $otpExpires =
-    (int)
-    $data[
-        'otp_expires'
-    ];
+    (int)(
+        $data['otp_expires']
+    );
 
-
-$now =
+$currentTime =
     time();
-
 
 if (
     $otpExpires <=
-    $now
+    $currentTime
 ) {
 
     unset(
@@ -122,7 +113,6 @@ if (
     exit;
 }
 
-
 /*
 |--------------------------------------------------------------------------
 | OTP ATTEMPTS
@@ -132,19 +122,20 @@ if (
 $otpAttempts =
     max(
         0,
-        (int)
-        $data[
-            'otp_attempts'
-        ]
+        (int)(
+            $data['otp_attempts']
+        )
     );
 
+$maxOtpAttempts =
+    5;
 
 $remainingAttempts =
     max(
         0,
-        5 - $otpAttempts
+        $maxOtpAttempts -
+        $otpAttempts
     );
-
 
 if (
     $remainingAttempts <= 0
@@ -166,22 +157,21 @@ if (
     exit;
 }
 
-
 /*
 |--------------------------------------------------------------------------
-| EMAIL DISPLAY
+| EMAIL
 |--------------------------------------------------------------------------
 */
 
 $email =
     htmlspecialchars(
-        (string)
-        $data['email'],
+        (string)(
+            $data['email']
+        ),
         ENT_QUOTES |
         ENT_SUBSTITUTE,
         'UTF-8'
     );
-
 
 /*
 |--------------------------------------------------------------------------
@@ -190,39 +180,25 @@ $email =
 */
 
 $error =
-    (string) (
-        $_SESSION[
-            'otp_error'
-        ]
+    (string)(
+        $_SESSION['otp_error']
         ?? ''
     );
-
 
 $message =
-    (string) (
-        $_SESSION[
-            'otp_message'
-        ]
+    (string)(
+        $_SESSION['otp_message']
         ?? ''
     );
 
-
 unset(
-
-    $_SESSION[
-        'otp_error'
-    ],
-
-    $_SESSION[
-        'otp_message'
-    ]
-
+    $_SESSION['otp_error'],
+    $_SESSION['otp_message']
 );
-
 
 /*
 |--------------------------------------------------------------------------
-| CSRF TOKEN
+| CSRF
 |--------------------------------------------------------------------------
 */
 
@@ -234,10 +210,9 @@ $csrfToken =
         'UTF-8'
     );
 
-
 /*
 |--------------------------------------------------------------------------
-| TIMER
+| REMAINING TIMER
 |--------------------------------------------------------------------------
 */
 
@@ -245,9 +220,8 @@ $remainingSeconds =
     max(
         0,
         $otpExpires -
-        $now
+        $currentTime
     );
-
 
 ?>
 <!DOCTYPE html>
@@ -258,31 +232,51 @@ $remainingSeconds =
 
     <meta charset="UTF-8">
 
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
-
 
     <meta
         name="color-scheme"
         content="light"
     >
 
-
     <title>
-        Verify OTP | ExamSphere
+        Verify Your Email | ExamSphere
     </title>
 
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
 
     <link
         rel="stylesheet"
         href="../assets/css/login.css"
     >
 
-
     <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            min-height: 100%;
+        }
 
         body {
 
@@ -298,363 +292,477 @@ $remainingSeconds =
 
             justify-content: center;
 
-            background: #f7f4ef;
+            background:
+                linear-gradient(
+                    135deg,
+                    #f8f5ef 0%,
+                    #f1ebdb 100%
+                );
 
             font-family:
+                'Poppins',
                 Arial,
                 Helvetica,
                 sans-serif;
 
-        }
+            color:
+                #332a25;
 
+        }
 
         .otp-card {
 
-            width: 100%;
+            width:
+                min(
+                    440px,
+                    100%
+                );
 
-            max-width: 440px;
+            padding:
+                40px;
 
-            padding: 40px;
+            background:
+                #ffffff;
 
-            box-sizing: border-box;
+            border:
+                1px solid
+                #ebe4da;
 
-            background: #ffffff;
-
-            border-radius: 24px;
+            border-radius:
+                24px;
 
             box-shadow:
                 0 20px 60px
                 rgba(
-                    0,
-                    0,
-                    0,
-                    0.10
+                    62,
+                    39,
+                    35,
+                    .10
                 );
 
-            text-align: center;
+            text-align:
+                center;
 
         }
 
-
         .otp-logo {
 
-            width: 75px;
+            width:
+                78px;
 
-            height: 75px;
+            height:
+                78px;
 
             margin:
                 0 auto 20px;
 
-            display: flex;
+            display:
+                flex;
 
-            align-items: center;
+            align-items:
+                center;
 
-            justify-content: center;
+            justify-content:
+                center;
 
-            background: #f5f5dc;
+            background:
+                #f5f5dc;
 
-            border-radius: 20px;
+            border-radius:
+                20px;
 
         }
-
 
         .otp-logo img {
 
-            max-width: 55px;
+            width:
+                58px;
 
-            max-height: 55px;
+            height:
+                58px;
 
-            object-fit: contain;
+            object-fit:
+                contain;
 
         }
-
 
         .otp-card h1 {
 
             margin:
                 0 0 10px;
 
-            color: #5D4037;
+            color:
+                #5D4037;
 
-            font-size: 28px;
+            font-size:
+                28px;
+
+            line-height:
+                1.25;
+
+            font-weight:
+                800;
 
         }
 
-
-        .otp-card p {
+        .otp-description {
 
             margin:
                 0 0 20px;
 
-            color: #666666;
+            color:
+                #71675f;
 
-            line-height: 1.6;
+            font-size:
+                14px;
+
+            line-height:
+                1.6;
 
         }
 
-
         .email-box {
 
-            margin-bottom: 25px;
+            margin:
+                0 0 20px;
 
             padding:
                 12px 15px;
 
-            background: #f8f6f2;
+            background:
+                #f8f6f2;
 
-            border-radius: 12px;
+            border-radius:
+                12px;
 
-            color: #5D4037;
+            color:
+                #5D4037;
 
-            font-weight: 600;
+            font-size:
+                14px;
 
-            word-break: break-word;
+            font-weight:
+                700;
+
+            word-break:
+                break-word;
 
         }
 
-
         .alert {
 
-            margin-bottom: 20px;
+            margin:
+                0 0 18px;
 
             padding:
                 13px 15px;
 
-            border-radius: 12px;
+            border-radius:
+                12px;
 
-            font-size: 14px;
+            font-size:
+                13px;
 
-            line-height: 1.5;
+            line-height:
+                1.5;
 
         }
-
 
         .alert-error {
 
-            background: #fff0f0;
+            background:
+                #fff0f0;
 
-            color: #a33;
+            color:
+                #a33d35;
 
         }
-
 
         .alert-success {
 
-            background: #eefaf1;
+            background:
+                #eef8ef;
 
-            color: #28743d;
+            color:
+                #2c7440;
 
         }
-
 
         .attempt-box {
 
             margin:
-                -5px 0 18px;
+                0 0 15px;
 
-            color: #777777;
+            color:
+                #81766f;
 
-            font-size: 13px;
+            font-size:
+                13px;
 
         }
-
 
         .attempt-box strong {
 
-            color: #5D4037;
+            color:
+                #5D4037;
 
         }
-
 
         .otp-input {
 
-            width: 100%;
+            width:
+                100%;
 
-            height: 58px;
+            height:
+                62px;
 
             padding:
-                0 15px;
-
-            box-sizing: border-box;
+                0 12px;
 
             border:
-                2px solid #ded8d0;
+                2px solid
+                #ded7ce;
 
-            border-radius: 14px;
+            border-radius:
+                14px;
 
-            outline: none;
+            outline:
+                none;
 
-            text-align: center;
+            background:
+                #ffffff;
 
-            font-size: 28px;
+            color:
+                #3a312c;
 
-            letter-spacing: 9px;
+            text-align:
+                center;
 
-            color: #333333;
+            font-family:
+                'Poppins',
+                Arial,
+                Helvetica,
+                sans-serif;
 
-            background: #ffffff;
+            font-size:
+                28px;
+
+            font-weight:
+                600;
+
+            letter-spacing:
+                8px;
 
             transition:
-                border-color .2s ease,
-                box-shadow .2s ease;
+                .2s ease;
 
         }
 
+        .otp-input::placeholder {
+
+            color:
+                #aaa19a;
+
+        }
 
         .otp-input:focus {
 
-            border-color: #8B5A2B;
+            border-color:
+                #8a6248;
 
             box-shadow:
                 0 0 0 4px
                 rgba(
-                    139,
-                    90,
-                    43,
+                    93,
+                    64,
+                    55,
                     .08
                 );
 
         }
 
+        /*
+         * Important:
+         *
+         * We use readonly while submitting instead of disabled.
+         * Disabled form elements are NOT included in POST data.
+         * Readonly inputs ARE included in POST data.
+         */
 
-        .otp-input:disabled {
+        .otp-input[readonly] {
 
-            background: #f4f1ec;
+            background:
+                #f8f6f2;
 
-            color: #888888;
+            color:
+                #5D4037;
 
-            cursor: not-allowed;
+            cursor:
+                wait;
 
         }
-
 
         .verify-btn {
 
-            width: 100%;
+            width:
+                100%;
 
-            min-height: 54px;
+            min-height:
+                54px;
 
-            margin-top: 18px;
+            margin-top:
+                17px;
 
-            border: 0;
+            border:
+                0;
 
-            border-radius: 14px;
+            border-radius:
+                14px;
 
-            background: #5D4037;
+            background:
+                #5D4037;
 
-            color: #ffffff;
+            color:
+                #ffffff;
 
-            font-size: 16px;
+            font-family:
+                'Poppins',
+                Arial,
+                Helvetica,
+                sans-serif;
 
-            font-weight: 600;
+            font-size:
+                15px;
 
-            cursor: pointer;
+            font-weight:
+                700;
+
+            cursor:
+                pointer;
 
             transition:
                 opacity .2s ease,
-                transform .2s ease;
+                transform .2s ease,
+                background .2s ease;
 
         }
 
-
         .verify-btn:hover:not(:disabled) {
 
-            opacity: 0.92;
+            opacity:
+                .93;
 
             transform:
                 translateY(-1px);
 
         }
 
-
         .verify-btn:disabled {
 
-            opacity: .55;
+            opacity:
+                .55;
 
-            cursor: not-allowed;
+            cursor:
+                not-allowed;
 
-            transform: none;
+            transform:
+                none;
 
         }
-
 
         .timer {
 
-            margin-top: 18px;
+            margin-top:
+                17px;
 
-            color: #777777;
+            color:
+                #81766f;
 
-            font-size: 14px;
+            font-size:
+                13px;
 
         }
-
 
         .timer strong {
 
-            color: #5D4037;
+            color:
+                #5D4037;
 
         }
-
 
         .timer.expired {
 
-            color: #a33;
+            color:
+                #a33d35;
 
-            font-weight: 600;
-
-        }
-
-
-        .back-link {
-
-            display: inline-block;
-
-            margin-top: 22px;
-
-            color: #5D4037;
-
-            text-decoration: none;
-
-            font-weight: 600;
+            font-weight:
+                700;
 
         }
-
-
-        .back-link:hover {
-
-            text-decoration: underline;
-
-        }
-
 
         .expired-message {
 
-            display: none;
+            display:
+                none;
 
-            margin-top: 16px;
+            margin-top:
+                14px;
 
             padding:
                 12px 14px;
 
-            background: #fff0f0;
+            background:
+                #fff0f0;
 
-            color: #a33;
+            color:
+                #a33d35;
 
-            border-radius: 12px;
+            border-radius:
+                12px;
 
-            font-size: 14px;
+            font-size:
+                13px;
 
-            line-height: 1.5;
+            line-height:
+                1.5;
 
         }
-
 
         .expired-message.show {
 
-            display: block;
+            display:
+                block;
 
         }
 
+        .back-link {
+
+            display:
+                inline-block;
+
+            margin-top:
+                21px;
+
+            color:
+                #5D4037;
+
+            font-size:
+                13px;
+
+            font-weight:
+                700;
+
+            text-decoration:
+                none;
+
+        }
+
+        .back-link:hover {
+
+            text-decoration:
+                underline;
+
+        }
 
         @media (
             max-width: 520px
@@ -662,32 +770,45 @@ $remainingSeconds =
 
             body {
 
-                padding: 14px;
+                padding:
+                    14px;
 
             }
-
 
             .otp-card {
 
-                padding: 28px 20px;
+                padding:
+                    28px 20px;
 
-                border-radius: 20px;
+                border-radius:
+                    20px;
 
             }
-
 
             .otp-card h1 {
 
-                font-size: 24px;
+                font-size:
+                    24px;
 
             }
 
+            .otp-description {
+
+                font-size:
+                    13px;
+
+            }
 
             .otp-input {
 
-                font-size: 24px;
+                height:
+                    58px;
 
-                letter-spacing: 7px;
+                font-size:
+                    24px;
+
+                letter-spacing:
+                    7px;
 
             }
 
@@ -697,12 +818,9 @@ $remainingSeconds =
 
 </head>
 
-
 <body>
 
-
 <div class="otp-card">
-
 
     <div class="otp-logo">
 
@@ -713,23 +831,17 @@ $remainingSeconds =
 
     </div>
 
-
     <h1>
         Verify Your Email
     </h1>
 
-
-    <p>
+    <p class="otp-description">
         Enter the 6-digit OTP sent to your email address.
     </p>
 
-
     <div class="email-box">
-
         <?= $email ?>
-
     </div>
-
 
     <?php if (
         $error !== ''
@@ -751,14 +863,13 @@ $remainingSeconds =
 
     <?php endif; ?>
 
-
     <?php if (
         $message !== ''
     ): ?>
 
         <div
             class="alert alert-success"
-            role="alert"
+            role="status"
         >
 
             <?= htmlspecialchars(
@@ -772,7 +883,6 @@ $remainingSeconds =
 
     <?php endif; ?>
 
-
     <div class="attempt-box">
 
         Attempts remaining:
@@ -783,14 +893,13 @@ $remainingSeconds =
 
     </div>
 
-
     <form
+        id="otpForm"
         action="verify_otp_process.php"
         method="POST"
         autocomplete="off"
-        id="otpForm"
+        novalidate
     >
-
 
         <input
             type="hidden"
@@ -798,10 +907,9 @@ $remainingSeconds =
             value="<?= $csrfToken ?>"
         >
 
-
         <input
-            class="otp-input"
             id="otpInput"
+            class="otp-input"
             type="text"
             name="otp"
             inputmode="numeric"
@@ -815,24 +923,20 @@ $remainingSeconds =
             autofocus
         >
 
-
         <button
-            class="verify-btn"
             id="verifyButton"
+            class="verify-btn"
             type="submit"
+            disabled
         >
-
             Verify Email
-
         </button>
-
 
     </form>
 
-
     <div
-        class="timer"
         id="otpTimerContainer"
+        class="timer"
     >
 
         OTP expires in
@@ -843,20 +947,18 @@ $remainingSeconds =
 
     </div>
 
-
     <div
-        class="expired-message"
         id="expiredMessage"
+        class="expired-message"
         role="alert"
     >
 
         Your OTP has expired.
 
-        Please return to registration and request a
-        new verification code.
+        Please return to registration and request
+        a new verification code.
 
     </div>
-
 
     <a
         class="back-link"
@@ -867,9 +969,7 @@ $remainingSeconds =
 
     </a>
 
-
 </div>
-
 
 <script>
 
@@ -877,54 +977,57 @@ $remainingSeconds =
 
     'use strict';
 
+    /*
+    |--------------------------------------------------------------------------
+    | STATE
+    |--------------------------------------------------------------------------
+    */
 
     let remainingSeconds =
-        <?= $remainingSeconds ?>;
+        <?= (int)$remainingSeconds ?>;
 
+    let submitted =
+        false;
 
-    const timerElement =
-        document.getElementById(
-            'otpTimer'
-        );
-
-
-    const timerContainer =
-        document.getElementById(
-            'otpTimerContainer'
-        );
-
-
-    const expiredMessage =
-        document.getElementById(
-            'expiredMessage'
-        );
-
-
-    const otpInput =
-        document.getElementById(
-            'otpInput'
-        );
-
-
-    const verifyButton =
-        document.getElementById(
-            'verifyButton'
-        );
-
+    /*
+    |--------------------------------------------------------------------------
+    | ELEMENTS
+    |--------------------------------------------------------------------------
+    */
 
     const form =
         document.getElementById(
             'otpForm'
         );
 
+    const otpInput =
+        document.getElementById(
+            'otpInput'
+        );
 
-    let submitted =
-        false;
+    const verifyButton =
+        document.getElementById(
+            'verifyButton'
+        );
 
+    const timerElement =
+        document.getElementById(
+            'otpTimer'
+        );
+
+    const timerContainer =
+        document.getElementById(
+            'otpTimerContainer'
+        );
+
+    const expiredMessage =
+        document.getElementById(
+            'expiredMessage'
+        );
 
     /*
     |--------------------------------------------------------------------------
-    | FORMAT TIMER
+    | FORMAT TIME
     |--------------------------------------------------------------------------
     */
 
@@ -937,29 +1040,92 @@ $remainingSeconds =
                 seconds / 60
             );
 
-
         const remainder =
             seconds % 60;
 
-
         return (
-            String(minutes)
-            +
-            ':'
-            +
-            String(
-                remainder
-            ).padStart(
-                2,
-                '0'
-            )
+            String(minutes) +
+            ':' +
+            String(remainder)
+                .padStart(
+                    2,
+                    '0'
+                )
         );
-    }
 
+    }
 
     /*
     |--------------------------------------------------------------------------
-    | EXPIRE UI
+    | NORMALIZE OTP
+    |--------------------------------------------------------------------------
+    */
+
+    function normalizeOtp() {
+
+        if (
+            !otpInput
+        ) {
+
+            return '';
+
+        }
+
+        /*
+         * Keep numeric characters only.
+         * This also handles copied OTP values containing spaces
+         * or hidden formatting characters.
+         */
+
+        otpInput.value =
+            String(
+                otpInput.value ||
+                ''
+            )
+                .replace(
+                    /[^0-9]/g,
+                    ''
+                )
+                .slice(
+                    0,
+                    6
+                );
+
+        return otpInput.value;
+
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE BUTTON STATE
+    |--------------------------------------------------------------------------
+    */
+
+    function updateButtonState() {
+
+        if (
+            !verifyButton
+        ) {
+
+            return;
+
+        }
+
+        const value =
+            normalizeOtp();
+
+        verifyButton.disabled =
+            submitted
+            ||
+            remainingSeconds <= 0
+            ||
+            value.length !== 6;
+
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | EXPIRE OTP
     |--------------------------------------------------------------------------
     */
 
@@ -967,7 +1133,6 @@ $remainingSeconds =
 
         remainingSeconds =
             0;
-
 
         if (
             timerElement
@@ -977,7 +1142,6 @@ $remainingSeconds =
                 'Expired';
 
         }
-
 
         if (
             timerContainer
@@ -989,16 +1153,18 @@ $remainingSeconds =
 
         }
 
-
         if (
             otpInput
         ) {
 
-            otpInput.disabled =
+            /*
+             * readonly is enough here and keeps POST semantics safe.
+             */
+
+            otpInput.readOnly =
                 true;
 
         }
-
 
         if (
             verifyButton
@@ -1012,7 +1178,6 @@ $remainingSeconds =
 
         }
 
-
         if (
             expiredMessage
         ) {
@@ -1024,7 +1189,6 @@ $remainingSeconds =
         }
 
     }
-
 
     /*
     |--------------------------------------------------------------------------
@@ -1045,7 +1209,6 @@ $remainingSeconds =
 
         }
 
-
         if (
             timerElement
         ) {
@@ -1057,8 +1220,9 @@ $remainingSeconds =
 
         }
 
-
         remainingSeconds--;
+
+        updateButtonState();
 
         window.setTimeout(
             updateTimer,
@@ -1067,10 +1231,9 @@ $remainingSeconds =
 
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | NUMERIC INPUT
+    | INPUT
     |--------------------------------------------------------------------------
     */
 
@@ -1082,32 +1245,12 @@ $remainingSeconds =
             'input',
             function () {
 
-                this.value =
-                    this.value
-                        .replace(
-                            /[^0-9]/g,
-                            ''
-                        )
-                        .slice(
-                            0,
-                            6
-                        );
+                normalizeOtp();
 
-
-                if (
-                    verifyButton
-                ) {
-
-                    verifyButton.disabled =
-                        this.value.length !== 6
-                        ||
-                        remainingSeconds <= 0;
-
-                }
+                updateButtonState();
 
             }
         );
-
 
         otpInput.addEventListener(
             'paste',
@@ -1116,11 +1259,9 @@ $remainingSeconds =
                 window.setTimeout(
                     function () {
 
-                        otpInput.dispatchEvent(
-                            new Event(
-                                'input'
-                            )
-                        );
+                        normalizeOtp();
+
+                        updateButtonState();
 
                     },
                     0
@@ -1129,8 +1270,56 @@ $remainingSeconds =
             }
         );
 
-    }
+        otpInput.addEventListener(
+            'keydown',
+            function (event) {
 
+                /*
+                 * Allow:
+                 * - Backspace
+                 * - Delete
+                 * - Tab
+                 * - Arrow keys
+                 * - Home / End
+                 */
+
+                const allowedKeys = [
+
+                    'Backspace',
+                    'Delete',
+                    'Tab',
+                    'ArrowLeft',
+                    'ArrowRight',
+                    'Home',
+                    'End'
+
+                ];
+
+                if (
+                    allowedKeys.includes(
+                        event.key
+                    )
+                ) {
+
+                    return;
+
+                }
+
+                if (
+                    !/^[0-9]$/
+                        .test(
+                            event.key
+                        )
+                ) {
+
+                    event.preventDefault();
+
+                }
+
+            }
+        );
+
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -1144,9 +1333,11 @@ $remainingSeconds =
 
         form.addEventListener(
             'submit',
-            function (
-                event
-            ) {
+            function (event) {
+
+                /*
+                 * Stop duplicate submissions.
+                 */
 
                 if (
                     submitted
@@ -1158,6 +1349,9 @@ $remainingSeconds =
 
                 }
 
+                /*
+                 * Stop submission after expiry.
+                 */
 
                 if (
                     remainingSeconds <=
@@ -1172,12 +1366,16 @@ $remainingSeconds =
 
                 }
 
+                /*
+                 * Normalize one last time before submit.
+                 */
 
                 const value =
-                    otpInput
-                        ? otpInput.value
-                        : '';
+                    normalizeOtp();
 
+                /*
+                 * Require exactly six digits.
+                 */
 
                 if (
                     !/^[0-9]{6}$/
@@ -1196,24 +1394,40 @@ $remainingSeconds =
 
                     }
 
+                    updateButtonState();
+
                     return;
 
                 }
 
+                /*
+                 * Mark submission state.
+                 */
 
                 submitted =
                     true;
 
+                /*
+                 * IMPORTANT FIX
+                 *
+                 * Do NOT use:
+                 *
+                 * otpInput.disabled = true;
+                 *
+                 * Disabled inputs are not submitted with
+                 * the HTML form.
+                 *
+                 * readonly inputs ARE submitted.
+                 */
 
                 if (
                     otpInput
                 ) {
 
-                    otpInput.disabled =
+                    otpInput.readOnly =
                         true;
 
                 }
-
 
                 if (
                     verifyButton
@@ -1221,7 +1435,6 @@ $remainingSeconds =
 
                     verifyButton.disabled =
                         true;
-
 
                     verifyButton.textContent =
                         'Verifying...';
@@ -1233,12 +1446,15 @@ $remainingSeconds =
 
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | START
+    | INITIALIZE
     |--------------------------------------------------------------------------
     */
+
+    normalizeOtp();
+
+    updateButtonState();
 
     if (
         remainingSeconds > 0
@@ -1255,7 +1471,6 @@ $remainingSeconds =
 })();
 
 </script>
-
 
 </body>
 

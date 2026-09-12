@@ -1,0 +1,473 @@
+/* =========================================================
+   EXAMSPHERE - ADMIN EXAM BUILDER
+   ========================================================= */
+
+.exam-builder-page {
+    width: min(1450px, calc(100% - 20px));
+    margin: 0 auto;
+    padding: 20px 0 50px;
+}
+
+.exam-builder-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 22px;
+}
+
+.exam-builder-header > div {
+    min-width: 0;
+}
+
+.exam-builder-header h1 {
+    margin: 7px 0 5px;
+    color: #3e2723;
+    font-size: 2rem;
+    line-height: 1.15;
+    font-weight: 800;
+}
+
+.exam-builder-header p {
+    margin: 0;
+    max-width: 820px;
+    color: #81766f;
+    font-size: .72rem;
+    line-height: 1.7;
+}
+
+.exam-builder-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: #667d27;
+    font-size: .61rem;
+    font-weight: 800;
+    letter-spacing: .14em;
+}
+
+.exam-builder-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 15px;
+    border: 1px solid #e1d9ce;
+    border-radius: 11px;
+    background: #fff;
+    color: #5d4037;
+    font-size: .66rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.exam-builder-back:hover {
+    transform: translateY(-1px);
+    color: #5d4037;
+    background: #fcfaf7;
+}
+
+.exam-builder-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding: 13px 15px;
+    border-radius: 13px;
+    font-size: .66rem;
+    line-height: 1.5;
+}
+
+.exam-builder-alert.error {
+    color: #983e35;
+    background: #fff1ef;
+    border: 1px solid #f0d0cb;
+}
+
+.exam-builder-alert.success {
+    color: #416c2d;
+    background: #eef7e9;
+    border: 1px solid #d6e7c9;
+}
+
+.exam-builder-alert a {
+    margin-left: auto;
+    color: inherit;
+    font-weight: 800;
+}
+
+/* =========================================================
+   FORCE RESPONSIVE GRID
+   ========================================================= */
+
+.exam-builder-page .row {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    margin: 0;
+}
+
+.exam-builder-page .g-3 {
+    gap: 16px;
+}
+
+.exam-builder-page .col-12 {
+    width: 100%;
+    flex: 0 0 100%;
+}
+
+.exam-builder-page .col-md-4 {
+    width: calc(33.333333% - 11px);
+    flex: 0 0 calc(33.333333% - 11px);
+}
+
+.exam-builder-page .col-md-6 {
+    width: calc(50% - 8px);
+    flex: 0 0 calc(50% - 8px);
+}
+
+.exam-builder-page .col-md-8 {
+    width: calc(66.666667% - 6px);
+    flex: 0 0 calc(66.666667% - 6px);
+}
+
+.exam-builder-page .col-lg-4 {
+    width: calc(33.333333% - 11px);
+    flex: 0 0 calc(33.333333% - 11px);
+}
+
+.exam-builder-page .col-lg-8 {
+    width: calc(66.666667% - 6px);
+    flex: 0 0 calc(66.666667% - 6px);
+}
+
+.exam-builder-page .card {
+    width: 100%;
+    border: 1px solid #e7dfd5 !important;
+    border-radius: 19px !important;
+    background: #ffffff !important;
+    box-shadow:
+        0 16px 42px rgba(62, 39, 35, .055) !important;
+}
+
+.exam-builder-page .card-body {
+    padding: 23px !important;
+}
+
+.exam-builder-page .card h2 {
+    margin-bottom: 4px !important;
+    color: #44362e;
+    font-size: 1rem;
+    font-weight: 800;
+}
+
+.exam-builder-page .card h2::after {
+    content: "";
+}
+
+/* =========================================================
+   FORM
+   ========================================================= */
+
+.exam-builder-page .form-label {
+    display: block;
+    margin-bottom: 7px;
+    color: #574a42;
+    font-size: .64rem;
+    font-weight: 700;
+}
+
+.exam-builder-page .form-control,
+.exam-builder-page .form-select {
+    width: 100%;
+    min-height: 45px;
+    border: 1px solid #dfd7cd;
+    border-radius: 11px;
+    background: #fff;
+    color: #41362f;
+    font-family: 'Poppins', sans-serif;
+    font-size: .69rem;
+    outline: none;
+    box-shadow: none;
+}
+
+.exam-builder-page .form-control:focus,
+.exam-builder-page .form-select:focus {
+    border-color: #89664f;
+    box-shadow:
+        0 0 0 4px rgba(93, 64, 55, .055);
+}
+
+.exam-builder-page textarea.form-control {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.exam-builder-page input::placeholder,
+.exam-builder-page textarea::placeholder {
+    color: #aaa19a;
+}
+
+/* =========================================================
+   AUTOMATIC TOTAL
+   ========================================================= */
+
+.exam-builder-page #adminTotalMarks {
+    font-size: 1.55rem;
+    line-height: 1;
+    font-weight: 800;
+}
+
+.exam-builder-page .p-3.rounded-3 {
+    border-radius: 15px !important;
+}
+
+.exam-builder-page .small {
+    font-size: .59rem;
+    line-height: 1.5;
+}
+
+/* =========================================================
+   SWITCH
+   ========================================================= */
+
+.exam-builder-page .form-check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.exam-builder-page .form-check-input {
+    width: 2.2em;
+    height: 1.1em;
+    margin-top: 0;
+    cursor: pointer;
+}
+
+.exam-builder-page .form-check-label {
+    color: #554940;
+    font-size: .64rem;
+}
+
+/* =========================================================
+   QUESTION SOURCE
+   ========================================================= */
+
+.exam-builder-page .btn-group {
+    display: inline-flex;
+    gap: 7px;
+}
+
+.exam-builder-page .source-selector {
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 15px;
+    border: 1px solid #ddd4ca !important;
+    border-radius: 10px !important;
+    color: #66594f;
+    background: #fff;
+    font-size: .63rem;
+    font-weight: 700;
+}
+
+.exam-builder-page .source-selector.active {
+    background: #5d4037;
+    color: #fff;
+    border-color: #5d4037 !important;
+}
+
+/* =========================================================
+   QUESTION BANK
+   ========================================================= */
+
+.exam-builder-page #adminManualSource > div.border {
+    border-color: #e5ddd3 !important;
+    border-radius: 13px !important;
+    background: #fff;
+}
+
+.exam-builder-page .admin-question-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 13px !important;
+    cursor: pointer;
+    transition: background .15s ease;
+}
+
+.exam-builder-page .admin-question-row:hover {
+    background: #fbfaf7;
+}
+
+.exam-builder-page .admin-question-row strong {
+    color: #483b33;
+    font-size: .63rem;
+    line-height: 1.5;
+}
+
+.exam-builder-page .admin-question-row small {
+    display: block;
+    margin-top: 4px;
+    color: #938980;
+    font-size: .54rem;
+    line-height: 1.5;
+}
+
+.exam-builder-page .admin-question-check {
+    flex: 0 0 auto;
+    margin-top: 2px;
+}
+
+/* =========================================================
+   CSV
+   ========================================================= */
+
+.exam-builder-page #adminCsvSource {
+    padding: 15px;
+    border: 1px dashed #d4cabd;
+    border-radius: 14px;
+    background: #fbfaf7;
+}
+
+.exam-builder-page #adminCsvSource pre {
+    margin-bottom: 0;
+    border-radius: 10px;
+    background: #241e1b !important;
+    color: #f4f2ed !important;
+}
+
+/* =========================================================
+   ACTION BUTTONS
+   ========================================================= */
+
+.exam-builder-page .btn {
+    min-height: 42px;
+    border-radius: 10px;
+    font-family: 'Poppins', sans-serif;
+    font-size: .63rem;
+    font-weight: 700;
+}
+
+.exam-builder-page .btn-success {
+    background: #617d2d !important;
+    border-color: #617d2d !important;
+}
+
+.exam-builder-page .btn-success:hover {
+    background: #526b25 !important;
+    border-color: #526b25 !important;
+}
+
+.exam-builder-page .btn-outline-secondary {
+    color: #5d4037;
+    border-color: #d8cec3;
+}
+
+.exam-builder-page .btn-outline-secondary:hover {
+    background: #f3ede6;
+    color: #5d4037;
+}
+
+.exam-builder-page .d-flex.justify-content-end {
+    gap: 9px;
+}
+
+/* =========================================================
+   REMOVE OLD FIXED-RULE VISUALS
+   ========================================================= */
+
+.exam-builder-page .fixed-rule,
+.exam-builder-page .exam-fixed-rule,
+.exam-builder-page .rule-banner,
+.exam-builder-page [data-fixed-question-rule="true"] {
+    display: none !important;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1100px) {
+
+    .exam-builder-page {
+        width: calc(100% - 10px);
+    }
+
+    .exam-builder-page .col-lg-8,
+    .exam-builder-page .col-lg-4 {
+        width: 100%;
+        flex: 0 0 100%;
+    }
+
+}
+
+@media (max-width: 800px) {
+
+    .exam-builder-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .exam-builder-header h1 {
+        font-size: 1.65rem;
+    }
+
+    .exam-builder-page .col-md-8,
+    .exam-builder-page .col-md-6,
+    .exam-builder-page .col-md-4 {
+        width: 100%;
+        flex: 0 0 100%;
+    }
+
+    .exam-builder-page .card-body {
+        padding: 18px !important;
+    }
+
+    .exam-builder-page .g-3 {
+        gap: 13px;
+    }
+
+    .exam-builder-page .d-flex.justify-content-end {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .exam-builder-page .d-flex.justify-content-end .btn {
+        width: 100%;
+    }
+
+}
+
+@media (max-width: 520px) {
+
+    .exam-builder-page {
+        width: 100%;
+        padding-top: 10px;
+    }
+
+    .exam-builder-header h1 {
+        font-size: 1.45rem;
+    }
+
+    .exam-builder-header p {
+        font-size: .64rem;
+    }
+
+    .exam-builder-page .card-body {
+        padding: 15px !important;
+    }
+
+    .exam-builder-page .source-selector {
+        width: 100%;
+    }
+
+    .exam-builder-page .btn-group {
+        width: 100%;
+        flex-direction: column;
+    }
+
+} 

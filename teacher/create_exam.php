@@ -1,936 +1,2889 @@
 <?php
+
 declare(strict_types=1);
 
 require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
+require_once '../config/exam_validation.php';
+require_once '../config/exam_builder.php';
 
-if (
-    empty($_SESSION['user_id']) ||
-    ($_SESSION['user_role'] ?? '') !== 'teacher'
-) {
+if (!is_array($_SESSION ?? null) || (int)($_SESSION['user_id'] ?? 0) <= 0 || ($_SESSION['user_role'] ?? '') !== 'teacher') {
     header('Location: ../auth/login.php');
     exit;
 }
 
-$teacherId = (int) $_SESSION['user_id'];
-
-$message = '';
+$teacherId = (int)$_SESSION['user_id'];
 $error = '';
+$message = '';
+$successExamId = 0;
 
 $title = trim((string)($_POST['title'] ?? ''));
 $description = trim((string)($_POST['description'] ?? ''));
-$subjectId = filter_input(INPUT_POST, 'subject_id', FILTER_VALIDATE_INT);
-$examType = (string)($_POST['exam_type'] ?? 'Practice');
-$duration = filter_input(INPUT_POST, 'duration_minutes', FILTER_VALIDATE_INT);
-$totalMarks = filter_input(INPUT_POST, 'total_marks', FILTER_VALIDATE_FLOAT);
-$marksPerQuestion = filter_input(INPUT_POST, 'marks_per_question', FILTER_VALIDATE_FLOAT);
-$passingMarks = filter_input(INPUT_POST, 'passing_marks', FILTER_VALIDATE_FLOAT);
+$subjectId = filter_var($_POST['subject_id'] ?? '', FILTER_VALIDATE_INT);
+$examType = trim((string)($_POST['exam_type'] ?? 'Practice'));
+$questionCount = filter_var($_POST['question_count'] ?? '', FILTER_VALIDATE_INT);
+$marksPerQuestion = filter_var($_POST['marks_per_question'] ?? '', FILTER_VALIDATE_FLOAT);
+$passingMarks = filter_var($_POST['passing_marks'] ?? '', FILTER_VALIDATE_FLOAT);
 $negativeEnabled = isset($_POST['negative_marking']);
-$negativeMarks = filter_input(INPUT_POST, 'negative_marks', FILTER_VALIDATE_FLOAT);
-$startsAt = trim((string)($_POST['starts_at'] ?? ''));
-$endsAt = trim((string)($_POST['ends_at'] ?? ''));
-$action = (string)($_POST['action'] ?? '');
+$negativeMarks = filter_var($_POST['negative_marks'] ?? '0', FILTER_VALIDATE_FLOAT);
+$duration = filter_var($_POST['duration_minutes'] ?? '60', FILTER_VALIDATE_INT);
+$examFee = filter_var($_POST['exam_fee'] ?? '0', FILTER_VALIDATE_FLOAT);
+$subscriptionRequired = isset($_POST['subscription_required']);
+$startsAtInput = trim((string)($_POST['starts_at'] ?? ''));
+$endsAtInput = trim((string)($_POST['ends_at'] ?? ''));
 
-if ($duration === false || $duration === null) $duration = 60;
-if ($negativeMarks === false || $negativeMarks === null) $negativeMarks = 0.0;
-if ($passingMarks === false || $passingMarks === null) $passingMarks = 0.0;
+$action = trim((string)($_POST['action'] ?? ''));
 
-$posted = $_POST['question_ids'] ?? [];
-if (!is_array($posted)) $posted = [];
+/*
+|--------------------------------------------------------------------------
+| CSV IS NOW THE DEFAULT / PRIMARY METHOD
+|--------------------------------------------------------------------------
+*/
 
-$questionIds = [];
-foreach ($posted as $id) {
-    $id = filter_var($id, FILTER_VALIDATE_INT);
-    if ($id !== false && $id > 0) $questionIds[] = (int)$id;
+$source = trim((string)($_POST['question_source'] ?? 'csv'));
+
+$selectedIds = $_POST['question_ids'] ?? [];
+
+if (!is_array($selectedIds)) {
+    $selectedIds = [];
 }
-$questionIds = array_values(array_unique($questionIds));
 
-$csrfToken = function_exists('csrf_token')
-    ? csrf_token()
-    : (string)($_SESSION['csrf_token'] ?? '');
-
-$subjects = $conn->query(
-    "SELECT id, name, code
-     FROM subjects
-     WHERE status='Active'
-     ORDER BY name ASC, id ASC"
-)->fetchAll(PDO::FETCH_ASSOC);
-
-$qStmt = $conn->prepare(
-    "SELECT
-        q.id,
-        q.question_text,
-        q.option_a,
-        q.option_b,
-        q.option_c,
-        q.option_d,
-        q.correct_answer,
-        q.marks,
-        q.negative_marks,
-        q.difficulty,
-        q.subject_id,
-        s.name AS subject_name
-     FROM questions q
-     INNER JOIN subjects s
-        ON s.id=q.subject_id
-       AND s.status='Active'
-     WHERE q.created_by_teacher_id=?
-       AND q.status='Active'
-     ORDER BY s.name ASC, q.id DESC"
+$selectedIds = array_values(
+    array_unique(
+        array_filter(
+            array_map(
+                'intval',
+                $selectedIds
+            ),
+            static fn(int $id): bool => $id > 0
+        )
+    )
 );
-$qStmt->execute([$teacherId]);
-$questions = $qStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$requiredQuestions = 0;
-$selectedMarks = 0.0;
-$validQuestions = [];
+$questionCount = (
+    $questionCount !== false &&
+    $questionCount !== null
+)
+    ? $questionCount
+    : 0;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$marksPerQuestion = (
+    $marksPerQuestion !== false &&
+    $marksPerQuestion !== null
+)
+    ? $marksPerQuestion
+    : 0.0;
 
-    $requestToken = trim((string)($_POST['csrf_token'] ?? ''));
-    $csrfValid = false;
+$passingMarks = (
+    $passingMarks !== false &&
+    $passingMarks !== null
+)
+    ? $passingMarks
+    : 0.0;
 
-    if (function_exists('verify_csrf_token')) {
-        $csrfValid = verify_csrf_token($requestToken);
-    } elseif (
-        isset($_SESSION['csrf_token']) &&
-        $requestToken !== ''
-    ) {
-        $csrfValid = hash_equals(
-            (string)$_SESSION['csrf_token'],
-            $requestToken
-        );
-    }
+$negativeMarks = (
+    $negativeMarks !== false &&
+    $negativeMarks !== null
+)
+    ? $negativeMarks
+    : 0.0;
 
-    if (!$csrfValid) {
-        $error = 'Invalid security token. Please refresh the page and try again.';
-    } elseif ($title === '') {
-        $error = 'Please enter an exam title.';
-    } elseif (mb_strlen($title) > 180) {
-        $error = 'Exam title cannot exceed 180 characters.';
-    } elseif (
-        $subjectId === false ||
-        $subjectId === null ||
-        $subjectId <= 0
-    ) {
-        $error = 'Please select a subject.';
-    } elseif (!in_array($examType, ['Practice','Live'], true)) {
-        $error = 'Invalid exam type.';
-    } elseif (
-        $duration === false ||
-        $duration === null ||
-        $duration < 1 ||
-        $duration > 1440
-    ) {
-        $error = 'Duration must be between 1 and 1440 minutes.';
-    } elseif (mb_strlen($description) > 1000) {
-        $error = 'Exam description cannot exceed 1000 characters.';
-    } elseif (
-        $totalMarks === false ||
-        $totalMarks === null ||
-        $totalMarks <= 0
-    ) {
-        $error = 'Total Marks must be greater than 0.';
-    } elseif (
-        $marksPerQuestion === false ||
-        $marksPerQuestion === null ||
-        $marksPerQuestion <= 0
-    ) {
-        $error = 'Marks Per Question must be greater than 0.';
-    }
+$duration = (
+    $duration !== false &&
+    $duration !== null
+)
+    ? $duration
+    : 60;
 
-    if ($error === '') {
-        $ratio = (float)$totalMarks / (float)$marksPerQuestion;
-        if (abs($ratio - round($ratio)) > 0.000001) {
-            $error = 'Invalid Exam Configuration: Total Marks must be exactly divisible by Marks Per Question.';
-        } else {
-            $requiredQuestions = (int)round($ratio);
-        }
-    }
+$examFee = (
+    $examFee !== false &&
+    $examFee !== null
+)
+    ? $examFee
+    : 0.0;
 
-    if (
-        $error === '' &&
-        $requiredQuestions !== 50 &&
-        $action === 'publish'
-    ) {
-        $error =
-            'The current ExamSphere engine requires exactly 50 questions for a publishable exam. Configure Total Marks and Marks Per Question accordingly.';
-    }
+$subjects = [];
+$questions = [];
 
-    if (
-        $error === '' &&
-        ($passingMarks < 0 || $passingMarks > (float)$totalMarks)
-    ) {
-        $error = 'Passing Marks must be between 0 and Total Marks.';
-    }
+try {
 
-    if ($negativeMarks < 0) {
-        $error = 'Negative Marks must be 0 or greater.';
-    }
+    $subjects = $conn->query(
+        "
+        SELECT
+            id,
+            name,
+            code
 
-    if (!$negativeEnabled) {
-        $negativeMarks = 0.0;
-    }
+        FROM subjects
 
-    if (
-        $error === '' &&
-        $negativeEnabled &&
-        $negativeMarks > (float)$marksPerQuestion
-    ) {
-        $error = 'Negative Marks cannot be greater than Marks Per Question.';
-    }
+        WHERE
+            status = 'Active'
 
-    $startValue = null;
-    $endValue = null;
-
-    if ($error === '' && $examType === 'Live') {
-
-        if ($startsAt === '') {
-            $error = 'A Live exam requires a Start Date & Time.';
-        } else {
-
-            $startTimestamp = strtotime($startsAt);
-
-            if ($startTimestamp === false) {
-                $error = 'Please enter a valid Live exam Start Date & Time.';
-            } elseif ($startTimestamp <= time()) {
-                $error = 'Live exam Start Date & Time must be in the future.';
-            } else {
-                $startValue = date('Y-m-d H:i:s', $startTimestamp);
-            }
-        }
-
-        if (
-            $error === '' &&
-            $endsAt !== ''
-        ) {
-
-            $endTimestamp = strtotime($endsAt);
-
-            if ($endTimestamp === false) {
-                $error = 'Please enter a valid End Date & Time.';
-            } elseif (
-                $startValue !== null &&
-                $endTimestamp <= strtotime($startValue)
-            ) {
-                $error = 'End Date & Time must be after Start Date & Time.';
-            } else {
-                $endValue = date('Y-m-d H:i:s', $endTimestamp);
-            }
-        }
-    }
-
-    if ($error === '') {
-
-        $subjectCheck = $conn->prepare(
-            "SELECT id
-             FROM subjects
-             WHERE id=?
-               AND status='Active'
-             LIMIT 1"
-        );
-        $subjectCheck->execute([(int)$subjectId]);
-
-        if (!$subjectCheck->fetchColumn()) {
-            $error = 'The selected subject is not available.';
-        }
-    }
-
-    if (
-        $error === '' &&
-        !empty($questionIds)
-    ) {
-
-        $placeholders = implode(
-            ',',
-            array_fill(0, count($questionIds), '?')
-        );
-
-        $validationStmt = $conn->prepare(
-            "SELECT
-                id,
-                marks,
-                negative_marks
-             FROM questions
-             WHERE created_by_teacher_id=?
-               AND subject_id=?
-               AND status='Active'
-               AND id IN ($placeholders)"
-        );
-
-        $validationStmt->execute(
-            array_merge(
-                [
-                    $teacherId,
-                    (int)$subjectId
-                ],
-                $questionIds
-            )
-        );
-
-        $validQuestions =
-            $validationStmt->fetchAll(
-                PDO::FETCH_ASSOC
-            );
-
-        $validIds = array_map(
-            'intval',
-            array_column($validQuestions, 'id')
-        );
-
-        sort($validIds);
-
-        $requestedIds = $questionIds;
-        sort($requestedIds);
-
-        if ($validIds !== $requestedIds) {
-            $error =
-                'One or more selected questions are unavailable, inactive, or do not belong to your question bank.';
-        }
-    }
-
-    $selectedCount = count($validQuestions);
-
-    foreach ($validQuestions as $q) {
-        $selectedMarks += (float)$q['marks'];
-    }
-
-    $selectedMarks = round(
-        $selectedMarks,
-        2
+        ORDER BY
+            name ASC,
+            id ASC
+        "
+    )->fetchAll(
+        PDO::FETCH_ASSOC
     );
 
+
+    $questionStmt = $conn->prepare(
+        "
+        SELECT
+
+            q.id,
+            q.question_text,
+            q.marks,
+            q.negative_marks,
+            q.difficulty,
+
+            s.name AS subject_name
+
+        FROM questions q
+
+        INNER JOIN subjects s
+
+            ON s.id =
+               q.subject_id
+
+           AND s.status =
+               'Active'
+
+        WHERE
+
+            q.created_by_teacher_id = ?
+
+            AND q.status = 'Active'
+
+        ORDER BY
+            q.id DESC
+        "
+    );
+
+    $questionStmt->execute([
+        $teacherId
+    ]);
+
+    $questions =
+        $questionStmt->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+} catch (
+    Throwable $e
+) {
+
+    error_log(
+        'Teacher create exam load failed: ' .
+        $e->getMessage()
+    );
+
+    $error =
+        'Unable to load exam configuration data.';
+}
+
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    &&
+    $error === ''
+) {
+
     if (
-        $error === '' &&
-        $action === 'draft' &&
-        $selectedCount > $requiredQuestions
+        !verify_csrf_token(
+            $_POST['csrf_token']
+            ??
+            null
+        )
     ) {
+
         $error =
-            'A draft cannot contain more than ' .
-            $requiredQuestions .
-            ' selected questions.';
-    }
+            'Invalid security token. Refresh the page and try again.';
 
-    if (
-        $error === '' &&
-        $action === 'publish' &&
-        $selectedCount !== $requiredQuestions
+    } elseif (
+        $title === ''
+        ||
+        mb_strlen(
+            $title
+        ) > 180
     ) {
 
-        if ($selectedCount < $requiredQuestions) {
-            $missing =
-                $requiredQuestions -
-                $selectedCount;
-
-            $error =
-                'You must add exactly ' .
-                $requiredQuestions .
-                ' questions before publishing this exam. ' .
-                $missing .
-                ' more question' .
-                ($missing === 1 ? '' : 's') .
-                ' required.';
-        } else {
-            $extra =
-                $selectedCount -
-                $requiredQuestions;
-
-            $error =
-                'You selected ' .
-                $selectedCount .
-                ' questions. Remove ' .
-                $extra .
-                ' question' .
-                ($extra === 1 ? '' : 's') .
-                '.';
-        }
-    }
-
-    if (
-        $error === '' &&
-        $action === 'publish' &&
-        abs($selectedMarks - (float)$totalMarks) > 0.000001
-    ) {
         $error =
-            'Total question marks are ' .
-            number_format($selectedMarks, 2) .
-            ', but the exam requires ' .
-            number_format((float)$totalMarks, 2) .
-            ' marks.';
+            'Exam title is required and must not exceed 180 characters.';
+
+    } elseif (
+        $subjectId === false
+        ||
+        $subjectId < 1
+    ) {
+
+        $error =
+            'Please select a subject.';
+
+    } elseif (
+        !in_array(
+            $examType,
+            [
+                'Practice',
+                'Live'
+            ],
+            true
+        )
+    ) {
+
+        $error =
+            'Invalid exam type.';
+
+    } elseif (
+        $questionCount < 1
+        ||
+        $questionCount > 65535
+    ) {
+
+        $error =
+            'Question count must be between 1 and 65535.';
+
+    } elseif (
+        $marksPerQuestion <= 0
+    ) {
+
+        $error =
+            'Marks per question must be greater than zero.';
+
+    } elseif (
+        (
+            $questionCount *
+            $marksPerQuestion
+        )
+        >
+        EXAM_BUILDER_MAX_TOTAL_MARKS
+    ) {
+
+        $error =
+            'Total marks cannot exceed 300. Reduce the question count or marks per question.';
+
+    } elseif (
+        $passingMarks < 0
+        ||
+        $passingMarks >
+        (
+            $questionCount *
+            $marksPerQuestion
+        )
+    ) {
+
+        $error =
+            'Passing marks must be between 0 and the calculated total marks.';
+
+    } elseif (
+        $duration < 1
+        ||
+        $duration > 65535
+    ) {
+
+        $error =
+            'Duration must be between 1 and 65535 minutes.';
+
+    } elseif (
+        $negativeMarks < 0
+        ||
+        $negativeMarks >
+        $marksPerQuestion
+    ) {
+
+        $error =
+            'Negative marks must be between 0 and marks per question.';
+
     }
 
+
     if (
-        $error === '' &&
+        $error === ''
+        &&
+        !$negativeEnabled
+    ) {
+
+        $negativeMarks =
+            0.0;
+
+    }
+
+
+    $startsAt =
+        exam_builder_datetime(
+            $startsAtInput
+        );
+
+    $endsAt =
+        exam_builder_datetime(
+            $endsAtInput
+        );
+
+
+    if (
+        $error === ''
+        &&
+        (
+            $startsAtInput !== ''
+            &&
+            $startsAt === null
+        )
+    ) {
+
+        $error =
+            'Invalid start date and time.';
+
+    }
+
+
+    if (
+        $error === ''
+        &&
+        (
+            $endsAtInput !== ''
+            &&
+            $endsAt === null
+        )
+    ) {
+
+        $error =
+            'Invalid end date and time.';
+
+    }
+
+
+    if (
+        $error === ''
+        &&
+        $startsAt !== null
+        &&
+        $endsAt !== null
+        &&
+        strtotime(
+            $endsAt
+        )
+        <=
+        strtotime(
+            $startsAt
+        )
+    ) {
+
+        $error =
+            'End date and time must be after start date and time.';
+
+    }
+
+
+    if (
+        $error === ''
+        &&
+        $examType === 'Live'
+        &&
+        $action === 'publish' &&
+        $startsAt === null
+    ) {
+
+        $error =
+            'A Live exam requires a start date and time before publishing.';
+
+    }
+
+
+    if (
+        $error === ''
+        &&
+        !in_array(
+            $source,
+            [
+                'manual',
+                'csv'
+            ],
+            true
+        )
+    ) {
+
+        $error =
+            'Invalid question source.';
+
+    }
+
+
+    $creatorTeacherId =
+        $teacherId;
+
+    $questionRows =
+        [];
+
+    $existingRows =
+        [];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PUBLISH QUESTION VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        $error === ''
+        &&
         $action === 'publish'
     ) {
 
-        foreach ($validQuestions as $q) {
+        /*
+        |--------------------------------------------------------------------------
+        | PRIMARY: CSV
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $source === 'csv'
+        ) {
+
+            $upload =
+                $_FILES[
+                    'questions_csv'
+                ]
+                ??
+                null;
+
 
             if (
-                abs(
-                    (float)$q['marks'] -
-                    (float)$marksPerQuestion
-                ) > 0.000001
+                !is_array(
+                    $upload
+                )
+                ||
+                (
+                    $upload[
+                        'error'
+                    ]
+                    ??
+                    UPLOAD_ERR_NO_FILE
+                )
+                !==
+                UPLOAD_ERR_OK
             ) {
+
                 $error =
-                    'All selected questions must use exactly ' .
-                    number_format((float)$marksPerQuestion, 2) .
-                    ' marks per question.';
-                break;
+                    'Please select a valid CSV file.';
+
+            } else {
+
+                try {
+
+                    $questionRows =
+                        exam_builder_parse_csv_questions(
+
+                            (string)
+                            $upload[
+                                'tmp_name'
+                            ],
+
+                            (int)
+                            $subjectId,
+
+                            $creatorTeacherId,
+
+                            (float)
+                            $marksPerQuestion,
+
+                            $negativeEnabled
+                                ? (float)
+                                    $negativeMarks
+                                : 0.0,
+
+                            (string)
+                            $questionCount
+
+                        );
+
+                } catch (
+                    Throwable $e
+                ) {
+
+                    $error =
+                        $e->getMessage();
+                }
+
             }
+
+
         }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | OPTIONAL: QUESTION BANK
+        |--------------------------------------------------------------------------
+        */
+
+        else {
+
+            if (
+                count(
+                    $selectedIds
+                )
+                !==
+                $questionCount
+            ) {
+
+                $error =
+                    'You must select exactly ' .
+                    $questionCount .
+                    ' questions before publishing this exam.';
+
+            } else {
+
+                try {
+
+                    $existingRows =
+                        exam_builder_load_existing_question_ids(
+
+                            $conn,
+
+                            $selectedIds,
+
+                            (int)
+                            $subjectId,
+
+                            $teacherId,
+
+                            (float)
+                            $marksPerQuestion,
+
+                            $negativeEnabled
+                                ? (float)
+                                    $negativeMarks
+                                : 0.0
+
+                        );
+
+                } catch (
+                    Throwable $e
+                ) {
+
+                    $error =
+                        $e->getMessage();
+
+                }
+
+            }
+
+        }
+
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DRAFT
+    |--------------------------------------------------------------------------
+    */
 
     if (
-        $error === '' &&
-        $action === ''
+        $error === ''
+        &&
+        $action === 'draft'
     ) {
-        $error = 'Please choose Save Draft or Publish Exam.';
-    }
 
-    if ($error === '') {
-
-        $status =
-            $action === 'publish'
-                ? 'Active'
-                : 'Draft';
-
-        try {
-
-            $conn->beginTransaction();
-
-            $insert = $conn->prepare(
-                "INSERT INTO exams
-                (
-                    subject_id,
-                    teacher_id,
-                    title,
-                    description,
-                    exam_type,
-                    duration_minutes,
-                    required_question_count,
-                    total_marks,
-                    passing_marks,
-                    negative_marking,
-                    exam_fee,
-                    subscription_required,
-                    starts_at,
-                    ends_at,
-                    status
-                )
-                VALUES
-                (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            );
-
-            $insert->execute([
-                (int)$subjectId,
-                $teacherId,
-                $title,
-                $description !== ''
-                    ? $description
-                    : null,
-                $examType,
-                (int)$duration,
-                $requiredQuestions,
-                round((float)$totalMarks, 2),
-                round((float)$passingMarks, 2),
-                $negativeEnabled ? 1 : 0,
-                0,
-                0,
-                $startValue,
-                $endValue,
-                $status
-            ]);
-
-            $examId =
-                (int)$conn->lastInsertId();
-
-            $link =
-                $conn->prepare(
-                    "INSERT INTO exam_questions
-                    (
-                        exam_id,
-                        question_id,
-                        position
-                    )
-                    VALUES (?,?,?)"
-                );
-
-            $position = 1;
-
-            foreach (
-                $validQuestions
-                as $question
-            ) {
-
-                $link->execute([
-                    $examId,
-                    (int)$question['id'],
-                    $position
-                ]);
-
-                $position++;
-            }
-
-            $conn->commit();
-
-            $message =
-                $action === 'publish'
-                    ? 'Exam published successfully with exactly 50 questions.'
-                    : 'Exam saved as Draft successfully.';
-
-            $title = '';
-            $description = '';
-            $subjectId = null;
-            $examType = 'Practice';
-            $duration = 60;
-            $totalMarks = null;
-            $marksPerQuestion = null;
-            $passingMarks = null;
-            $negativeEnabled = false;
-            $negativeMarks = 0;
-            $startsAt = '';
-            $endsAt = '';
-            $questionIds = [];
-            $requiredQuestions = 0;
-            $selectedMarks = 0.0;
-            $validQuestions = [];
-
-        } catch (Throwable $exception) {
-
-            if ($conn->inTransaction()) {
-                $conn->rollBack();
-            }
-
-            error_log(
-                'ExamSphere teacher create exam failed: ' .
-                $exception->getMessage()
-            );
+        if (
+            $source === 'manual'
+            &&
+            count(
+                $selectedIds
+            )
+            >
+            $questionCount
+        ) {
 
             $error =
-                'Exam could not be created. Please verify the values and try again.';
+                'Draft cannot contain more questions than the configured question count.';
+
         }
+
     }
-}
 
-$requiredPreview = 0;
 
-if (
-    is_numeric($totalMarks) &&
-    is_numeric($marksPerQuestion) &&
-    (float)$totalMarks > 0 &&
-    (float)$marksPerQuestion > 0
-) {
-
-    $ratio =
-        (float)$totalMarks /
-        (float)$marksPerQuestion;
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE
+    |--------------------------------------------------------------------------
+    */
 
     if (
-        abs($ratio - round($ratio)) < 0.000001
+        $error === ''
+        &&
+        in_array(
+            $action,
+            [
+                'draft',
+                'publish'
+            ],
+            true
+        )
     ) {
-        $requiredPreview =
-            (int)round($ratio);
+
+        $status =
+            'Draft';
+
+
+        if (
+            $action ===
+            'publish'
+        ) {
+
+            $status =
+                exam_builder_publish_status(
+
+                    $examType,
+
+                    $startsAt,
+
+                    $endsAt
+
+                );
+
+
+            if (
+                $examType === 'Practice'
+                &&
+                $status === 'Running'
+            ) {
+
+                $status =
+                    'Active';
+
+            }
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | EXACT QUESTION COUNT
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            $action === 'publish'
+            &&
+            count(
+                $questionRows
+            )
+            !==
+            $questionCount
+            &&
+            count(
+                $existingRows
+            )
+            !==
+            $questionCount
+        ) {
+
+            $error =
+                'The exam cannot be published until exactly ' .
+                $questionCount .
+                ' questions are ready.';
+
+        }
+
+
+        if (
+            $error === ''
+        ) {
+
+            try {
+
+                $exam = [
+
+                    'subject_id' =>
+                        (int)
+                        $subjectId,
+
+                    'teacher_id' =>
+                        $teacherId,
+
+                    'title' =>
+                        $title,
+
+                    'description' =>
+                        $description,
+
+                    'exam_type' =>
+                        $examType,
+
+                    'duration_minutes' =>
+                        (int)
+                        $duration,
+
+                    'required_question_count' =>
+                        (int)
+                        $questionCount,
+
+                    'marks_per_question' =>
+                        (float)
+                        $marksPerQuestion,
+
+                    'passing_marks' =>
+                        (float)
+                        $passingMarks,
+
+                    'negative_marking' =>
+                        $negativeEnabled
+                            ? 1
+                            : 0,
+
+                    'exam_fee' =>
+                        max(
+                            0.0,
+                            (float)
+                            $examFee
+                        ),
+
+                    'subscription_required' =>
+                        $subscriptionRequired
+                            ? 1
+                            : 0,
+
+                    'starts_at' =>
+                        $startsAt,
+
+                    'ends_at' =>
+                        $endsAt,
+
+                    'status' =>
+                        $status
+
+                ];
+
+
+                $successExamId =
+                    exam_builder_create_exam(
+
+                        $conn,
+
+                        $exam,
+
+                        $selectedIds,
+
+                        $questionRows,
+
+                        $creatorTeacherId
+
+                    );
+
+
+                $message =
+                    $action === 'publish'
+
+                        ? 'Exam published successfully. It is now available according to its status and schedule.'
+
+                        : 'Draft saved successfully. Students will not see it until it is published with the exact question count.';
+
+
+                $title =
+                    '';
+
+                $description =
+                    '';
+
+                $subjectId =
+                    null;
+
+                $questionCount =
+                    0;
+
+                $marksPerQuestion =
+                    0.0;
+
+                $passingMarks =
+                    0.0;
+
+                $negativeEnabled =
+                    false;
+
+                $negativeMarks =
+                    0.0;
+
+                $duration =
+                    60;
+
+                $examFee =
+                    0.0;
+
+                $subscriptionRequired =
+                    false;
+
+                $startsAtInput =
+                    '';
+
+                $endsAtInput =
+                    '';
+
+                $selectedIds =
+                    [];
+
+                $source =
+                    'csv';
+
+
+            } catch (
+                Throwable $e
+            ) {
+
+                $error =
+                    'Exam could not be created: ' .
+                    $e->getMessage();
+
+            }
+
+        }
+
     }
+
 }
 
 
+$csrf =
+    htmlspecialchars(
+        csrf_token(),
+        ENT_QUOTES |
+        ENT_SUBSTITUTE,
+        'UTF-8'
+    );
 
-$old_title =
-    $title;
-
-$old_description =
-    $description;
-
-$old_subject =
-    (
-        $subjectId === false ||
-        $subjectId === null
-    )
-        ? 0
-        : (int) $subjectId;
-
-$old_type =
-    $examType;
-
-$old_duration =
-    (int) $duration;
-
-$old_passing =
-    is_numeric($passingMarks)
-        ? (string) $passingMarks
-        : '';
-
-$old_starts_at =
-    $startsAt;
-
-$old_selected_ids =
-    $questionIds;
 ?>
-
 <!doctype html>
+
 <html lang="en">
+
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <title>Create Exam | ExamSphere</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
-    <link rel="stylesheet" href="../assets/css/portal.css">
-    <link rel="stylesheet" href="assets/css/create-exam-pro.css">
-    <link rel="stylesheet" href="assets/css/create-exam-complete.css">
+
+<meta charset="utf-8">
+
+<meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+>
+
+<title>
+    Create Exam | ExamSphere
+</title>
+
+<link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+>
+
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+>
+
+<link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+>
+
+<link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+>
+
+<link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+>
+
+<link
+    rel="stylesheet"
+    href="../assets/css/portal.css"
+>
+
+<style>
+
+body{
+    background:#f5f3ec;
+}
+
+.builder-wrap{
+    max-width:1280px;
+    margin:auto;
+}
+
+.builder-card{
+    border:1px solid #e8dfd3;
+    border-radius:20px;
+    background:#fff;
+    box-shadow:
+        0 16px 45px
+        rgba(
+            62,
+            39,
+            35,
+            .07
+        );
+    padding:24px;
+}
+
+.builder-title{
+    color:#5d4037;
+}
+
+.rule-card{
+    background:#f7f5ef;
+    border:1px solid #e9e0d5;
+    border-radius:16px;
+    padding:15px;
+}
+
+.form-label{
+    font-size:.72rem;
+    font-weight:700;
+    color:#5e524a;
+}
+
+.form-control,
+.form-select{
+    border-radius:11px;
+    font-size:.74rem;
+    min-height:44px;
+    border-color:#ded5ca;
+}
+
+.form-control:focus,
+.form-select:focus{
+    border-color:#8b6754;
+    box-shadow:
+        0 0 0 3px
+        rgba(
+            93,
+            64,
+            55,
+            .07
+        );
+}
+
+.question-source{
+    display:grid;
+    grid-template-columns:
+        1fr
+        1fr;
+    gap:10px;
+}
+
+.source-option{
+    padding:15px;
+    border:1px solid #e6ded2;
+    border-radius:14px;
+    cursor:pointer;
+    background:#fcfaf6;
+    transition:
+        .2s
+        ease;
+}
+
+.source-option:hover{
+    transform:translateY(-1px);
+}
+
+.source-option.active{
+    border-color:#6d7f2b;
+    background:#f0f5e9;
+    box-shadow:
+        0 8px 20px
+        rgba(
+            85,
+            107,
+            47,
+            .08
+        );
+}
+
+.source-option input{
+    display:none;
+}
+
+.source-option strong{
+    display:block;
+    font-size:.73rem;
+}
+
+.source-option small{
+    display:block;
+    color:#8a8078;
+    font-size:.59rem;
+    line-height:1.5;
+    margin-top:4px;
+}
+
+.source-recommended{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    margin-top:7px;
+    padding:4px 7px;
+    border-radius:999px;
+    background:#e4eed9;
+    color:#556b2f;
+    font-size:.5rem;
+    font-weight:800;
+}
+
+.question-list{
+    max-height:430px;
+    overflow:auto;
+    border:1px solid #e6ded2;
+    border-radius:14px;
+}
+
+.question-row{
+    display:flex;
+    gap:10px;
+    padding:11px 12px;
+    border-bottom:1px solid #eee7dd;
+}
+
+.question-row:last-child{
+    border-bottom:0;
+}
+
+.question-search{
+    margin-bottom:10px;
+}
+
+.calc-box{
+    padding:18px;
+    border-radius:16px;
+    background:
+        linear-gradient(
+            135deg,
+            #f3eee6,
+            #edf2e5
+        );
+    border:1px solid #e2dbcf;
+}
+
+.calc-box .label{
+    font-size:.6rem;
+    color:#81766f;
+}
+
+.calc-box .value{
+    font-size:1.25rem;
+    font-weight:800;
+    color:#5d4037;
+}
+
+.action-bar{
+    display:flex;
+    gap:10px;
+    justify-content:flex-end;
+    padding-top:18px;
+    border-top:1px solid #ece5db;
+}
+
+.status-note{
+    font-size:.61rem;
+    color:#81766f;
+    line-height:1.5;
+}
+
+.csv-help{
+    font-size:.62rem;
+    color:#81766f;
+    line-height:1.55;
+}
+
+.csv-code{
+    padding:12px;
+    border-radius:11px;
+    background:#211c19;
+    color:#eee;
+    font-size:.58rem;
+    overflow:auto;
+}
+
+.hidden{
+    display:none!important;
+}
+
+.primary-upload-note{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    margin-bottom:11px;
+    padding:10px 12px;
+    border-radius:11px;
+    background:#eef5e7;
+    border:1px solid #dbe8cf;
+    color:#64704e;
+    font-size:.58rem;
+    line-height:1.5;
+}
+
+.primary-upload-note i{
+    color:#5d782c;
+    margin-top:2px;
+}
+
+@media(
+    max-width:700px
+){
+
+    .question-source{
+        grid-template-columns:1fr;
+    }
+
+    .action-bar{
+        flex-direction:column;
+    }
+
+    .action-bar .btn,
+    .action-bar a{
+        width:100%;
+    }
+
+}
+
+</style>
+
 </head>
-<body class="portal-body create-exam-page">
+
+<body class="portal-body">
+
 <div class="portal-layout">
-    <?php include 'includes/sidebar.php'; ?>
 
-    <main class="portal-main">
-        <header class="portal-topbar create-exam-hero">
-            <div>
-                <div class="create-exam-eyebrow"><i class="fa-solid fa-wand-magic-sparkles"></i> Exam Builder</div>
-                <h1>Create a professional exam</h1>
-                <p class="portal-subtitle">Set the exam rules, preview each question, and select exactly the questions you want students to receive.</p>
-            </div>
-            <div class="create-exam-hero-actions">
-                <a class="btn btn-light" href="questions.php"><i class="fa-solid fa-circle-plus me-2"></i>Question Bank</a>
-                <a class="btn btn-outline-light" href="import_questions.php"><i class="fa-solid fa-file-csv me-2"></i>Import CSV</a>
-            </div>
-        </header>
+<?php include 'includes/sidebar.php'; ?>
 
-        <?php if ($message !== ''): ?>
-            <div class="alert alert-success create-alert" role="alert">
-                <i class="fa-solid fa-circle-check me-2"></i><?= htmlspecialchars($message) ?>
-            </div>
-        <?php endif; ?>
+<main class="portal-main">
 
-        <?php if ($error !== ''): ?>
-            <div class="alert alert-danger create-alert" role="alert">
-                <i class="fa-solid fa-triangle-exclamation me-2"></i><?= htmlspecialchars($error) ?>
-            </div>
-        <?php endif; ?>
+<header class="portal-topbar">
 
-        <form method="post" id="examForm" novalidate>
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8") ?>">
-            <input type="hidden" id="initialSelectedIds" value="<?= htmlspecialchars(json_encode($old_selected_ids), ENT_QUOTES, 'UTF-8') ?>">
+    <div>
 
-            <div class="create-exam-grid">
-                <section class="portal-panel exam-settings-panel">
-                    <div class="panel-heading-row">
-                        <div>
-                            <span class="section-kicker">01</span>
-                            <h2>Exam settings</h2>
-                            <p>Define how this examination will run.</p>
-                        </div>
-                        <span class="heading-icon"><i class="fa-solid fa-sliders"></i></span>
-                    </div>
+        <h1>
+            Create Exam
+        </h1>
 
-                    <div class="form-section">
-                        <label class="form-label" for="examTitle">Exam title</label>
-                        <input class="form-control" id="examTitle" name="title" value="<?= htmlspecialchars($old_title) ?>" maxlength="180" required placeholder="e.g. Cyber Security — Unit 1 Assessment">
-                    </div>
+        <p class="portal-subtitle">
 
-                    <div class="form-section">
-                        <label class="form-label" for="subjectId">Subject</label>
-                        <select class="form-select" name="subject_id" id="subjectId" required>
-                            <option value="">Select subject</option>
-                            <?php foreach ($subjects as $subject): ?>
-                                <option value="<?= (int) $subject['id'] ?>" <?= $old_subject === (int) $subject['id'] ? 'selected' : '' ?>>
-                                    <?= htmlspecialchars($subject['name']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <small class="field-help">Only your active questions from this subject will be selectable.</small>
-                    </div>
+            Build a fully dynamic examination.
+            Total marks are calculated automatically
+            from question count × marks per question.
+            Maximum 300 marks.
 
-                    <div class="row g-3 form-section">
-                        <div class="col-6">
-                            <label class="form-label" for="examType">Exam mode</label>
-                            <select class="form-select" name="exam_type" id="examType">
-                                <option value="Practice" <?= $old_type === 'Practice' ? 'selected' : '' ?>>Practice</option>
-                                <option value="Live" <?= $old_type === 'Live' ? 'selected' : '' ?>>Live</option>
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label" for="duration">Duration</label>
-                            <div class="input-with-suffix">
-                                <input class="form-control" id="duration" type="number" min="1" max="1440" name="duration_minutes" value="<?= $old_duration ?>" required>
-                                <span>min</span>
-                            </div>
-                        </div>
-                    </div>
+        </p>
 
-                    <div class="row g-3 form-section">
-                        <div class="col-6">
-                            <label class="form-label" for="passingMarks">Passing marks</label>
-                            <input class="form-control" id="passingMarks" type="number" min="0" step="0.01" name="passing_marks" value="<?= htmlspecialchars($old_passing) ?>">
-                            <small class="field-help">Cannot exceed total selected marks.</small>
-                        </div>
-                        <div class="col-6" id="liveScheduleField">
-                            <label class="form-label" for="startsAt">Live start</label>
-                            <input class="form-control" id="startsAt" type="datetime-local" name="starts_at" value="<?= htmlspecialchars($old_starts_at) ?>">
-                        </div>
-                    </div>
-
-                    <div class="form-section">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label mb-0" for="description">Description</label>
-                            <small class="text-muted"><span id="descriptionCount">0</span>/1000</small>
-                        </div>
-                        <textarea class="form-control" id="description" name="description" rows="5" maxlength="1000" placeholder="Add instructions, scope, or guidance for students."><?= htmlspecialchars($old_description) ?></textarea>
-                    </div>
-
-                    <div class="exam-settings-summary">
-                        <div class="summary-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                        <div>
-                            <strong>Teacher-owned question security</strong>
-                            <span>Only active questions created by your teacher account are accepted by the server.</span>
-                        </div>
-                    </div>
-                </section>
-
-                
-<section class="portal-panel rules-panel">
-    <div class="panel-heading-row">
-        <div>
-            <span class="section-kicker">02</span>
-            <h2>Marks & rules</h2>
-            <p>Required Questions = Total Marks ÷ Marks Per Question.</p>
-        </div>
-        <span class="heading-icon"><i class="fa-solid fa-calculator"></i></span>
     </div>
 
-    <div class="row g-3">
-        <div class="col-md-3">
-            <label class="form-label" for="totalMarks">Total Marks</label>
-            <input class="form-control" id="totalMarks" name="total_marks" type="number" min="0.01" step="0.01"
-                   value="<?= htmlspecialchars((string)($totalMarks ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" required>
-        </div>
+    <a
+        class="btn btn-outline-dark"
+        href="exams.php"
+    >
 
-        <div class="col-md-3">
-            <label class="form-label" for="marksPerQuestion">Marks Per Question</label>
-            <input class="form-control" id="marksPerQuestion" name="marks_per_question" type="number" min="0.01" step="0.01"
-                   value="<?= htmlspecialchars((string)($marksPerQuestion ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>" required>
-        </div>
+        <i
+            class="
+                fa-solid
+                fa-arrow-left
+                me-1
+            "
+        ></i>
 
-        <div class="col-md-3">
-            <label class="form-label">Required Questions</label>
-            <div class="derived-value" id="requiredQuestionsValue">
-                <?= $requiredPreview > 0 ? $requiredPreview : '—' ?>
-            </div>
-        </div>
+        My Exams
 
-        <div class="col-md-3">
-            <label class="form-label" for="passingMarks">Passing Marks</label>
-            <input class="form-control" id="passingMarks" name="passing_marks" type="number" min="0" step="0.01"
-                   value="<?= htmlspecialchars((string)($passingMarks ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-        </div>
-    </div>
+    </a>
 
-    <div class="row g-3 mt-1">
-        <div class="col-md-4">
-            <label class="form-label" for="negativeMarks">Negative Marks / Wrong Answer</label>
-            <input class="form-control" id="negativeMarks" name="negative_marks" type="number" min="0" step="0.01"
-                   value="<?= htmlspecialchars((string)$negativeMarks, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-        </div>
+</header>
 
-        <div class="col-md-4 d-flex align-items-end">
-            <label class="form-check form-switch premium-switch">
-                <input class="form-check-input" id="negativeMarking" name="negative_marking" type="checkbox" value="1" <?= $negativeEnabled ? 'checked' : '' ?>>
-                <span class="form-check-label">Enable negative marking</span>
-            </label>
-        </div>
 
-        <div class="col-md-4">
-            <div class="validation-banner" id="markConfigBanner" data-state="neutral">
-                <i class="fa-solid fa-circle-info" id="markConfigIcon"></i>
-                <div>
-                    <strong id="markConfigTitle">Enter the mark values.</strong>
-                    <span id="markConfigMessage">The required question count will be calculated automatically.</span>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="builder-wrap">
 
-    <div class="row g-3 mt-1 live-fields">
-        <div class="col-md-6">
-            <label class="form-label" for="startsAt">Start Date & Time</label>
-            <input class="form-control" id="startsAt" name="starts_at" type="datetime-local"
-                   value="<?= htmlspecialchars($startsAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-        </div>
-        <div class="col-md-6">
-            <label class="form-label" for="endsAt">End Date & Time</label>
-            <input class="form-control" id="endsAt" name="ends_at" type="datetime-local"
-                   value="<?= htmlspecialchars($endsAt, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>">
-        </div>
-    </div>
+
+<?php if (
+    $error !== ''
+): ?>
+
+<div class="alert alert-danger">
+
+    <i
+        class="
+            fa-solid
+            fa-circle-exclamation
+            me-2
+        "
+    ></i>
+
+    <?= exam_builder_e(
+        $error
+    ) ?>
+
+</div>
+
+<?php endif; ?>
+
+
+<?php if (
+    $message !== ''
+): ?>
+
+<div class="alert alert-success">
+
+    <i
+        class="
+            fa-solid
+            fa-circle-check
+            me-2
+        "
+    ></i>
+
+    <?= exam_builder_e(
+        $message
+    ) ?>
+
+    <?php if (
+        $successExamId
+    ): ?>
+
+        <a
+            class="alert-link"
+            href="exams.php"
+        >
+            View exam
+        </a>
+
+    <?php endif; ?>
+
+</div>
+
+<?php endif; ?>
+
+
+<section class="builder-card mb-3">
+
+
+<div class="row g-3">
+
+<div class="col-12">
+
+<h2
+    class="
+        h5
+        builder-title
+        mb-1
+    "
+>
+    1. Examination Details
+</h2>
+
+<p class="small text-muted mb-0">
+
+    Configure the examination structure.
+    Total marks are calculated automatically.
+
+</p>
+
+</div>
+
+
+<div class="col-lg-8">
+
+<label class="form-label">
+    Exam Title *
+</label>
+
+<input
+    class="form-control"
+    name="_display_title"
+    form="examForm"
+    value="<?= exam_builder_e(
+        $title
+    ) ?>"
+    data-mirror="title"
+    placeholder="e.g. UPSC General Studies Mock Test"
+    required
+>
+
+</div>
+
+
+<div class="col-lg-4">
+
+<label class="form-label">
+    Exam Type *
+</label>
+
+<select
+    class="form-select"
+    name="_display_exam_type"
+    form="examForm"
+    data-mirror="exam_type"
+>
+
+<option value="Practice">
+    Practice
+</option>
+
+<option value="Live">
+    Live
+</option>
+
+</select>
+
+</div>
+
+</div>
+
+
+<form
+    id="examForm"
+    method="post"
+    enctype="multipart/form-data"
+    class="mt-3"
+>
+
+
+<?= csrf_field() ?>
+
+
+<input
+    type="hidden"
+    id="title"
+    name="title"
+    value="<?= exam_builder_e(
+        $title
+    ) ?>"
+>
+
+
+<input
+    type="hidden"
+    id="exam_type"
+    name="exam_type"
+    value="<?= exam_builder_e(
+        $examType
+    ) ?>"
+>
+
+
+<div class="row g-3">
+
+
+<div class="col-lg-4">
+
+<label class="form-label">
+    Subject *
+</label>
+
+<select
+    class="form-select"
+    name="subject_id"
+    required
+>
+
+<option value="">
+    Select subject
+</option>
+
+<?php foreach (
+    $subjects
+    as $subject
+): ?>
+
+<option
+    value="<?= (int)$subject['id'] ?>"
+    <?= (
+        $subjectId !== false
+        &&
+        $subjectId !== null
+        &&
+        $subjectId ===
+        (int)$subject['id']
+    )
+        ? 'selected'
+        : ''
+    ?>
+>
+
+    <?= exam_builder_e(
+        $subject['name']
+    ) ?>
+
+    <?php if (
+        !empty(
+            $subject['code']
+        )
+    ): ?>
+
+        (
+        <?= exam_builder_e(
+            $subject['code']
+        ) ?>
+        )
+
+    <?php endif; ?>
+
+</option>
+
+<?php endforeach; ?>
+
+</select>
+
+</div>
+
+
+<div class="col-lg-8">
+
+<label class="form-label">
+    Description
+</label>
+
+<textarea
+    class="form-control"
+    name="description"
+    rows="2"
+    maxlength="5000"
+    placeholder="Write exam instructions or a short description..."
+><?= exam_builder_e(
+    $description
+) ?></textarea>
+
+</div>
+
+
+<div class="col-md-3">
+
+<label class="form-label">
+    Total Questions *
+</label>
+
+<input
+    id="questionCount"
+    class="form-control"
+    type="number"
+    name="question_count"
+    min="1"
+    max="65535"
+    step="1"
+    value="<?= exam_builder_e(
+        $questionCount ?: ''
+    ) ?>"
+    placeholder="e.g. 50"
+    required
+>
+
+</div>
+
+
+<div class="col-md-3">
+
+<label class="form-label">
+    Marks / Question *
+</label>
+
+<input
+    id="marksPerQuestion"
+    class="form-control"
+    type="number"
+    name="marks_per_question"
+    min="0.01"
+    max="300"
+    step="0.01"
+    value="<?= $marksPerQuestion > 0
+        ? exam_builder_e(
+            $marksPerQuestion
+        )
+        : ''
+    ?>"
+    placeholder="e.g. 2"
+    required
+>
+
+</div>
+
+
+<div class="col-md-3">
+
+<label class="form-label">
+    Passing Marks *
+</label>
+
+<input
+    id="passingMarks"
+    class="form-control"
+    type="number"
+    name="passing_marks"
+    min="0"
+    step="0.01"
+    value="<?= exam_builder_e(
+        $passingMarks
+    ) ?>"
+    placeholder="e.g. 40"
+    required
+>
+
+</div>
+
+
+<div class="col-md-3">
+
+<label class="form-label">
+    Duration (Minutes) *
+</label>
+
+<input
+    class="form-control"
+    type="number"
+    name="duration_minutes"
+    min="1"
+    max="65535"
+    value="<?= exam_builder_e(
+        $duration
+    ) ?>"
+    required
+>
+
+</div>
+
+
+<div class="col-12">
+
+<div
+    class="
+        calc-box
+        d-flex
+        justify-content-between
+        align-items-center
+        flex-wrap
+        gap-3
+    "
+>
+
+<div>
+
+<div class="label">
+    AUTOMATIC TOTAL MARKS
+</div>
+
+<div
+    id="totalMarksPreview"
+    class="value"
+>
+    0.00 / 300
+</div>
+
+</div>
+
+
+<div class="status-note">
+
+    Formula:
+
+    Total Questions × Marks per Question
+
+    <br>
+
+    Maximum total marks: 300
+
+</div>
+
+</div>
+
+</div>
+
+
+<div class="col-md-6">
+
+<div
+    class="
+        form-check
+        form-switch
+        mt-2
+    "
+>
+
+<input
+    class="form-check-input"
+    type="checkbox"
+    name="negative_marking"
+    id="negativeMarking"
+    <?= $negativeEnabled
+        ? 'checked'
+        : ''
+    ?>
+>
+
+<label
+    class="
+        form-check-label
+        small
+        fw-semibold
+    "
+    for="negativeMarking"
+>
+
+    Enable negative marking
+
+</label>
+
+</div>
+
+</div>
+
+
+<div class="col-md-6">
+
+<label class="form-label">
+
+    Negative Marks / Wrong Answer
+
+</label>
+
+<input
+    id="negativeMarks"
+    class="form-control"
+    type="number"
+    name="negative_marks"
+    min="0"
+    step="0.01"
+    value="<?= exam_builder_e(
+        $negativeMarks
+    ) ?>"
+    placeholder="e.g. 0.50"
+>
+
+</div>
+
+
+<div class="col-md-6">
+
+<label class="form-label">
+    Exam Fee
+</label>
+
+<input
+    class="form-control"
+    type="number"
+    name="exam_fee"
+    min="0"
+    step="0.01"
+    value="<?= exam_builder_e(
+        $examFee
+    ) ?>"
+    placeholder="0"
+>
+
+</div>
+
+
+<div class="col-md-6">
+
+<div
+    class="
+        form-check
+        form-switch
+        mt-4
+    "
+>
+
+<input
+    class="form-check-input"
+    type="checkbox"
+    name="subscription_required"
+    id="subscriptionRequired"
+    <?= $subscriptionRequired
+        ? 'checked'
+        : ''
+    ?>
+>
+
+<label
+    class="
+        form-check-label
+        small
+        fw-semibold
+    "
+    for="subscriptionRequired"
+>
+
+    Require active subscription
+
+</label>
+
+</div>
+
+</div>
+
+
+<div class="col-md-6">
+
+<label class="form-label">
+    Start Date & Time
+</label>
+
+<input
+    class="form-control"
+    type="datetime-local"
+    name="starts_at"
+    value="<?= exam_builder_e(
+        $startsAtInput
+    ) ?>"
+>
+
+</div>
+
+
+<div class="col-md-6">
+
+<label class="form-label">
+    End Date & Time
+</label>
+
+<input
+    class="form-control"
+    type="datetime-local"
+    name="ends_at"
+    value="<?= exam_builder_e(
+        $endsAtInput
+    ) ?>"
+>
+
+</div>
+
+</div>
+
+
+<hr class="my-4">
+
+
+<div class="row g-3">
+
+
+<div class="col-12">
+
+<h2
+    class="
+        h5
+        builder-title
+        mb-1
+    "
+>
+
+    2. Add Questions
+
+</h2>
+
+<p class="small text-muted mb-0">
+
+    CSV is the recommended method.
+    Question Bank remains available for
+    reusing existing questions.
+
+</p>
+
+</div>
+
+
+<div class="col-12">
+
+
+<div
+    class="
+        primary-upload-note
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-bolt
+    "
+></i>
+
+<div>
+
+<strong>
+    Recommended workflow:
+</strong>
+
+Upload your complete CSV directly.
+You do not need to create every question
+manually first.
+
+The system will automatically create
+and attach exactly the configured number
+of questions.
+
+</div>
+
+</div>
+
+
+<div
+    class="
+        question-source
+    "
+>
+
+
+<label
+    class="
+        source-option
+        <?= $source === 'csv'
+            ? 'active'
+            : ''
+        ?>"
+>
+
+<input
+    type="radio"
+    name="question_source"
+    value="csv"
+    <?= $source === 'csv'
+        ? 'checked'
+        : ''
+    ?>
+>
+
+<strong>
+
+<i
+    class="
+        fa-solid
+        fa-file-csv
+        me-1
+    "
+></i>
+
+Upload CSV Directly
+
+</strong>
+
+<small>
+
+Recommended for creating complete
+exams quickly.
+
+The system creates the questions
+and attaches them automatically.
+
+</small>
+
+<span
+    class="
+        source-recommended
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-star
+    "
+></i>
+
+Recommended
+
+</span>
+
+</label>
+
+
+<label
+    class="
+        source-option
+        <?= $source === 'manual'
+            ? 'active'
+            : ''
+        ?>"
+>
+
+<input
+    type="radio"
+    name="question_source"
+    value="manual"
+    <?= $source === 'manual'
+        ? 'checked'
+        : ''
+    ?>
+>
+
+<strong>
+
+<i
+    class="
+        fa-solid
+        fa-list-check
+        me-1
+    "
+></i>
+
+Question Bank
+
+</strong>
+
+<small>
+
+Optional reusable question
+selection from your existing
+teacher question bank.
+
+</small>
+
+</label>
+
+
+</div>
+
+</div>
+
+
+<div
+    id="csvSource"
+    class="
+        col-12
+        <?= $source === 'csv'
+            ? ''
+            : 'hidden'
+        ?>"
+>
+
+
+<label class="form-label">
+
+    Complete Question CSV *
+
+</label>
+
+
+<input
+    class="form-control"
+    type="file"
+    name="questions_csv"
+    accept=".csv,text/csv"
+>
+
+
+<div class="csv-help mt-2">
+
+Required:
+
+<strong>
+
+question_text,
+option_a,
+option_b,
+correct_answer
+
+</strong>
+
+<br>
+
+Optional:
+
+option_c,
+option_d,
+question_type,
+explanation,
+difficulty,
+topic_id,
+estimated_time_seconds.
+
+<br>
+
+Marks and negative marks are automatically
+taken from the exam configuration.
+
+</div>
+
+
+<pre
+    class="
+        csv-code
+        mt-2
+        mb-0
+    "
+>question_text,option_a,option_b,option_c,option_d,correct_answer,difficulty
+What is 2 + 2?,3,4,5,6,B,Easy
+What is the capital of India?,Mumbai,Delhi,Kolkata,Chennai,B,Easy</pre>
+
+
+<div
+    class="
+        status-note
+        mt-2
+    "
+>
+
+Example:
+
+If Total Questions = 20,
+CSV must contain exactly 20 question rows.
+
+</div>
+
+</div>
+
+
+<div
+    id="manualSource"
+    class="
+        col-12
+        <?= $source === 'manual'
+            ? ''
+            : 'hidden'
+        ?>"
+>
+
+
+<input
+    id="questionSearch"
+    class="
+        form-control
+        question-search
+    "
+    type="search"
+    placeholder="Search your question bank..."
+>
+
+
+<div
+    class="
+        d-flex
+        justify-content-between
+        small
+        text-muted
+        mb-2
+    "
+>
+
+<span>
+
+Selected:
+
+<strong
+    id="selectedCount"
+>
+0
+</strong>
+
+</span>
+
+
+<span>
+
+Required:
+
+<strong
+    id="requiredCountLabel"
+>
+0
+</strong>
+
+</span>
+
+</div>
+
+
+<div class="question-list">
+
+<?php foreach (
+    $questions
+    as $q
+): ?>
+
+<label
+    class="
+        question-row
+    "
+    data-question-text="<?= exam_builder_e(
+        strtolower(
+            $q[
+                'question_text'
+            ]
+            . ' ' .
+            $q[
+                'subject_name'
+            ]
+            . ' ' .
+            $q[
+                'difficulty'
+            ]
+        )
+    ) ?>"
+>
+
+<input
+    class="
+        form-check-input
+        question-checkbox
+    "
+    type="checkbox"
+    name="question_ids[]"
+    value="<?= (int)$q['id'] ?>"
+    <?= in_array(
+        (int)$q['id'],
+        $selectedIds,
+        true
+    )
+        ? 'checked'
+        : ''
+    ?>
+>
+
+<span>
+
+<strong>
+
+<?= exam_builder_e(
+    $q[
+        'question_text'
+    ]
+) ?>
+
+</strong>
+
+<small
+    class="
+        d-block
+        text-muted
+    "
+>
+
+Marks:
+
+<?= exam_builder_e(
+    $q[
+        'marks'
+    ]
+) ?>
+
+·
+
+Negative:
+
+<?= exam_builder_e(
+    $q[
+        'negative_marks'
+    ]
+) ?>
+
+·
+
+<?= exam_builder_e(
+    $q[
+        'difficulty'
+    ]
+) ?>
+
+</small>
+
+</span>
+
+</label>
+
+<?php endforeach; ?>
+
+
+<?php if (
+    !$questions
+): ?>
+
+<div
+    class="
+        text-center
+        p-5
+        text-muted
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-circle-question
+        mb-2
+        d-block
+        fs-4
+    "
+></i>
+
+No active questions
+are available in your
+question bank.
+
+<br>
+
+Use CSV upload to create
+the exam directly.
+
+</div>
+
+<?php endif; ?>
+
+</div>
+
+</div>
+
+</div>
+
+
+<div
+    class="
+        mt-4
+        p-3
+        rule-card
+    "
+>
+
+<strong
+    class="
+        d-block
+        mb-1
+    "
+>
+
+Publishing Rules
+
+</strong>
+
+
+<div class="status-note">
+
+The system requires exactly
+the configured number of questions.
+
+Total marks are automatically
+calculated and cannot exceed 300.
+
+Draft exams stay private.
+
+Published exams become available
+according to their type, status
+and schedule.
+
+</div>
+
+</div>
+
+
+<div
+    class="
+        action-bar
+        mt-4
+    "
+>
+
+<a
+    class="
+        btn
+        btn-light
+    "
+    href="exams.php"
+>
+
+Cancel
+
+</a>
+
+
+<button
+    class="
+        btn
+        btn-outline-dark
+    "
+    type="submit"
+    name="action"
+    value="draft"
+>
+
+<i
+    class="
+        fa-solid
+        fa-file-pen
+        me-1
+    "
+></i>
+
+Save Draft
+
+</button>
+
+
+<button
+    id="publishBtn"
+    class="
+        btn
+        btn-success
+    "
+    type="submit"
+    name="action"
+    value="publish"
+>
+
+<i
+    class="
+        fa-solid
+        fa-paper-plane
+        me-1
+    "
+></i>
+
+Publish Exam
+
+</button>
+
+
+</div>
+
+
+</form>
+
 </section>
 
-<section class="portal-panel question-builder-panel">
+</div>
 
-                    <div class="panel-heading-row question-builder-heading">
-                        <div>
-                            <span class="section-kicker">02</span>
-                            <h2>Build your question set</h2>
-                            <p>Search, preview, and select questions without losing your place.</p>
-                        </div>
-                        <div class="selection-pill" id="selectionSummary">
-                            <strong id="selectedCount">0</strong>
-                            <span>selected</span>
-                            <em>•</em>
-                            <strong id="selectedMarks">0.00</strong>
-                            <span>marks</span>
-                        </div>
-                    </div>
+</main>
 
-                    <div class="question-toolbar">
-                        <div class="question-search-wrap">
-                            <i class="fa-solid fa-magnifying-glass"></i>
-                            <input type="search" id="questionSearch" placeholder="Search question text, subject or difficulty..." autocomplete="off">
-                            <kbd>Ctrl</kbd><kbd>K</kbd>
-                        </div>
-                        <div class="question-filter-group">
-                            <select id="difficultyFilter" class="form-select" aria-label="Filter by difficulty">
-                                <option value="">All difficulty</option>
-                                <option value="Easy">Easy</option>
-                                <option value="Medium">Medium</option>
-                                <option value="Hard">Hard</option>
-                            </select>
-                            <button type="button" class="btn btn-outline-secondary" id="selectVisibleBtn"><i class="fa-solid fa-check-double me-1"></i>Select visible</button>
-                            <button type="button" class="btn btn-outline-secondary" id="clearSelectionBtn"><i class="fa-solid fa-eraser me-1"></i>Clear</button>
-                        </div>
-                    </div>
+</div>
 
-                    <div class="question-results-meta">
-                        <span id="questionResultsCount">Select a subject to view its questions.</span>
-                        <span id="questionEmptyHint" class="d-none"><i class="fa-regular fa-face-frown me-1"></i>No questions match these filters.</span>
-                    </div>
 
-                    <div class="question-list" id="questionList">
-                        <?php foreach ($questions as $q): ?>
-                            <?php
-                            $options = [
-                                'A' => $q['option_a'],
-                                'B' => $q['option_b'],
-                                'C' => $q['option_c'],
-                                'D' => $q['option_d'],
-                            ];
-                            $options_json = [];
-                            foreach ($options as $letter => $option) {
-                                if ($option !== null && trim((string) $option) !== '') {
-                                    $options_json[$letter] = (string) $option;
+<script>
+
+(() => {
+
+    'use strict';
+
+
+    const form =
+        document.getElementById(
+            'examForm'
+        );
+
+
+    const titleDisplay =
+        document.querySelector(
+            '[data-mirror="title"]'
+        );
+
+
+    const titleInput =
+        document.getElementById(
+            'title'
+        );
+
+
+    const typeDisplay =
+        document.querySelector(
+            '[data-mirror="exam_type"]'
+        );
+
+
+    const typeInput =
+        document.getElementById(
+            'exam_type'
+        );
+
+
+    const qCount =
+        document.getElementById(
+            'questionCount'
+        );
+
+
+    const marks =
+        document.getElementById(
+            'marksPerQuestion'
+        );
+
+
+    const passing =
+        document.getElementById(
+            'passingMarks'
+        );
+
+
+    const negative =
+        document.getElementById(
+            'negativeMarks'
+        );
+
+
+    const negativeToggle =
+        document.getElementById(
+            'negativeMarking'
+        );
+
+
+    const totalPreview =
+        document.getElementById(
+            'totalMarksPreview'
+        );
+
+
+    const requiredLabel =
+        document.getElementById(
+            'requiredCountLabel'
+        );
+
+
+    const selectedLabel =
+        document.getElementById(
+            'selectedCount'
+        );
+
+
+    const publishBtn =
+        document.getElementById(
+            'publishBtn'
+        );
+
+
+    const search =
+        document.getElementById(
+            'questionSearch'
+        );
+
+
+    const cards =
+        [
+            ...document.querySelectorAll(
+                '.question-row'
+            )
+        ];
+
+
+    const checks =
+        [
+            ...document.querySelectorAll(
+                '.question-checkbox'
+            )
+        ];
+
+
+    function recalc()
+    {
+
+        const count =
+            Math.max(
+                0,
+                parseInt(
+                    qCount.value ||
+                    '0',
+                    10
+                )
+            );
+
+
+        const marksValue =
+            Math.max(
+                0,
+                parseFloat(
+                    marks.value ||
+                    '0'
+                )
+            );
+
+
+        const total =
+            Math.round(
+                count *
+                marksValue *
+                100
+            )
+            /
+            100;
+
+
+        totalPreview.textContent =
+            total.toFixed(
+                2
+            )
+            +
+            ' / 300';
+
+
+        totalPreview.style.color =
+            total > 300
+
+                ? '#b34235'
+
+                : '#5d4037';
+
+
+        requiredLabel.textContent =
+            count;
+
+
+        selectedLabel.textContent =
+            checks.filter(
+                checkbox =>
+                    checkbox.checked
+            ).length;
+
+
+        publishBtn.disabled =
+            total <= 0
+            ||
+            total > 300
+            ||
+            count < 1;
+
+
+        passing.max =
+            total > 0
+                ? total
+                : '';
+
+
+        if (
+            negativeToggle.checked
+        ) {
+
+            negative.disabled =
+                false;
+
+            negative.max =
+                marksValue || 0;
+
+        } else {
+
+            negative.disabled =
+                true;
+
+            negative.value =
+                '0';
+
+        }
+
+    }
+
+
+    if (
+        titleDisplay
+    ) {
+
+        titleDisplay.addEventListener(
+            'input',
+            () => {
+
+                titleInput.value =
+                    titleDisplay.value;
+
+            }
+        );
+
+    }
+
+
+    if (
+        typeDisplay
+    ) {
+
+        typeDisplay.addEventListener(
+            'change',
+            () => {
+
+                typeInput.value =
+                    typeDisplay.value;
+
+            }
+        );
+
+    }
+
+
+    [
+        qCount,
+        marks,
+        passing,
+        negative,
+        negativeToggle
+    ].forEach(
+        element => {
+
+            element?.addEventListener(
+                'input',
+                recalc
+            );
+
+            element?.addEventListener(
+                'change',
+                recalc
+            );
+
+        }
+    );
+
+
+    checks.forEach(
+        checkbox => {
+
+            checkbox.addEventListener(
+                'change',
+                () => {
+
+                    const limit =
+                        parseInt(
+                            qCount.value ||
+                            '0',
+                            10
+                        );
+
+
+                    const count =
+                        checks.filter(
+                            check =>
+                                check.checked
+                        ).length;
+
+
+                    if (
+                        limit > 0
+                        &&
+                        count >
+                        limit
+                    ) {
+
+                        checkbox.checked =
+                            false;
+
+                    }
+
+
+                    recalc();
+
+                }
+            );
+
+        }
+    );
+
+
+    search?.addEventListener(
+        'input',
+        () => {
+
+            const needle =
+                (
+                    search.value ||
+                    ''
+                )
+                    .toLowerCase()
+                    .trim();
+
+
+            cards.forEach(
+                row => {
+
+                    row.hidden =
+                        needle !== ''
+                        &&
+                        !(
+                            row.dataset
+                                .questionText
+                            ||
+                            ''
+                        ).includes(
+                            needle
+                        );
+
+                }
+            );
+
+        }
+    );
+
+
+    document
+        .querySelectorAll(
+            '.source-option input'
+        )
+        .forEach(
+            radio => {
+
+                radio.addEventListener(
+                    'change',
+                    () => {
+
+                        document
+                            .querySelectorAll(
+                                '.source-option'
+                            )
+                            .forEach(
+                                item => {
+
+                                    item.classList.remove(
+                                        'active'
+                                    );
+
                                 }
-                            }
-                            ?>
-                            <article
-                                class="question-card"
-                                data-subject="<?= (int) $q['subject_id'] ?>"
-                                data-difficulty="<?= htmlspecialchars($q['difficulty']) ?>"
-                                data-search="<?= htmlspecialchars(mb_strtolower($q['question_text'] . ' ' . $q['subject_name'] . ' ' . $q['difficulty'])) ?>"
-                            >
-                                <div class="question-card-top">
-                                    <label class="question-select-wrap">
-                                        <input
-                                            class="form-check-input exam-question"
-                                            type="checkbox"
-                                            name="question_ids[]"
-                                            value="<?= (int) $q['id'] ?>"
-                                            data-marks="<?= htmlspecialchars((string) $q['marks']) ?>"
-                                        >
-                                        <span class="question-select-copy">
-                                            <span class="question-number">Q<?= (int) $q['id'] ?></span>
-                                            <span class="question-subject"><?= htmlspecialchars($q['subject_name']) ?></span>
-                                        </span>
-                                    </label>
-                                    <div class="question-badges">
-                                        <span class="difficulty-badge difficulty-<?= strtolower(htmlspecialchars($q['difficulty'])) ?>"><?= htmlspecialchars($q['difficulty']) ?></span>
-                                        <span class="marks-badge"><?= number_format((float) $q['marks'], 2) ?> marks</span>
-                                    </div>
-                                </div>
+                            );
 
-                                <div class="question-text"><?= nl2br(htmlspecialchars($q['question_text'])) ?></div>
 
-                                <div class="question-card-bottom">
-                                    <button
-                                        type="button"
-                                        class="btn btn-sm btn-preview preview-question-btn"
-                                        data-question-id="<?= (int) $q['id'] ?>"
-                                        data-question-text="<?= htmlspecialchars($q['question_text'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-subject="<?= htmlspecialchars($q['subject_name'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-difficulty="<?= htmlspecialchars($q['difficulty'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-marks="<?= htmlspecialchars((string) $q['marks'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-negative-marks="<?= htmlspecialchars((string) $q['negative_marks'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-correct-answer="<?= htmlspecialchars($q['correct_answer'], ENT_QUOTES, 'UTF-8') ?>"
-                                        data-options='<?= htmlspecialchars(json_encode($options_json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>'
-                                    >
-                                        <i class="fa-regular fa-eye me-1"></i> Preview question
-                                    </button>
-                                    <span class="selection-state"><i class="fa-regular fa-circle"></i><span>Select to add</span></span>
-                                </div>
-                            </article>
-                        <?php endforeach; ?>
+                        radio
+                            .closest(
+                                '.source-option'
+                            )
+                            ?.classList.add(
+                                'active'
+                            );
 
-                        <?php if (!$questions): ?>
-                            <div class="empty-question-bank">
-                                <div class="empty-question-icon"><i class="fa-solid fa-circle-question"></i></div>
-                                <h3>Your question bank is empty</h3>
-                                <p>Create questions first, then return here to build the exam.</p>
-                                <a class="btn btn-success" href="questions.php"><i class="fa-solid fa-plus me-1"></i>Create question</a>
-                            </div>
-                        <?php endif; ?>
-                    </div>
 
-                    <div class="sticky-create-bar">
-                        <button type="button" class="btn btn-outline-secondary" id="resetQuestionsBtn">
-                            <i class="fa-solid fa-rotate-left me-1"></i>Reset Questions
-                        </button>
-                        <div class="sticky-create-info">
-                            <div class="mini-progress"><span id="selectionProgress"></span></div>
-                            <strong><span id="stickySelectedCount">0</span> questions ready</strong>
-                            <small>Total marks: <b id="stickySelectedMarks">0.00</b></small>
-                        </div>
-                        <button class="btn btn-outline-success btn-lg" type="submit" name="action" value="draft" id="saveDraftBtn" <?= !$questions ? 'disabled' : '' ?>>
-                            <i class="fa-solid fa-file-pen me-2"></i>Save Draft
-                        </button>
-                        <button class="btn btn-success btn-lg" type="submit" name="action" value="publish" id="publishExamBtn" <?= !$questions ? 'disabled' : '' ?>>
-                            <i class="fa-solid fa-cloud-arrow-up me-2"></i>Publish Exam
-                        </button>
-                    </div>
-                </section>
-            </div>
-        </form>
-    </main>
-</div>
+                        const manual =
+                            document.getElementById(
+                                'manualSource'
+                            );
 
-<div class="modal fade" id="questionPreviewModal" tabindex="-1" aria-labelledby="questionPreviewTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content preview-modal">
-            <div class="modal-header">
-                <div>
-                    <span class="preview-kicker">Question preview</span>
-                    <h2 class="modal-title" id="questionPreviewTitle">Question</h2>
-                </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <div class="preview-meta" id="previewMeta"></div>
-                <div class="preview-question" id="previewQuestion"></div>
-                <div class="preview-options" id="previewOptions"></div>
-                <div class="preview-answer" id="previewAnswer"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-success" id="previewSelectBtn"><i class="fa-solid fa-check me-1"></i>Select this question</button>
-            </div>
-        </div>
-    </div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
-<script src="assets/js/create-exam-complete.js" defer></script>
+                        const csv =
+                            document.getElementById(
+                                'csvSource'
+                            );
+
+
+                        manual.classList.toggle(
+                            'hidden',
+                            radio.value !==
+                            'manual'
+                        );
+
+
+                        csv.classList.toggle(
+                            'hidden',
+                            radio.value !==
+                            'csv'
+                        );
+
+                    }
+                );
+
+            }
+        );
+
+
+    form?.addEventListener(
+        'submit',
+        event => {
+
+            titleInput.value =
+                titleDisplay?.value
+                    ?.trim()
+                ||
+                '';
+
+
+            typeInput.value =
+                typeDisplay?.value
+                ||
+                'Practice';
+
+
+            recalc();
+
+
+            const action =
+                event
+                    .submitter
+                    ?.value
+                ||
+                '';
+
+
+            const count =
+                parseInt(
+                    qCount.value ||
+                    '0',
+                    10
+                );
+
+
+            const source =
+                document.querySelector(
+                    'input[name="question_source"]:checked'
+                )?.value
+                ||
+                'csv';
+
+
+            if (
+                action ===
+                'publish'
+                &&
+                source ===
+                'manual'
+                &&
+                checks.filter(
+                    checkbox =>
+                        checkbox.checked
+                ).length
+                !==
+                count
+            ) {
+
+                event.preventDefault();
+
+
+                alert(
+                    'Select exactly ' +
+                    count +
+                    ' questions before publishing.'
+                );
+
+
+                return;
+
+            }
+
+
+            if (
+                action ===
+                'publish'
+                &&
+                source ===
+                'csv'
+            ) {
+
+                const file =
+                    document.querySelector(
+                        'input[name="questions_csv"]'
+                    );
+
+
+                if (
+                    !file
+                    ||
+                    !file.files
+                    ||
+                    !file.files.length
+                ) {
+
+                    event.preventDefault();
+
+
+                    alert(
+                        'Choose the complete CSV file before publishing.'
+                    );
+
+
+                    return;
+
+                }
+
+            }
+
+        }
+    );
+
+
+    recalc();
+
+})();
+
+</script>
+
 </body>
+
 </html>

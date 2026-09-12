@@ -6,13 +6,7 @@ require_once '../config/session.php';
 require_once '../config/config.php';
 
 
-/*
-|--------------------------------------------------------------------------
-| REDIRECT HELPERS
-|--------------------------------------------------------------------------
-*/
-
-function otp_error_redirect(
+function otp_redirect(
     string $message,
     string $location = 'verify_otp.php'
 ): never {
@@ -29,6 +23,25 @@ function otp_error_redirect(
 }
 
 
+function registration_reset(
+    string $message
+): never {
+
+    unset(
+        $_SESSION['pending_registration']
+    );
+
+    $_SESSION['register_error'] =
+        $message;
+
+    header(
+        'Location: register.php'
+    );
+
+    exit;
+}
+
+
 /*
 |--------------------------------------------------------------------------
 | REQUEST METHOD
@@ -36,8 +49,8 @@ function otp_error_redirect(
 */
 
 if (
-    $_SERVER['REQUEST_METHOD']
-    !== 'POST'
+    $_SERVER['REQUEST_METHOD'] !==
+    'POST'
 ) {
 
     header(
@@ -60,7 +73,7 @@ if (
     )
 ) {
 
-    otp_error_redirect(
+    otp_redirect(
         'Your session expired. Please try again.'
     );
 }
@@ -72,36 +85,25 @@ if (
 |--------------------------------------------------------------------------
 */
 
-if (
-    empty(
-        $_SESSION['pending_registration']
-    )
-    ||
-    !is_array(
-        $_SESSION['pending_registration']
-    )
-) {
-
-    $_SESSION['register_error'] =
-        'Your registration session has expired. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
-}
-
-
-$data =
+$pending =
     $_SESSION[
         'pending_registration'
-    ];
+    ] ?? null;
+
+
+if (
+    !is_array($pending)
+) {
+
+    registration_reset(
+        'Your registration session has expired. Please register again.'
+    );
+}
 
 
 /*
 |--------------------------------------------------------------------------
-| REQUIRED SESSION FIELDS
+| REQUIRED SESSION DATA
 |--------------------------------------------------------------------------
 */
 
@@ -126,45 +128,35 @@ $requiredFields = [
 
 
 foreach (
-    $requiredFields
-    as $field
+    $requiredFields as $field
 ) {
 
     if (
         !array_key_exists(
             $field,
-            $data
+            $pending
         )
     ) {
 
-        unset(
-            $_SESSION[
-                'pending_registration'
-            ]
+        registration_reset(
+            'Your verification session is incomplete. Please register again.'
         );
 
-        $_SESSION['register_error'] =
-            'Your registration session is incomplete. Please register again.';
-
-        header(
-            'Location: register.php'
-        );
-
-        exit;
     }
+
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| NORMALIZE PENDING DATA
+| NORMALIZE DATA
 |--------------------------------------------------------------------------
 */
 
 $fullName =
     trim(
         (string)
-        $data['full_name']
+        $pending['full_name']
     );
 
 
@@ -172,7 +164,7 @@ $email =
     strtolower(
         trim(
             (string)
-            $data['email']
+            $pending['email']
         )
     );
 
@@ -180,109 +172,92 @@ $email =
 $mobile =
     trim(
         (string)
-        $data['mobile']
+        $pending['mobile']
     );
 
 
 $gender =
     trim(
         (string)
-        $data['gender']
+        $pending['gender']
     );
 
 
 $dob =
     trim(
         (string)
-        $data['dob']
+        $pending['dob']
     );
 
 
 $address =
     trim(
         (string)
-        $data['address']
+        $pending['address']
     );
 
 
 $city =
     trim(
         (string)
-        $data['city']
+        $pending['city']
     );
 
 
 $state =
     trim(
         (string)
-        $data['state']
+        $pending['state']
     );
 
 
 $pincode =
     trim(
         (string)
-        $data['pincode']
+        $pending['pincode']
     );
 
 
 $passwordHash =
     (string)
-    $data['password'];
+    $pending['password'];
 
 
 $otpHash =
     (string)
-    $data['otp'];
+    $pending['otp'];
 
 
 $otpExpires =
     (int)
-    $data['otp_expires'];
+    $pending['otp_expires'];
 
 
 $otpAttempts =
-    (int)
-    $data['otp_attempts'];
-
-
-$otpSentAt =
-    (int)
-    $data['otp_sent_at'];
+    max(
+        0,
+        (int)
+        $pending['otp_attempts']
+    );
 
 
 /*
 |--------------------------------------------------------------------------
-| PENDING DATA VALIDATION
-|--------------------------------------------------------------------------
-|
-| This is a second server-side validation boundary.
-| Even though the values are stored in the server session, the final
-| registration step should never assume that the session state is valid.
-|
+| SECOND SERVER-SIDE VALIDATION
 |--------------------------------------------------------------------------
 */
 
 if (
-    $fullName === ''
-    ||
-    mb_strlen($fullName) > 100
+    $fullName === '' ||
+    mb_strlen(
+        $fullName
+    ) > 100
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid registration information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid registration information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -290,25 +265,14 @@ if (
     !filter_var(
         $email,
         FILTER_VALIDATE_EMAIL
-    )
-    ||
+    ) ||
     strlen($email) > 150
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid email address. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid email address. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -319,20 +283,10 @@ if (
     )
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid mobile number. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid mobile number. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -348,22 +302,18 @@ if (
     )
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid gender information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid gender information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| DATE VALIDATION
+|--------------------------------------------------------------------------
+*/
 
 $date =
     DateTimeImmutable::createFromFormat(
@@ -382,106 +332,64 @@ $dateHasErrors =
     )
     &&
     (
-        $dateErrors['warning_count'] > 0
+        $dateErrors[
+            'warning_count'
+        ] > 0
         ||
-        $dateErrors['error_count'] > 0
+        $dateErrors[
+            'error_count'
+        ] > 0
     );
 
 
 if (
-    !$date
-    ||
-    $dateHasErrors
-    ||
+    !$date ||
+    $dateHasErrors ||
     $date->format(
         'Y-m-d'
-    ) !== $dob
-) {
-
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
-    );
-
-    $_SESSION['register_error'] =
-        'Invalid date of birth. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
-}
-
-
-if (
+    ) !== $dob ||
     $date >
     new DateTimeImmutable(
         'today'
     )
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid date of birth. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid date of birth. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 if (
-    mb_strlen($city) < 2
-    ||
-    mb_strlen($city) > 80
+    mb_strlen(
+        $city
+    ) < 2 ||
+    mb_strlen(
+        $city
+    ) > 80
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid city information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid city information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 if (
-    mb_strlen($state) < 2
-    ||
-    mb_strlen($state) > 80
+    mb_strlen(
+        $state
+    ) < 2 ||
+    mb_strlen(
+        $state
+    ) > 80
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid state information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid state information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -492,43 +400,26 @@ if (
     )
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid pincode. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid pincode. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 if (
-    mb_strlen($address) < 5
-    ||
-    mb_strlen($address) > 2000
+    mb_strlen(
+        $address
+    ) < 5 ||
+    mb_strlen(
+        $address
+    ) > 2000
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid address information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid address information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -539,58 +430,36 @@ if (
 */
 
 if (
-    $passwordHash === ''
-    ||
+    $passwordHash === '' ||
     password_get_info(
         $passwordHash
     )['algo'] === 0
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid password information. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid password information. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| OTP SESSION VALIDATION
+| OTP HASH VALIDATION
 |--------------------------------------------------------------------------
 */
 
 if (
-    $otpHash === ''
-    ||
+    $otpHash === '' ||
     password_get_info(
         $otpHash
     )['algo'] === 0
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Invalid verification session. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Invalid verification session. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
@@ -598,15 +467,22 @@ if (
 |--------------------------------------------------------------------------
 | OTP INPUT
 |--------------------------------------------------------------------------
+|
+| This is the important fix.
+| Any spaces, hidden formatting characters, or pasted separators
+| are removed before checking the six digits.
+|
+|--------------------------------------------------------------------------
 */
 
 $userOtp =
-    trim(
-        (string) (
-            $_POST['otp']
-            ?? ''
+    preg_replace(
+        '/[^0-9]/',
+        '',
+        (string)(
+            $_POST['otp'] ?? ''
         )
-    );
+    ) ?? '';
 
 
 if (
@@ -616,9 +492,10 @@ if (
     )
 ) {
 
-    otp_error_redirect(
+    otp_redirect(
         'Please enter a valid 6-digit OTP.'
     );
+
 }
 
 
@@ -626,74 +503,39 @@ if (
 |--------------------------------------------------------------------------
 | OTP EXPIRY
 |--------------------------------------------------------------------------
-|
-| Use >= so an OTP becomes invalid exactly at its expiry timestamp.
-|
-|--------------------------------------------------------------------------
 */
 
 if (
-    time()
-    >=
-    $otpExpires
+    time() >= $otpExpires
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Your OTP has expired. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Your OTP has expired. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| OTP ATTEMPT VALIDATION
+| OTP ATTEMPT LIMIT
 |--------------------------------------------------------------------------
 */
-
-if (
-    $otpAttempts < 0
-) {
-
-    $otpAttempts =
-        0;
-}
-
 
 if (
     $otpAttempts >= 5
 ) {
 
-    unset(
-        $_SESSION[
-            'pending_registration'
-        ]
+    registration_reset(
+        'Too many incorrect OTP attempts. Please register again.'
     );
 
-    $_SESSION['register_error'] =
-        'Too many incorrect OTP attempts. Please register again.';
-
-    header(
-        'Location: register.php'
-    );
-
-    exit;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| OTP VERIFY
+| VERIFY OTP
 |--------------------------------------------------------------------------
 */
 
@@ -706,37 +548,23 @@ if (
 
     $otpAttempts++;
 
-
     if (
         $otpAttempts >= 5
     ) {
 
-        unset(
-            $_SESSION[
-                'pending_registration'
-            ]
+        registration_reset(
+            'Too many incorrect OTP attempts. Please register again.'
         );
 
-        $_SESSION['register_error'] =
-            'Too many incorrect OTP attempts. Please register again.';
-
-        header(
-            'Location: register.php'
-        );
-
-        exit;
     }
-
 
     $_SESSION[
         'pending_registration'
     ]['otp_attempts'] =
         $otpAttempts;
 
-
     $_SESSION['otp_error'] =
         'Invalid OTP. Please check the code and try again.';
-
 
     header(
         'Location: verify_otp.php'
@@ -756,55 +584,32 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | EARLY DUPLICATE CHECK
+    | CHECK EXISTING EMAIL
     |--------------------------------------------------------------------------
-    |
-    | This provides a user-friendly message.
-    |
-    | The UNIQUE database constraint remains the final protection.
-    |
     */
 
-    $existingQuery =
+    $existing =
         $conn->prepare(
-            "
-            SELECT
-                id
-
-            FROM students
-
-            WHERE email = ?
-
-            LIMIT 1
-            "
+            'SELECT id
+             FROM students
+             WHERE email = ?
+             LIMIT 1'
         );
 
 
-    $existingQuery->execute([
+    $existing->execute([
         $email
     ]);
 
 
     if (
-        $existingQuery->fetchColumn()
+        $existing->fetchColumn()
     ) {
 
-        unset(
-            $_SESSION[
-                'pending_registration'
-            ]
+        registration_reset(
+            'This email address is already registered.'
         );
 
-
-        $_SESSION['register_error'] =
-            'This email address is already registered.';
-
-
-        header(
-            'Location: register.php'
-        );
-
-        exit;
     }
 
 
@@ -819,56 +624,12 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | RECHECK EMAIL INSIDE TRANSACTION
-    |--------------------------------------------------------------------------
-    */
-
-    $lockedDuplicate =
-        $conn->prepare(
-            "
-            SELECT
-                id
-
-            FROM students
-
-            WHERE email = ?
-
-            LIMIT 1
-
-            FOR UPDATE
-            "
-        );
-
-
-    $lockedDuplicate->execute([
-        $email
-    ]);
-
-
-    if (
-        $lockedDuplicate->fetchColumn()
-    ) {
-
-        throw new RuntimeException(
-            'This email address is already registered.'
-        );
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | TEMPORARY STUDENT CODE
-    |--------------------------------------------------------------------------
-    |
-    | student_code is replaced with the final STU00001-style code after
-    | the auto-increment ID is known.
-    |
+    | TEMPORARY UNIQUE STUDENT CODE
     |--------------------------------------------------------------------------
     */
 
     $temporaryCode =
-        'TMP'
-        .
+        'TMP' .
         strtoupper(
             bin2hex(
                 random_bytes(12)
@@ -884,53 +645,36 @@ try {
 
     $insert =
         $conn->prepare(
-            "
-            INSERT INTO students
-            (
+            'INSERT INTO students (
                 student_code,
-
                 full_name,
                 email,
                 mobile,
                 gender,
-
                 dob,
-
                 address,
                 city,
                 state,
                 pincode,
-
                 password,
-
                 email_verified,
-
                 status
             )
-
-            VALUES
-            (
+            VALUES (
                 :student_code,
-
                 :full_name,
                 :email,
                 :mobile,
                 :gender,
-
                 :dob,
-
                 :address,
                 :city,
                 :state,
                 :pincode,
-
                 :password,
-
-                'Yes',
-
-                'Active'
-            )
-            "
+                :email_verified,
+                :status
+            )'
         );
 
 
@@ -967,7 +711,13 @@ try {
             $pincode,
 
         ':password' =>
-            $passwordHash
+            $passwordHash,
+
+        ':email_verified' =>
+            'Yes',
+
+        ':status' =>
+            'Active'
 
     ]);
 
@@ -990,6 +740,7 @@ try {
         throw new RuntimeException(
             'Unable to create the student account.'
         );
+
     }
 
 
@@ -1000,8 +751,7 @@ try {
     */
 
     $studentCode =
-        'STU'
-        .
+        'STU' .
         str_pad(
             (string)
             $studentId,
@@ -1013,21 +763,15 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | UPDATE STUDENT CODE
+    | SAVE FINAL STUDENT CODE
     |--------------------------------------------------------------------------
     */
 
     $updateCode =
         $conn->prepare(
-            "
-            UPDATE students
-
-            SET
-                student_code = ?
-
-            WHERE
-                id = ?
-            "
+            'UPDATE students
+             SET student_code = ?
+             WHERE id = ?'
         );
 
 
@@ -1049,43 +793,32 @@ try {
         throw new RuntimeException(
             'Unable to finalize the student code.'
         );
+
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | VERIFY FINAL RECORD
+    | FINAL ACCOUNT VERIFICATION
     |--------------------------------------------------------------------------
     */
 
     $verifyStudent =
         $conn->prepare(
-            "
-            SELECT
-
+            "SELECT
                 id,
                 student_code,
                 full_name,
                 email,
                 email_verified,
                 status
-
-            FROM students
-
-            WHERE
-
-                id = ?
-
-                AND email = ?
-
-                AND student_code = ?
-
-                AND email_verified = 'Yes'
-
-                AND status = 'Active'
-
-            LIMIT 1
-            "
+             FROM students
+             WHERE id = ?
+               AND email = ?
+               AND student_code = ?
+               AND email_verified = 'Yes'
+               AND status = 'Active'
+             LIMIT 1"
         );
 
 
@@ -1100,19 +833,20 @@ try {
     ]);
 
 
-    $verifiedStudent =
+    $student =
         $verifyStudent->fetch(
             PDO::FETCH_ASSOC
         );
 
 
     if (
-        !$verifiedStudent
+        !$student
     ) {
 
         throw new RuntimeException(
             'The student account could not be verified after registration.'
         );
+
     }
 
 
@@ -1127,7 +861,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | SESSION REGENERATION
+    | REGENERATE SESSION
     |--------------------------------------------------------------------------
     */
 
@@ -1138,7 +872,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | AUTHENTICATED SESSION
+    | STUDENT LOGIN SESSION
     |--------------------------------------------------------------------------
     */
 
@@ -1148,16 +882,12 @@ try {
 
     $_SESSION['user_name'] =
         (string)
-        $verifiedStudent[
-            'full_name'
-        ];
+        $student['full_name'];
 
 
     $_SESSION['user_email'] =
         (string)
-        $verifiedStudent[
-            'email'
-        ];
+        $student['email'];
 
 
     $_SESSION['user_role'] =
@@ -1170,7 +900,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | FRESH CSRF TOKEN
+    | NEW CSRF TOKEN
     |--------------------------------------------------------------------------
     */
 
@@ -1182,24 +912,15 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | CLEAR EXAM TOKEN
+    | CLEAR TEMP STATE
     |--------------------------------------------------------------------------
     */
 
     unset(
+
         $_SESSION[
             'exam_csrf_token'
-        ]
-    );
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | CLEAR REGISTRATION STATE
-    |--------------------------------------------------------------------------
-    */
-
-    unset(
+        ],
 
         $_SESSION[
             'pending_registration'
@@ -1226,7 +947,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | SUCCESS
+    | SUCCESS MESSAGE
     |--------------------------------------------------------------------------
     */
 
@@ -1238,7 +959,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | DASHBOARD
+    | STUDENT DASHBOARD
     |--------------------------------------------------------------------------
     */
 
@@ -1253,32 +974,20 @@ try {
     PDOException $exception
 ) {
 
-    /*
-    |--------------------------------------------------------------------------
-    | ROLLBACK
-    |--------------------------------------------------------------------------
-    */
-
     if (
         $conn->inTransaction()
     ) {
 
         $conn->rollBack();
+
     }
 
 
     error_log(
-        'ExamSphere student registration database error: '
-        .
+        'ExamSphere student registration database error: ' .
         $exception->getMessage()
     );
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | DUPLICATE EMAIL RACE
-    |--------------------------------------------------------------------------
-    */
 
     if (
         $exception->getCode()
@@ -1286,88 +995,16 @@ try {
         '23000'
     ) {
 
-        unset(
-            $_SESSION[
-                'pending_registration'
-            ]
+        registration_reset(
+            'This email address is already registered.'
         );
 
-        $_SESSION['register_error'] =
-            'This email address is already registered.';
-
-        header(
-            'Location: register.php'
-        );
-
-        exit;
     }
 
 
-    $_SESSION['otp_error'] =
-        'Unable to complete registration right now. Please try again.';
-
-
-    header(
-        'Location: verify_otp.php'
+    otp_redirect(
+        'Unable to complete registration right now. Please try again.'
     );
-
-    exit;
-
-
-} catch (
-    RuntimeException $exception
-) {
-
-    if (
-        $conn->inTransaction()
-    ) {
-
-        $conn->rollBack();
-    }
-
-
-    error_log(
-        'ExamSphere OTP registration error: '
-        .
-        $exception->getMessage()
-    );
-
-
-    if (
-        str_contains(
-            strtolower(
-                $exception->getMessage()
-            ),
-            'already registered'
-        )
-    ) {
-
-        unset(
-            $_SESSION[
-                'pending_registration'
-            ]
-        );
-
-        $_SESSION['register_error'] =
-            $exception->getMessage();
-
-        header(
-            'Location: register.php'
-        );
-
-        exit;
-    }
-
-
-    $_SESSION['otp_error'] =
-        'Unable to complete registration right now. Please try again.';
-
-
-    header(
-        'Location: verify_otp.php'
-    );
-
-    exit;
 
 
 } catch (
@@ -1379,23 +1016,18 @@ try {
     ) {
 
         $conn->rollBack();
+
     }
 
 
     error_log(
-        'ExamSphere OTP verification failed: '
-        .
+        'ExamSphere OTP verification failed: ' .
         $exception->getMessage()
     );
 
 
-    $_SESSION['otp_error'] =
-        'Unable to complete registration right now. Please try again.';
-
-
-    header(
-        'Location: verify_otp.php'
+    otp_redirect(
+        'Unable to complete registration right now. Please try again.'
     );
 
-    exit;
 }

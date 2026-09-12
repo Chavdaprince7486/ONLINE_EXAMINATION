@@ -1,16 +1,82 @@
 <?php
 
-$current_page =
+declare(strict_types=1);
+
+/*
+|--------------------------------------------------------------------------
+| ExamSphere Admin Sidebar
+|--------------------------------------------------------------------------
+|
+| Admin keeps all administrative modules.
+|
+| Student permissions:
+| - View
+| - Activate / Deactivate
+| - Delete
+| - No Add/Edit
+|
+| Teacher permissions:
+| - Add once
+| - View
+| - Activate / Deactivate
+| - Delete
+| - No Edit after creation
+|
+|--------------------------------------------------------------------------
+*/
+
+$currentPage =
     basename(
         $_SERVER['PHP_SELF']
     );
 
-$current_folder =
+$currentFolder =
     basename(
         dirname(
             $_SERVER['PHP_SELF']
         )
     );
+
+
+/*
+|--------------------------------------------------------------------------
+| ACTIVE HELPERS
+|--------------------------------------------------------------------------
+*/
+
+function admin_menu_active(
+    array $pages = [],
+    array $folders = []
+): bool {
+
+    global
+        $currentPage,
+        $currentFolder;
+
+    if (
+        in_array(
+            $currentPage,
+            $pages,
+            true
+        )
+    ) {
+
+        return true;
+    }
+
+    if (
+        in_array(
+            $currentFolder,
+            $folders,
+            true
+        )
+    ) {
+
+        return true;
+    }
+
+    return false;
+}
 
 ?>
 
@@ -19,214 +85,595 @@ $current_folder =
     id="sidebar"
 >
 
+    <!-- =========================================================
+         LOGO
+         ========================================================= -->
+
     <div class="logo-section">
 
-        <img
-            src="../assets/images/exam_logo.png"
-            class="logo"
-            alt="ExamSphere"
+        <a
+            href="/ONLINE_EXAMINATION/admin/dashboard.php"
+            class="admin-logo-link"
+            aria-label="ExamSphere Admin Dashboard"
         >
+
+            <img
+                src="../assets/images/exam_logo.png"
+                class="logo"
+                alt="ExamSphere"
+            >
+
+        </a>
+
+        <div class="admin-panel-label">
+            ADMIN PANEL
+        </div>
 
     </div>
 
-    <ul class="menu">
 
-        <li class="<?= ($current_page === 'dashboard.php') ? 'active' : '' ?>">
+    <!-- =========================================================
+         NAVIGATION
+         ========================================================= -->
 
-            <a href="/ONLINE_EXAMINATION/admin/dashboard.php">
+    <nav
+        class="admin-navigation"
+        aria-label="Admin navigation"
+    >
 
-                <i class="fa-solid fa-house"></i>
+        <ul class="menu">
 
-                <span>
-                    Dashboard
-                </span>
 
-            </a>
+            <!-- =================================================
+                 DASHBOARD
+                 ================================================= -->
 
-        </li>
+            <li
+                class="<?= admin_menu_active(
+                    ['dashboard.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-        <li class="<?= ($current_folder === 'students') ? 'active' : '' ?>">
+                <a
+                    href="/ONLINE_EXAMINATION/admin/dashboard.php"
+                >
 
-            <a href="/ONLINE_EXAMINATION/admin/students/index.php">
+                    <i
+                        class="
+                            fa-solid
+                            fa-house
+                        "
+                    ></i>
 
-                <i class="fa-solid fa-users"></i>
+                    <span>
+                        Dashboard
+                    </span>
 
-                <span>
-                    Students
-                </span>
+                </a>
 
-            </a>
+            </li>
 
-        </li>
 
-        <li class="<?= ($current_folder === 'teachers') ? 'active' : '' ?>">
+            <!-- =================================================
+                 USER MANAGEMENT
+                 ================================================= -->
 
-            <a href="/ONLINE_EXAMINATION/admin/teachers/index.php">
+            <li
+                class="
+                    menu-section-title
+                "
+            >
 
-                <i class="fa-solid fa-user-tie"></i>
+                USER MANAGEMENT
 
-                <span>
-                    Teachers
-                </span>
+            </li>
 
-            </a>
 
-        </li>
+            <!-- STUDENTS -->
 
-        <li class="<?= ($current_folder === 'categories') ? 'active' : '' ?>">
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['students']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-            <a href="/ONLINE_EXAMINATION/admin/categories/index.php">
+                <a
+                    href="/ONLINE_EXAMINATION/admin/students/index.php"
+                >
 
-                <i class="fa-solid fa-layer-group"></i>
+                    <i
+                        class="
+                            fa-solid
+                            fa-users
+                        "
+                    ></i>
 
-                <span>
-                    Categories
-                </span>
+                    <span>
+                        Students
+                    </span>
 
-            </a>
+                </a>
 
-        </li>
+            </li>
 
-        <li class="<?= ($current_folder === 'subjects') ? 'active' : '' ?>">
 
-            <a href="/ONLINE_EXAMINATION/admin/subjects/index.php">
+            <!-- TEACHERS -->
 
-                <i class="fa-solid fa-book"></i>
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['teachers']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-                <span>
-                    Subjects
-                </span>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/teachers/index.php"
+                >
 
-            </a>
+                    <i
+                        class="
+                            fa-solid
+                            fa-user-tie
+                        "
+                    ></i>
 
-        </li>
+                    <span>
+                        Teachers
+                    </span>
 
-        <li class="<?= ($current_folder === 'topics') ? 'active' : '' ?>">
+                </a>
 
-            <a href="/ONLINE_EXAMINATION/admin/topics/index.php">
+            </li>
 
-                <i class="fa-solid fa-list-check"></i>
 
-                <span>
-                    Topics
-                </span>
+            <!-- =================================================
+                 ACADEMIC MANAGEMENT
+                 ================================================= -->
 
-            </a>
+            <li
+                class="
+                    menu-section-title
+                "
+            >
 
-        </li>
+                ACADEMIC MANAGEMENT
 
-        <li class="<?= ($current_page === 'questions.php' || $current_folder === 'question-bank') ? 'active' : '' ?>">
+            </li>
 
-            <a href="/ONLINE_EXAMINATION/admin/questions.php">
 
-                <i class="fa-solid fa-circle-question"></i>
+            <!-- CATEGORIES -->
 
-                <span>
-                    Question Bank
-                </span>
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['categories']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-            </a>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/categories/index.php"
+                >
 
-        </li>
+                    <i
+                        class="
+                            fa-solid
+                            fa-layer-group
+                        "
+                    ></i>
+
+                    <span>
+                        Categories
+                    </span>
 
-        <li class="<?= ($current_page === 'exams.php' || $current_folder === 'exams') ? 'active' : '' ?>">
+                </a>
 
-            <a href="/ONLINE_EXAMINATION/admin/exams.php">
+            </li>
 
-                <i class="fa-solid fa-file-lines"></i>
 
-                <span>
-                    Exams
-                </span>
+            <!-- SUBJECTS -->
 
-            </a>
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['subjects']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-        </li>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/subjects/index.php"
+                >
 
-        <li class="<?= ($current_page === 'materials.php') ? 'active' : '' ?>">
+                    <i
+                        class="
+                            fa-solid
+                            fa-book
+                        "
+                    ></i>
+
+                    <span>
+                        Subjects
+                    </span>
 
-            <a href="/ONLINE_EXAMINATION/admin/materials.php">
+                </a>
 
-                <i class="fa-solid fa-book-open"></i>
+            </li>
 
-                <span>
-                    Materials
-                </span>
 
-            </a>
+            <!-- TOPICS -->
 
-        </li>
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['topics']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-        <li class="<?= ($current_page === 'subscriptions.php') ? 'active' : '' ?>">
+                <a
+                    href="/ONLINE_EXAMINATION/admin/topics/index.php"
+                >
 
-            <a href="/ONLINE_EXAMINATION/admin/subscriptions.php">
+                    <i
+                        class="
+                            fa-solid
+                            fa-list-check
+                        "
+                    ></i>
 
-                <i class="fa-solid fa-gem"></i>
+                    <span>
+                        Topics
+                    </span>
 
-                <span>
-                    Subscriptions
-                </span>
+                </a>
 
-            </a>
+            </li>
 
-        </li>
 
-        <li class="<?= ($current_page === 'results.php') ? 'active' : '' ?>">
+            <!-- QUESTION BANK -->
 
-            <a href="/ONLINE_EXAMINATION/admin/results.php">
+            <li
+                class="<?= admin_menu_active(
+                    ['questions.php'],
+                    ['question-bank']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-                <i class="fa-solid fa-chart-column"></i>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/questions.php"
+                >
 
-                <span>
-                    Results
-                </span>
+                    <i
+                        class="
+                            fa-solid
+                            fa-circle-question
+                        "
+                    ></i>
 
-            </a>
+                    <span>
+                        Question Bank
+                    </span>
 
-        </li>
+                </a>
 
-        <li class="<?= ($current_page === 'reports.php') ? 'active' : '' ?>">
+            </li>
 
-            <a href="/ONLINE_EXAMINATION/admin/reports.php">
 
-                <i class="fa-solid fa-chart-pie"></i>
+            <!-- EXAMS -->
 
-                <span>
-                    Reports
-                </span>
+            <li
+                class="<?= admin_menu_active(
+                    ['exams.php'],
+                    ['exams']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-            </a>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/exams.php"
+                >
 
-        </li>
+                    <i
+                        class="
+                            fa-solid
+                            fa-file-lines
+                        "
+                    ></i>
 
-        <li class="<?= ($current_page === 'settings.php') ? 'active' : '' ?>">
+                    <span>
+                        Exams
+                    </span>
 
-            <a href="/ONLINE_EXAMINATION/admin/settings.php">
+                </a>
 
-                <i class="fa-solid fa-gear"></i>
+            </li>
 
-                <span>
-                    Settings
-                </span>
 
-            </a>
+            <!-- MATERIALS -->
 
-        </li>
+            <li
+                class="<?= admin_menu_active(
+                    ['materials.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
 
-        <li>
+                <a
+                    href="/ONLINE_EXAMINATION/admin/materials.php"
+                >
 
-            <a href="/ONLINE_EXAMINATION/auth/logout.php">
+                    <i
+                        class="
+                            fa-solid
+                            fa-book-open
+                        "
+                    ></i>
 
-                <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>
+                        Materials
+                    </span>
 
-                <span>
-                    Logout
-                </span>
+                </a>
 
-            </a>
+            </li>
 
-        </li>
 
-    </ul>
+            <!-- =================================================
+                 FINANCE & ACCESS
+                 ================================================= -->
+
+            <li
+                class="
+                    menu-section-title
+                "
+            >
+
+                FINANCE & ACCESS
+
+            </li>
+
+
+            <!-- SUBSCRIPTIONS + PAYMENTS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['subscriptions.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/subscriptions.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-credit-card
+                        "
+                    ></i>
+
+                    <span>
+                        Subscriptions & Payments
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- =================================================
+                 RESULTS & REPORTING
+                 ================================================= -->
+
+            <li
+                class="
+                    menu-section-title
+                "
+            >
+
+                RESULTS & REPORTING
+
+            </li>
+
+
+            <!-- RESULTS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['results.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/results.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-chart-column
+                        "
+                    ></i>
+
+                    <span>
+                        Results
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- REPORTS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['reports.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/reports.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-chart-pie
+                        "
+                    ></i>
+
+                    <span>
+                        Reports
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- =================================================
+                 SYSTEM
+                 ================================================= -->
+
+            <li
+                class="
+                    menu-section-title
+                "
+            >
+
+                SYSTEM
+
+            </li>
+
+
+            <!-- SETTINGS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['settings.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/settings.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-gear
+                        "
+                    ></i>
+
+                    <span>
+                        Settings
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- PROFILE -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['profile.php']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/profile.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-user
+                        "
+                    ></i>
+
+                    <span>
+                        My Profile
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- =================================================
+                 LOGOUT
+                 ================================================= -->
+
+            <li
+                class="
+                    menu-logout
+                "
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/auth/logout.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-right-from-bracket
+                        "
+                    ></i>
+
+                    <span>
+                        Logout
+                    </span>
+
+                </a>
+
+            </li>
+
+
+        </ul>
+
+    </nav>
 
 </aside>

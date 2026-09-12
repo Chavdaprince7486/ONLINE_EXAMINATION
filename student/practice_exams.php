@@ -6,52 +6,41 @@ require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
 require_once '../config/exam_validation.php';
-
-
-/*
-|--------------------------------------------------------------------------
-| AUTHENTICATION
-|--------------------------------------------------------------------------
-*/
-
 require_once '../config/auth.php';
 
 require_login('student');
 
-
 $studentId =
-    (int) $_SESSION['user_id'];
+    (int)(
+        $_SESSION[
+            'user_id'
+        ] ?? 0
+    );
 
-
-/*
-|--------------------------------------------------------------------------
-| HELPERS
-|--------------------------------------------------------------------------
-*/
-
-function practice_escape(
+function practice_e(
     mixed $value
 ): string {
 
     return htmlspecialchars(
-        (string) ($value ?? ''),
+        (string)(
+            $value ?? ''
+        ),
         ENT_QUOTES |
         ENT_SUBSTITUTE,
         'UTF-8'
     );
 }
 
-
-function practice_number(
-    float|int|string|null $value
+function practice_num(
+    mixed $value
 ): string {
 
     $number =
-        (float) $value;
-
+        (float)$value;
 
     if (
-        floor($number) === $number
+        floor($number) ===
+        $number
     ) {
 
         return number_format(
@@ -61,7 +50,6 @@ function practice_number(
             ''
         );
     }
-
 
     return rtrim(
         rtrim(
@@ -77,20 +65,14 @@ function practice_number(
     );
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| FILTERS
-|--------------------------------------------------------------------------
-*/
-
 $search =
     trim(
-        (string) (
-            $_GET['search'] ?? ''
+        (string)(
+            $_GET[
+                'search'
+            ] ?? ''
         )
     );
-
 
 $subjectId =
     filter_input(
@@ -99,82 +81,81 @@ $subjectId =
         FILTER_VALIDATE_INT
     );
 
+$subjectId =
+    (
+        $subjectId !== false
+        &&
+        $subjectId !== null
+        &&
+        $subjectId > 0
+    )
+        ? $subjectId
+        : null;
 
-if (
-    $subjectId === false ||
-    $subjectId === null ||
-    $subjectId <= 0
-) {
+$subjects =
+    [];
 
-    $subjectId =
-        null;
-}
+$exams =
+    [];
+
+$latestResults =
+    [];
+
+$activeAttempts =
+    [];
+
+$hasSubscription =
+    false;
 
 
 /*
 |--------------------------------------------------------------------------
-| LOAD SUBJECTS
+| SUBJECTS
 |--------------------------------------------------------------------------
 */
 
-$subjects = [];
-
-
 try {
 
-    $subjectStatement =
+    $subjectStmt =
         $conn->query(
             "
             SELECT
-
                 id,
                 name,
                 code
 
             FROM subjects
 
-            WHERE
-
-                status = 'Active'
+            WHERE status = 'Active'
 
             ORDER BY
-
                 name ASC,
                 id ASC
             "
         );
 
-
     $subjects =
-        $subjectStatement->fetchAll(
-            PDO::FETCH_ASSOC
-        );
+        $subjectStmt
+            ->fetchAll(
+                PDO::FETCH_ASSOC
+            );
 
 } catch (
-    Throwable $exception
+    Throwable $e
 ) {
 
     error_log(
         'Practice subjects load failed: ' .
-        $exception->getMessage()
+        $e->getMessage()
     );
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| LOAD CANDIDATE EXAMS
-|--------------------------------------------------------------------------
-|
-| Do NOT decide readiness in SQL alone.
-|
-| The central ExamSphere validation engine is the
-| single source of truth.
+| EXAMS
 |--------------------------------------------------------------------------
 */
-
-$exams = [];
-
 
 try {
 
@@ -213,126 +194,108 @@ try {
 
         INNER JOIN subjects s
 
-            ON s.id = e.subject_id
+            ON s.id =
+               e.subject_id
 
-            AND s.status = 'Active'
+           AND s.status =
+               'Active'
 
         WHERE
 
-            e.exam_type = 'Practice'
+            e.exam_type =
+                'Practice'
 
-            AND e.status = 'Active'
+            AND e.status =
+                'Active'
 
-            AND e.required_question_count > 0
+            AND e.required_question_count >
+                0
 
-            AND e.total_marks > 0
+            AND e.total_marks >
+                0
     ";
 
-
-    $parameters = [];
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SEARCH
-    |--------------------------------------------------------------------------
-    */
+    $params =
+        [];
 
     if (
         $search !== ''
     ) {
 
         $sql .= "
+
             AND (
+
                 e.title LIKE ?
+
                 OR e.description LIKE ?
+
                 OR s.name LIKE ?
+
                 OR s.code LIKE ?
+
             )
+
         ";
 
-
-        $searchValue =
+        $like =
             '%' .
             $search .
             '%';
 
+        $params = [
 
-        $parameters[] =
-            $searchValue;
+            $like,
+            $like,
+            $like,
+            $like
 
-
-        $parameters[] =
-            $searchValue;
-
-
-        $parameters[] =
-            $searchValue;
-
-
-        $parameters[] =
-            $searchValue;
+        ];
     }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SUBJECT FILTER
-    |--------------------------------------------------------------------------
-    */
 
     if (
         $subjectId !== null
     ) {
 
-        $sql .= "
-            AND e.subject_id = ?
-        ";
+        $sql .=
+            ' AND e.subject_id = ? ';
 
-
-        $parameters[] =
+        $params[] =
             $subjectId;
     }
 
-
     $sql .= "
+
         ORDER BY
 
             e.updated_at DESC,
+
             e.id DESC
+
     ";
 
-
-    $statement =
+    $stmt =
         $conn->prepare(
             $sql
         );
 
-
-    $statement->execute(
-        $parameters
+    $stmt->execute(
+        $params
     );
 
-
     $candidateExams =
-        $statement->fetchAll(
+        $stmt->fetchAll(
             PDO::FETCH_ASSOC
         );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | CENTRAL READINESS VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
     foreach (
-        $candidateExams as $exam
+        $candidateExams
+        as $exam
     ) {
 
         $examId =
-            (int) $exam['id'];
-
+            (int)$exam['id'];
 
         $validation =
             validate_exam_from_database(
@@ -340,119 +303,137 @@ try {
                 $examId
             );
 
-
         if (
-            !$validation['valid']
+            !(
+                $validation[
+                    'valid'
+                ]
+                ??
+                false
+            )
         ) {
-
-            /*
-            |--------------------------------------------------------------------------
-            | Invalid exam stays hidden from students.
-            |--------------------------------------------------------------------------
-            */
 
             continue;
         }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Ensure database exam and validated config agree.
-        |--------------------------------------------------------------------------
-        */
 
         $validationData =
-            $validation['validation'];
+            $validation[
+                'validation'
+            ]
+            ??
+            [];
 
+        $requiredQuestionCount =
+            (int)(
+                $validationData[
+                    'required_question_count'
+                ]
+                ??
+                $exam[
+                    'required_question_count'
+                ]
+                ??
+                0
+            );
+
+        $actualQuestionCount =
+            (int)(
+                $validationData[
+                    'question_count'
+                ]
+                ??
+                0
+            );
 
         if (
-            (int) $validationData[
-                'required_question_count'
-            ]
-            !==
-            (int) $exam[
-                'required_question_count'
-            ]
+            $requiredQuestionCount < 1
+            ||
+            $actualQuestionCount !==
+            $requiredQuestionCount
         ) {
 
             continue;
         }
-
 
         if (
             abs(
-                (float) $validationData[
-                    'total_marks'
-                ]
+                (
+                    (float)(
+                        $validationData[
+                            'total_marks'
+                        ]
+                        ??
+                        0
+                    )
+                )
                 -
-                (float) $exam[
-                    'total_marks'
-                ]
-            ) > 0.000001
+                (
+                    (float)
+                    $exam[
+                        'total_marks'
+                    ]
+                )
+            )
+            >
+            0.000001
         ) {
 
             continue;
         }
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | Add validated values
-        |--------------------------------------------------------------------------
-        */
+        $exam[
+            'required_question_count'
+        ] =
+            $requiredQuestionCount;
 
         $exam[
             'active_question_count'
         ] =
-            (int) $validationData[
-                'question_count'
-            ];
-
+            $actualQuestionCount;
 
         $exam[
             'active_question_marks'
         ] =
-            (float) $validationData[
-                'actual_marks'
-            ];
-
+            (float)(
+                $validationData[
+                    'actual_marks'
+                ]
+                ??
+                0
+            );
 
         $exam[
             'validation_mode'
         ] =
-            (string) $validationData[
-                'mode'
-            ];
-
+            (string)(
+                $validationData[
+                    'mode'
+                ]
+                ??
+                'dynamic'
+            );
 
         $exam[
             'marks_per_question'
         ] =
             $validationData[
                 'marks_per_question'
-            ];
-
-
-        $exam[
-            'is_ready'
-        ] =
-            true;
-
+            ]
+            ??
+            null;
 
         $exams[] =
             $exam;
     }
 
 } catch (
-    Throwable $exception
+    Throwable $e
 ) {
 
     error_log(
         'Practice exams query failed: ' .
-        $exception->getMessage()
+        $e->getMessage()
     );
-
-    $exams = [];
 }
 
 
@@ -462,53 +443,48 @@ try {
 |--------------------------------------------------------------------------
 */
 
-$examIds = [];
-
-
-foreach (
-    $exams as $exam
-) {
-
-    $examIds[] =
-        (int) $exam['id'];
-}
-
-
 $examIds =
     array_values(
         array_unique(
-            $examIds
+            array_map(
+                static fn(
+                    array $exam
+                ): int =>
+                    (int)
+                    $exam['id'],
+
+                $exams
+            )
         )
     );
 
 
 /*
 |--------------------------------------------------------------------------
-| LATEST RESULTS
+| RESULTS + ATTEMPTS
 |--------------------------------------------------------------------------
 */
 
-$latestResults = [];
-
-
 if (
-    !empty($examIds)
+    $examIds
 ) {
+
+    $placeholders =
+        implode(
+            ',',
+            array_fill(
+                0,
+                count(
+                    $examIds
+                ),
+                '?'
+            )
+        );
+
 
     try {
 
-        $placeholders =
-            implode(
-                ',',
-                array_fill(
-                    0,
-                    count($examIds),
-                    '?'
-                )
-            );
-
-
-        $resultStatement =
+        $stmt =
             $conn->prepare(
                 "
                 SELECT
@@ -533,7 +509,9 @@ if (
                     SELECT
 
                         exam_id,
-                        MAX(id) AS latest_result_id
+
+                        MAX(id)
+                            AS latest_result_id
 
                     FROM results
 
@@ -556,11 +534,11 @@ if (
                 WHERE
 
                     r.student_id = ?
+
                 "
             );
 
-
-        $resultParameters =
+        $stmt->execute(
             array_merge(
                 [
                     $studentId
@@ -569,65 +547,37 @@ if (
                 [
                     $studentId
                 ]
-            );
-
-
-        $resultStatement->execute(
-            $resultParameters
+            )
         );
 
-
         foreach (
-            $resultStatement->fetchAll(
+            $stmt->fetchAll(
                 PDO::FETCH_ASSOC
-            ) as $result
+            )
+            as $row
         ) {
 
             $latestResults[
-                (int) $result['exam_id']
+                (int)
+                $row['exam_id']
             ] =
-                $result;
+                $row;
         }
 
     } catch (
-        Throwable $exception
+        Throwable $e
     ) {
 
         error_log(
             'Practice results lookup failed: ' .
-            $exception->getMessage()
+            $e->getMessage()
         );
     }
-}
 
-
-/*
-|--------------------------------------------------------------------------
-| ACTIVE ATTEMPTS
-|--------------------------------------------------------------------------
-*/
-
-$activeAttempts = [];
-
-
-if (
-    !empty($examIds)
-) {
 
     try {
 
-        $placeholders =
-            implode(
-                ',',
-                array_fill(
-                    0,
-                    count($examIds),
-                    '?'
-                )
-            );
-
-
-        $attemptStatement =
+        $stmt =
             $conn->prepare(
                 "
                 SELECT
@@ -647,7 +597,9 @@ if (
                     SELECT
 
                         exam_id,
-                        MAX(id) AS latest_attempt_id
+
+                        MAX(id)
+                            AS latest_attempt_id
 
                     FROM exam_attempts
 
@@ -659,7 +611,8 @@ if (
                             $placeholders
                         )
 
-                        AND status = 'Started'
+                        AND status =
+                            'Started'
 
                     GROUP BY
                         exam_id
@@ -673,12 +626,13 @@ if (
 
                     ea.student_id = ?
 
-                    AND ea.status = 'Started'
+                    AND ea.status =
+                        'Started'
+
                 "
             );
 
-
-        $attemptParameters =
+        $stmt->execute(
             array_merge(
                 [
                     $studentId
@@ -687,33 +641,30 @@ if (
                 [
                     $studentId
                 ]
-            );
-
-
-        $attemptStatement->execute(
-            $attemptParameters
+            )
         );
 
-
         foreach (
-            $attemptStatement->fetchAll(
+            $stmt->fetchAll(
                 PDO::FETCH_ASSOC
-            ) as $attempt
+            )
+            as $row
         ) {
 
             $activeAttempts[
-                (int) $attempt['exam_id']
+                (int)
+                $row['exam_id']
             ] =
-                $attempt;
+                $row;
         }
 
     } catch (
-        Throwable $exception
+        Throwable $e
     ) {
 
         error_log(
             'Practice active attempts lookup failed: ' .
-            $exception->getMessage()
+            $e->getMessage()
         );
     }
 }
@@ -725,10 +676,6 @@ if (
 |--------------------------------------------------------------------------
 */
 
-$hasSubscription =
-    false;
-
-
 try {
 
     $hasSubscription =
@@ -738,104 +685,111 @@ try {
         );
 
 } catch (
-    Throwable $exception
+    Throwable $e
 ) {
 
     error_log(
         'Practice subscription lookup failed: ' .
-        $exception->getMessage()
+        $e->getMessage()
     );
+
+    $hasSubscription =
+        false;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| STUDENT ACCESS STATE
+| ACCESS
 |--------------------------------------------------------------------------
 */
-
-$filterActive =
-    (
-        $search !== '' ||
-        $subjectId !== null
-    );
-
 
 $freeExamCount =
     0;
 
-
-$subscriptionExamCount =
+$premiumExamCount =
     0;
-
 
 $attemptedExamCount =
     0;
 
-
-$availableExamCount =
+$accessibleExamCount =
     0;
 
-
 foreach (
-    $exams as &$exam
+    $exams
+    as &$exam
 ) {
 
     $examId =
-        (int) $exam['id'];
-
+        (int)
+        $exam['id'];
 
     $latestResult =
         $latestResults[
             $examId
-        ] ?? null;
-
+        ]
+        ??
+        null;
 
     $activeAttempt =
         $activeAttempts[
             $examId
-        ] ?? null;
-
+        ]
+        ??
+        null;
 
     $requiresSubscription =
-        (int) $exam[
-            'subscription_required'
-        ] === 1;
+        (
+            (int)(
+                $exam[
+                    'subscription_required'
+                ]
+            )
+            ===
+            1
+        );
 
+    $hasAccess =
+        (
+            !$requiresSubscription
+            ||
+            $hasSubscription
+        );
 
-    $examAccess =
-        true;
+    $exam[
+        'latest_result'
+    ] =
+        $latestResult;
 
+    $exam[
+        'active_attempt'
+    ] =
+        $activeAttempt;
 
-    $accessMessage =
-        '';
+    $exam[
+        'exam_access'
+    ] =
+        $hasAccess;
 
-
-    if (
-        $requiresSubscription &&
-        !$hasSubscription
-    ) {
-
-        $examAccess =
-            false;
-
-
-        $accessMessage =
-            'An active subscription is required for this practice exam.';
-    }
-
+    $exam[
+        'access_message'
+    ] =
+        $hasAccess
+            ? ''
+            : 'An active subscription is required for this practice exam.';
 
     if (
         $requiresSubscription
     ) {
 
-        $subscriptionExamCount++;
+        $premiumExamCount++;
 
     } else {
 
         $freeExamCount++;
-    }
 
+    }
 
     if (
         $latestResult !== null
@@ -844,41 +798,22 @@ foreach (
         $attemptedExamCount++;
     }
 
-
     if (
-        $examAccess
+        $hasAccess
     ) {
 
-        $availableExamCount++;
+        $accessibleExamCount++;
     }
-
-
-    $exam[
-        'latest_result'
-    ] =
-        $latestResult;
-
-
-    $exam[
-        'active_attempt'
-    ] =
-        $activeAttempt;
-
-
-    $exam[
-        'exam_access'
-    ] =
-        $examAccess;
-
-
-    $exam[
-        'access_message'
-    ] =
-        $accessMessage;
 }
 
-unset($exam);
+unset(
+    $exam
+);
 
+$filterActive =
+    $search !== ''
+    ||
+    $subjectId !== null;
 
 ?>
 
@@ -902,55 +837,39 @@ unset($exam);
 
     <meta
         name="csrf-token"
-        content="<?= htmlspecialchars(csrf_token(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') ?>"
+        content="<?= practice_e(
+            csrf_token()
+        ) ?>"
     >
-
 
     <title>
         Practice Exams | ExamSphere
     </title>
 
-
     <link
         rel="preconnect"
         href="https://fonts.googleapis.com"
     >
-
 
     <link
         rel="preconnect"
         href="https://fonts.gstatic.com"
-    >
-
-
-    <link
-        rel="preconnect"
-        href="https://fonts.googleapis.com"
         crossorigin
     >
-
 
     <link
         href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
         rel="stylesheet"
     >
 
-
     <link
         rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
     >
 
-
     <link
         rel="stylesheet"
-        href="assets/css/dashboard.css"
-    >
-
-
-    <link
-        rel="stylesheet"
-        href="assets/css/practice-exams-pro.css"
+        href="assets/css/student-nav.css"
     >
 
     <link
@@ -960,1042 +879,519 @@ unset($exam);
 
 </head>
 
+<body class="practice-page">
 
-<body class="practice-exams-page-body">
+<?php include 'includes/navbar.php'; ?>
 
+<main class="practice-container">
 
-<?php
-include 'includes/navbar.php';
-?>
+    <section class="practice-hero">
 
+        <div>
 
-<main class="practice-exams-pro">
+            <span class="practice-kicker">
 
+                <i
+                    class="
+                        fa-solid
+                        fa-pen-to-square
+                    "
+                ></i>
 
-    <div class="container">
+                STUDENT PRACTICE LIBRARY
 
+            </span>
 
-        <!-- =====================================================
-             HEADER
-        ====================================================== -->
+            <h1>
 
+                Practice smarter.
 
-        <section class="practice-page-header">
+                <br>
 
+                <em>
+                    Perform stronger.
+                </em>
 
-            <div>
+            </h1>
 
+            <p>
 
-                <span
-                    class="practice-page-kicker"
-                >
+                Only complete, active
+                practice examinations are
+                displayed here.
 
-                    <i
-                        class="
-                            fa-solid
-                            fa-pen-to-square
-                        "
-                    ></i>
+                When an administrator or
+                teacher publishes a complete
+                practice exam, it appears
+                automatically.
 
-                    FREE PRACTICE
+            </p>
 
-                </span>
+        </div>
 
+        <div class="practice-hero-card">
 
-                <h1>
+            <div class="practice-hero-icon">
 
-                    Practice smarter.
-                    <em>Perform stronger.</em>
-
-                </h1>
-
-
-                <p>
-
-                    Take active practice examinations,
-                    track your improvement and build confidence
-                    before your next important exam.
-
-                </p>
+                <i
+                    class="
+                        fa-solid
+                        fa-bolt
+                    "
+                ></i>
 
             </div>
 
+            <div>
+
+                <strong>
+                    Fully dynamic
+                </strong>
+
+                <span>
+                    Live database-driven exam library
+                </span>
+
+            </div>
+
+        </div>
+
+    </section>
+
+    <section class="practice-stats">
+
+        <article>
+
+            <i
+                class="
+                    fa-solid
+                    fa-circle-check
+                "
+            ></i>
+
+            <div>
+
+                <span>
+                    Ready exams
+                </span>
+
+                <strong>
+                    <?= count(
+                        $exams
+                    ) ?>
+                </strong>
+
+            </div>
+
+        </article>
+
+        <article>
+
+            <i
+                class="
+                    fa-solid
+                    fa-unlock
+                "
+            ></i>
+
+            <div>
+
+                <span>
+                    Accessible now
+                </span>
+
+                <strong>
+                    <?= $accessibleExamCount ?>
+                </strong>
+
+            </div>
+
+        </article>
+
+        <article>
+
+            <i
+                class="
+                    fa-solid
+                    fa-crown
+                "
+            ></i>
+
+            <div>
+
+                <span>
+                    Premium practice
+                </span>
+
+                <strong>
+                    <?= $premiumExamCount ?>
+                </strong>
+
+            </div>
+
+        </article>
+
+        <article>
+
+            <i
+                class="
+                    fa-solid
+                    fa-chart-column
+                "
+            ></i>
+
+            <div>
+
+                <span>
+                    Attempted
+                </span>
+
+                <strong>
+                    <?= $attemptedExamCount ?>
+                </strong>
+
+            </div>
+
+        </article>
+
+    </section>
+
+    <section class="practice-filter-panel">
+
+        <form
+            method="GET"
+            class="practice-filter-form"
+            id="practiceFilterForm"
+        >
+
+            <div class="practice-input">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-magnifying-glass
+                    "
+                ></i>
+
+                <input
+                    type="search"
+                    name="search"
+                    value="<?= practice_e(
+                        $search
+                    ) ?>"
+                    placeholder="Search exam or subject..."
+                    autocomplete="off"
+                >
+
+            </div>
 
             <div
                 class="
-                    practice-page-header-badge
+                    practice-input
+                    practice-select
                 "
             >
 
                 <i
                     class="
                         fa-solid
-                        fa-infinity
+                        fa-book-open
                     "
                 ></i>
 
-
-                <span>
-
-                    <strong>
-                        Practice your way
-                    </strong>
-
-
-                    <small>
-
-                        Free exams are available to registered students.
-                        Premium practice can require an active subscription.
-
-                    </small>
-
-                </span>
-
-            </div>
-
-
-        </section>
-
-
-        <!-- =====================================================
-             SUMMARY
-        ====================================================== -->
-
-
-        <section
-            class="
-                practice-summary-strip
-            "
-        >
-
-
-            <div
-                class="
-                    practice-summary-card
-                "
-            >
-
-                <span>
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-circle-check
-                        "
-                    ></i>
-
-                </span>
-
-
-                <div>
-
-                    <small>
-                        Ready exams
-                    </small>
-
-
-                    <strong>
-                        <?= count($exams) ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div
-                class="
-                    practice-summary-card
-                "
-            >
-
-                <span>
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-infinity
-                        "
-                    ></i>
-
-                </span>
-
-
-                <div>
-
-                    <small>
-                        Free access
-                    </small>
-
-
-                    <strong>
-                        <?= $freeExamCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div
-                class="
-                    practice-summary-card
-                "
-            >
-
-                <span>
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-crown
-                        "
-                    ></i>
-
-                </span>
-
-
-                <div>
-
-                    <small>
-                        Premium practice
-                    </small>
-
-
-                    <strong>
-                        <?= $subscriptionExamCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div
-                class="
-                    practice-summary-card
-                "
-            >
-
-                <span>
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-chart-column
-                        "
-                    ></i>
-
-                </span>
-
-
-                <div>
-
-                    <small>
-                        Attempted
-                    </small>
-
-
-                    <strong>
-                        <?= $attemptedExamCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-        </section>
-
-
-        <!-- =====================================================
-             FILTERS
-        ====================================================== -->
-
-
-        <section
-            class="
-                practice-filter-panel
-            "
-        >
-
-            <form
-                method="GET"
-                class="practice-filter-form"
-            >
-
-
-                <div class="practice-search">
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-magnifying-glass
-                        "
-                    ></i>
-
-
-                    <input
-                        type="search"
-                        name="search"
-                        value="<?= practice_escape(
-                            $search
-                        ) ?>"
-                        placeholder="Search exam, subject or topic..."
-                    >
-
-                </div>
-
-
-                <div
-                    class="
-                        practice-subject-select
-                    "
+                <select
+                    name="subject_id"
                 >
 
-                    <i
-                        class="
-                            fa-solid
-                            fa-book-open
-                        "
-                    ></i>
+                    <option value="">
+                        All subjects
+                    </option>
 
+                    <?php foreach (
+                        $subjects
+                        as $subject
+                    ): ?>
 
-                    <select
-                        name="subject_id"
-                    >
+                        <option
+                            value="<?= (int)$subject['id'] ?>"
+                            <?= $subjectId ===
+                                (int)$subject['id']
+                                ? 'selected'
+                                : '' ?>
+                        >
 
-                        <option value="">
-                            All subjects
+                            <?= practice_e(
+                                $subject['name']
+                            ) ?>
+
+                            <?php if (
+                                !empty(
+                                    $subject['code']
+                                )
+                            ): ?>
+
+                                (
+                                <?= practice_e(
+                                    $subject['code']
+                                ) ?>
+                                )
+
+                            <?php endif; ?>
+
                         </option>
 
+                    <?php endforeach; ?>
 
-                        <?php
-                        foreach (
-                            $subjects as $subject
-                        ):
-                        ?>
+                </select>
 
+            </div>
 
-                            <option
-                                value="<?= (int) $subject['id'] ?>"
-                                <?= (
-                                    $subjectId !== null &&
-                                    $subjectId ===
-                                    (int) $subject['id']
-                                )
-                                    ? 'selected'
-                                    : ''
-                                ?>
-                            >
+            <button
+                type="submit"
+                class="
+                    practice-btn
+                    practice-filter-btn
+                "
+            >
 
-                                <?= practice_escape(
-                                    $subject['name']
-                                ) ?>
-
-
-                                <?php
-                                if (
-                                    !empty(
-                                        $subject['code']
-                                    )
-                                ):
-                                ?>
-
-                                    (
-                                    <?= practice_escape(
-                                        $subject['code']
-                                    ) ?>
-                                    )
-
-                                <?php
-                                endif;
-                                ?>
-
-                            </option>
-
-
-                        <?php
-                        endforeach;
-                        ?>
-
-                    </select>
-
-                </div>
-
-
-                <button
-                    type="submit"
+                <i
                     class="
-                        practice-filter-btn
+                        fa-solid
+                        fa-filter
+                    "
+                ></i>
+
+                Filter
+
+            </button>
+
+            <?php if (
+                $filterActive
+            ): ?>
+
+                <a
+                    href="practice_exams.php"
+                    class="
+                        practice-clear-btn
                     "
                 >
+                    Clear
+                </a>
 
-                    <i
-                        class="
-                            fa-solid
-                            fa-filter
-                        "
-                    ></i>
+            <?php endif; ?>
 
-                    Filter
+        </form>
 
-                </button>
+    </section>
 
+    <section class="practice-section-head">
 
-                <?php
-                if (
-                    $filterActive
-                ):
-                ?>
+        <div>
 
+            <span>
+                READY EXAMINATIONS
+            </span>
 
-                    <a
-                        href="practice_exams.php"
-                        class="
-                            practice-clear-btn
-                        "
-                    >
+            <h2>
+                Explore practice exams
+            </h2>
 
-                        Clear
+        </div>
 
-                    </a>
+        <div class="practice-count">
 
+            <strong
+                id="practiceResultCount"
+            >
+                <?= count(
+                    $exams
+                ) ?>
+            </strong>
 
-                <?php
-                endif;
-                ?>
+            <span>
+                visible
+            </span>
 
+        </div>
 
-            </form>
+    </section>
 
-        </section>
-
-
-        <!-- =====================================================
-             RESULTS HEADER
-        ====================================================== -->
-
+    <?php if (
+        $exams
+    ): ?>
 
         <section
-            class="
-                practice-results-heading
-            "
+            class="practice-grid"
+            id="practiceExamGrid"
         >
 
-
-            <div>
-
-                <span>
-                    READY EXAMINATIONS
-                </span>
-
-
-                <h2>
-                    Explore practice exams
-                </h2>
-
-            </div>
-
-
-            <div
-                class="
-                    practice-results-count
-                "
-            >
-
-                <strong>
-                    <?= count($exams) ?>
-                </strong>
-
-
-                <span>
-
-                    <?= count($exams) === 1
-                        ? 'exam available'
-                        : 'exams available'
-                    ?>
-
-                </span>
-
-            </div>
-
-
-        </section>
-
-
-        <!-- =====================================================
-             EXAMS
-        ====================================================== -->
-
-
-        <?php
-        if (
-            !empty($exams)
-        ):
-        ?>
-
-
-            <section
-                class="
-                    practice-exam-grid
-                "
-            >
-
+            <?php foreach (
+                $exams
+                as $index =>
+                    $exam
+            ): ?>
 
                 <?php
-                foreach (
-                    $exams as $index => $exam
-                ):
+
+                $examId =
+                    (int)
+                    $exam['id'];
+
+                $requiresSubscription =
+                    (
+                        (int)(
+                            $exam[
+                                'subscription_required'
+                            ]
+                        )
+                        ===
+                        1
+                    );
+
+                $hasAccess =
+                    (bool)
+                    $exam[
+                        'exam_access'
+                    ];
+
+                $latestResult =
+                    $exam[
+                        'latest_result'
+                    ];
+
+                $activeAttempt =
+                    $exam[
+                        'active_attempt'
+                    ];
+
+                $number =
+                    str_pad(
+                        (string)(
+                            $index + 1
+                        ),
+                        2,
+                        '0',
+                        STR_PAD_LEFT
+                    );
+
+                $description =
+                    trim(
+                        (string)(
+                            $exam[
+                                'description'
+                            ]
+                            ??
+                            ''
+                        )
+                    );
+
+                if (
+                    $description === ''
+                ) {
+
+                    $description =
+                        'Complete this practice examination to measure and improve your preparation.';
+                }
+
                 ?>
 
-
-                    <?php
-
-                    $examId =
-                        (int) $exam['id'];
-
-
-                    $questionCount =
-                        (int) $exam[
-                            'active_question_count'
-                        ];
-
-
-                    $requiredCount =
-                        (int) $exam[
-                            'required_question_count'
-                        ];
-
-
-                    $duration =
-                        (int) $exam[
-                            'duration_minutes'
-                        ];
-
-
-                    $totalMarks =
-                        (float) $exam[
-                            'total_marks'
-                        ];
-
-
-                    $passingMarks =
-                        (float) $exam[
-                            'passing_marks'
-                        ];
-
-
-                    $isNegativeMarking =
-                        (int) $exam[
-                            'negative_marking'
-                        ] === 1;
-
-
-                    $requiresSubscription =
-                        (int) $exam[
-                            'subscription_required'
-                        ] === 1;
-
-
-                    $hasAccess =
-                        (bool) $exam[
-                            'exam_access'
-                        ];
-
-
-                    $accessMessage =
-                        (string) $exam[
-                            'access_message'
-                        ];
-
-
-                    $latestResult =
-                        $exam[
-                            'latest_result'
-                        ] ?? null;
-
-
-                    $activeAttempt =
-                        $exam[
-                            'active_attempt'
-                        ] ?? null;
-
-
-                    $number =
-                        str_pad(
-                            (string) (
-                                $index + 1
-                            ),
-                            2,
-                            '0',
-                            STR_PAD_LEFT
-                        );
-
-
-                    $validationMode =
-                        (string) (
+                <article
+                    class="
+                        practice-card
+                        <?= !$hasAccess
+                            ? 'is-locked'
+                            : ''
+                        ?>"
+                    data-search="<?= practice_e(
+                        strtolower(
+                            (string)
                             $exam[
-                                'validation_mode'
-                            ] ?? ''
-                        );
+                                'title'
+                            ]
+                            . ' ' .
+                            (string)
+                            $exam[
+                                'subject_name'
+                            ]
+                            . ' ' .
+                            (string)
+                            $exam[
+                                'subject_code'
+                            ]
+                        )
+                    ?>"
+                >
 
-
-                    $marksPerQuestion =
-                        $exam[
-                            'marks_per_question'
-                        ];
-
-
-                    ?>
-
-
-                    <article
+                    <div
                         class="
-                            practice-exam-card
-                            <?= !$hasAccess
-                                ? 'locked'
-                                : ''
-                            ?>
+                            practice-card-top
                         "
-                        tabindex="0"
-                        data-exam-id="<?= $examId ?>"
-                        data-access="<?= $hasAccess ? 'allowed' : 'locked' ?>"
                     >
 
-
-                        <!-- TOP -->
-
-
-                        <div
-                            class="
-                                practice-card-top
-                            "
-                        >
-
-
-                            <span
-                                class="
-                                    practice-card-number
-                                "
-                            >
-
-                                <?= practice_escape(
-                                    $number
-                                ) ?>
-
-                            </span>
-
-
-                            <div
-                                class="
-                                    practice-card-badges
-                                "
-                            >
-
-
-                                <?php
-                                if (
-                                    $activeAttempt
-                                ):
-                                ?>
-
-
-                                    <span
-                                        class="
-                                            practice-completed-badge
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-play
-                                            "
-                                        ></i>
-
-                                        In progress
-
-                                    </span>
-
-
-                                <?php
-                                elseif (
-                                    $latestResult
-                                ):
-                                ?>
-
-
-                                    <span
-                                        class="
-                                            practice-completed-badge
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-check
-                                            "
-                                        ></i>
-
-                                        Attempted
-
-                                    </span>
-
-
-                                <?php
-                                else:
-                                ?>
-
-
-                                    <span
-                                        class="
-                                            practice-ready-badge
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-circle-check
-                                            "
-                                        ></i>
-
-                                        Ready
-
-                                    </span>
-
-
-                                <?php
-                                endif;
-                                ?>
-
-
-                                <?php
-                                if (
-                                    $requiresSubscription
-                                ):
-                                ?>
-
-
-                                    <span
-                                        class="
-                                            practice-premium-badge
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-crown
-                                            "
-                                        ></i>
-
-                                        Subscription
-
-                                    </span>
-
-
-                                <?php
-                                else:
-                                ?>
-
-
-                                    <span
-                                        class="
-                                            practice-free-badge
-                                        "
-                                    >
-
-                                        Free
-
-                                    </span>
-
-
-                                <?php
-                                endif;
-                                ?>
-
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- ICON -->
-
+                        <span>
+                            <?= practice_e(
+                                $number
+                            ) ?>
+                        </span>
 
                         <div
                             class="
-                                practice-card-icon
+                                practice-badges
                             "
                         >
 
-                            <i
-                                class="
-                                    fa-solid
-                                    <?= $requiresSubscription
-                                        ? 'fa-crown'
-                                        : 'fa-file-pen'
-                                    ?>
-                                "
-                            ></i>
+                            <?php if (
+                                $activeAttempt
+                            ): ?>
 
-                        </div>
-
-
-                        <!-- CONTENT -->
-
-
-                        <div
-                            class="
-                                practice-card-content
-                            "
-                        >
-
-
-                            <span
-                                class="
-                                    practice-subject-label
-                                "
-                            >
-
-                                <?= practice_escape(
-                                    $exam['subject_name']
-                                ) ?>
-
-
-                                <?php
-                                if (
-                                    !empty(
-                                        $exam['subject_code']
-                                    )
-                                ):
-                                ?>
-
-
-                                    <small>
-
-                                        •
-
-                                        <?= practice_escape(
-                                            $exam[
-                                                'subject_code'
-                                            ]
-                                        ) ?>
-
-                                    </small>
-
-
-                                <?php
-                                endif;
-                                ?>
-
-
-                            </span>
-
-
-                            <h3>
-
-                                <?= practice_escape(
-                                    $exam['title']
-                                ) ?>
-
-                            </h3>
-
-
-                            <p>
-
-                                <?= practice_escape(
-                                    $exam['description']
-                                    ?:
-                                    'Build confidence with this practice examination.'
-                                ) ?>
-
-                            </p>
-
-
-                        </div>
-
-
-                        <!-- META -->
-
-
-                        <div
-                            class="
-                                practice-card-meta
-                            "
-                        >
-
-
-                            <span>
-
-                                <i
+                                <b
                                     class="
-                                        fa-regular
-                                        fa-clock
+                                        badge
+                                        progress
                                     "
-                                ></i>
-
-                                <?= $duration ?>
-
-                                min
-
-                            </span>
-
-
-                            <span>
-
-                                <i
-                                    class="
-                                        fa-solid
-                                        fa-list-check
-                                    "
-                                ></i>
-
-                                <?= $questionCount ?>
-
-                                questions
-
-                            </span>
-
-
-                            <span>
-
-                                <i
-                                    class="
-                                        fa-solid
-                                        fa-star
-                                    "
-                                ></i>
-
-                                <?= practice_number(
-                                    $totalMarks
-                                ) ?>
-
-                                marks
-
-                            </span>
-
-
-                        </div>
-
-
-                        <!-- EXACT RULE INFORMATION -->
-
-
-                        <div
-                            class="
-                                practice-marking-row
-                            "
-                        >
-
-
-                            <span>
-
-                                Passing:
-
-                                <strong>
-
-                                    <?= practice_number(
-                                        $passingMarks
-                                    ) ?>
-
-                                </strong>
-
-                            </span>
-
-
-                            <span>
-
-
-                                <?php
-                                if (
-                                    $validationMode ===
-                                    'same_marks'
-                                    &&
-                                    $marksPerQuestion !== null
-                                ):
-                                ?>
-
+                                >
 
                                     <i
                                         class="
                                             fa-solid
-                                            fa-calculator
+                                            fa-play
                                         "
                                     ></i>
 
+                                    In progress
 
-                                    <?= practice_number(
-                                        $marksPerQuestion
-                                    ) ?>
+                                </b>
 
+                            <?php elseif (
+                                $latestResult
+                            ): ?>
 
-                                    mark/question
-
-
-                                <?php
-                                else:
-                                ?>
-
+                                <b
+                                    class="
+                                        badge
+                                        attempted
+                                    "
+                                >
 
                                     <i
                                         class="
                                             fa-solid
-                                            fa-layer-group
+                                            fa-check
                                         "
                                     ></i>
 
+                                    Attempted
 
-                                    Mixed marks
+                                </b>
 
+                            <?php else: ?>
 
-                                <?php
-                                endif;
-                                ?>
-
-
-                            </span>
-
-
-                        </div>
-
-
-                        <!-- NEGATIVE MARKING -->
-
-
-                        <div
-                            class="
-                                practice-marking-row
-                            "
-                        >
-
-
-                            <span>
-
-                                <?php
-                                if (
-                                    $isNegativeMarking
-                                ):
-                                ?>
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-triangle-exclamation
-                                        "
-                                    ></i>
-
-                                    Negative marking
-
-
-                                <?php
-                                else:
-                                ?>
-
+                                <b
+                                    class="
+                                        badge
+                                        ready
+                                    "
+                                >
 
                                     <i
                                         class="
@@ -2004,97 +1400,19 @@ include 'includes/navbar.php';
                                         "
                                     ></i>
 
-                                    No negative marking
+                                    Ready
 
+                                </b>
 
-                                <?php
-                                endif;
-                                ?>
+                            <?php endif; ?>
 
+                            <?php if (
+                                $requiresSubscription
+                            ): ?>
 
-                            </span>
-
-
-                            <span>
-
-                                Required:
-
-                                <strong>
-
-                                    <?= $requiredCount ?>
-
-                                </strong>
-
-                                questions
-
-                            </span>
-
-
-                        </div>
-
-
-                        <!-- ACCESS MESSAGE -->
-
-
-                        <?php
-                        if (
-                            !$hasAccess &&
-                            $accessMessage !== ''
-                        ):
-                        ?>
-
-
-                            <div
-                                class="
-                                    practice-access-message
-                                "
-                            >
-
-                                <i
+                                <b
                                     class="
-                                        fa-solid
-                                        fa-lock
-                                    "
-                                ></i>
-
-
-                                <span>
-
-                                    <?= practice_escape(
-                                        $accessMessage
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                        <?php
-                        endif;
-                        ?>
-
-
-                        <!-- ACTION -->
-
-
-                        <div
-                            class="
-                                practice-card-action
-                            "
-                        >
-
-
-                            <?php
-                            if (
-                                !$hasAccess
-                            ):
-                            ?>
-
-
-                                <a
-                                    href="subscriptions.php"
-                                    class="
-                                        practice-start-btn
+                                        badge
                                         premium
                                     "
                                 >
@@ -2106,439 +1424,632 @@ include 'includes/navbar.php';
                                         "
                                     ></i>
 
-                                    Get subscription
+                                    Premium
 
+                                </b>
 
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
+                            <?php else: ?>
 
-                                </a>
-
-
-                            <?php
-                            elseif (
-                                $activeAttempt
-                            ):
-                            ?>
-
-
-                                <a
-                                    href="start_exam.php?id=<?= $examId ?>"
+                                <b
                                     class="
-                                        practice-start-btn
-                                        completed
+                                        badge
+                                        free
                                     "
                                 >
 
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-play
-                                        "
-                                    ></i>
+                                    Free
 
-                                    Resume practice
+                                </b>
 
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php
-                            elseif (
-                                $latestResult
-                            ):
-                            ?>
-
-
-                                <div
-                                    class="
-                                        practice-result-action
-                                    "
-                                >
-
-
-                                    <a
-                                        href="start_exam.php?id=<?= $examId ?>"
-                                        class="
-                                            practice-start-btn
-                                            completed
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-rotate
-                                            "
-                                        ></i>
-
-                                        Practise again
-
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-arrow-right
-                                            "
-                                        ></i>
-
-                                    </a>
-
-
-                                    <a
-                                        href="result.php?id=<?= (int) $latestResult['id'] ?>"
-                                        class="
-                                            practice-result-link
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-chart-column
-                                            "
-                                        ></i>
-
-                                        Latest result
-
-                                    </a>
-
-                                </div>
-
-
-                            <?php
-                            else:
-                            ?>
-
-
-                                <a
-                                    href="start_exam.php?id=<?= $examId ?>"
-                                    class="
-                                        practice-start-btn
-                                    "
-                                >
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-rocket
-                                        "
-                                    ></i>
-
-                                    Start practice
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php
-                            endif;
-                            ?>
-
+                            <?php endif; ?>
 
                         </div>
 
+                    </div>
 
-                    </article>
-
-
-                <?php
-                endforeach;
-                ?>
-
-
-            </section>
-
-
-        <?php
-        else:
-        ?>
-
-
-            <!-- =================================================
-                 EMPTY STATE
-            ================================================== -->
-
-
-            <section
-                class="
-                    practice-empty-state
-                "
-            >
-
-
-                <div
-                    class="
-                        practice-empty-icon
-                    "
-                >
-
-                    <i
+                    <div
                         class="
-                            fa-solid
-                            fa-magnifying-glass
-                        "
-                    ></i>
-
-                </div>
-
-
-                <span>
-                    NO MATCHING EXAMS
-                </span>
-
-
-                <h2>
-
-                    No practice exams are available right now.
-
-                </h2>
-
-
-                <p>
-
-
-                    <?php
-                    if (
-                        $filterActive
-                    ):
-                    ?>
-
-
-                        Try removing your filters or searching
-                        for a different subject.
-
-
-                    <?php
-                    else:
-                    ?>
-
-
-                        Once the administrator publishes a
-                        complete active practice exam, it will
-                        automatically appear here.
-
-
-                    <?php
-                    endif;
-                    ?>
-
-
-                </p>
-
-
-                <?php
-                if (
-                    $filterActive
-                ):
-                ?>
-
-
-                    <a
-                        href="practice_exams.php"
-                        class="
-                            practice-empty-btn
+                            practice-card-icon
                         "
                     >
-
-                        Show all exams
-
 
                         <i
                             class="
                                 fa-solid
-                                fa-arrow-right
+                                <?= $requiresSubscription
+                                    ? 'fa-crown'
+                                    : 'fa-file-pen'
+                                ?>
                             "
                         ></i>
 
-                    </a>
+                    </div>
 
-
-                <?php
-                endif;
-                ?>
-
-
-            </section>
-
-
-        <?php
-        endif;
-        ?>
-
-
-        <!-- =================================================
-             INFORMATION
-        ================================================== -->
-
-
-        <section
-            class="
-                practice-info-strip
-            "
-        >
-
-
-            <div>
-
-
-                <span
-                    class="
-                        practice-info-icon
-                    "
-                >
-
-                    <i
+                    <div
                         class="
-                            fa-solid
-                            fa-shield-halved
+                            practice-subject
                         "
-                    ></i>
+                    >
 
-                </span>
+                        <?= practice_e(
+                            $exam[
+                                'subject_name'
+                            ]
+                        ) ?>
 
+                        <?php if (
+                            !empty(
+                                $exam[
+                                    'subject_code'
+                                ]
+                            )
+                        ): ?>
 
-                <span>
+                            <small>
 
+                                •
 
-                    <strong>
+                                <?= practice_e(
+                                    $exam[
+                                        'subject_code'
+                                    ]
+                                ) ?>
 
-                        Only ready exams are shown
+                            </small>
 
-                    </strong>
+                        <?php endif; ?>
 
+                    </div>
 
-                    <small>
+                    <h3>
 
-                        An exam appears here only when its
-                        active question count and total question
-                        marks exactly match its configuration.
+                        <?= practice_e(
+                            $exam[
+                                'title'
+                            ]
+                        ) ?>
 
-                    </small>
+                    </h3>
 
-
-                </span>
-
-
-            </div>
-
-
-            <div>
-
-
-                <span
-                    class="
-                        practice-info-icon
-                    "
-                >
-
-                    <i
+                    <p
                         class="
-                            fa-solid
-                            fa-chart-line
+                            practice-description
                         "
-                    ></i>
+                    >
 
-                </span>
+                        <?= practice_e(
+                            $description
+                        ) ?>
 
+                    </p>
 
-                <span>
-
-
-                    <strong>
-
-                        Every result is tracked
-
-                    </strong>
-
-
-                    <small>
-
-                        Completed attempts contribute to your
-                        result history and performance analytics.
-
-                    </small>
-
-
-                </span>
-
-
-            </div>
-
-
-            <div>
-
-
-                <span
-                    class="
-                        practice-info-icon
-                    "
-                >
-
-                    <i
+                    <div
                         class="
-                            fa-solid
-                            fa-infinity
+                            practice-meta
                         "
-                    ></i>
+                    >
 
-                </span>
+                        <span>
 
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-clock
+                                "
+                            ></i>
 
-                <span>
+                            <?= (int)
+                                $exam[
+                                    'duration_minutes'
+                                ] ?>
 
+                            min
 
-                    <strong>
+                        </span>
 
-                        Keep practising
+                        <span>
 
-                    </strong>
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-list-check
+                                "
+                            ></i>
 
+                            <?= (int)
+                                $exam[
+                                    'required_question_count'
+                                ] ?>
 
-                    <small>
+                            questions
 
-                        Free practice remains available without
-                        a subscription, while premium practice can
-                        use subscription access.
+                        </span>
 
-                    </small>
+                        <span>
 
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-star
+                                "
+                            ></i>
 
-                </span>
+                            <?= practice_num(
+                                $exam[
+                                    'total_marks'
+                                ]
+                            ) ?>
 
+                            marks
 
-            </div>
+                        </span>
 
+                        <span>
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-bullseye
+                                "
+                            ></i>
+
+                            Pass
+
+                            <?= practice_num(
+                                $exam[
+                                    'passing_marks'
+                                ]
+                            ) ?>
+
+                        </span>
+
+                    </div>
+
+                    <div
+                        class="
+                            practice-rule
+                        "
+                    >
+
+                        <?php if (
+                            (int)(
+                                $exam[
+                                    'negative_marking'
+                                ]
+                            )
+                            ===
+                            1
+                        ): ?>
+
+                            <span
+                                class="
+                                    negative
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-circle-minus
+                                    "
+                                ></i>
+
+                                Negative marking
+
+                            </span>
+
+                        <?php else: ?>
+
+                            <span
+                                class="
+                                    positive
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-circle-check
+                                    "
+                                ></i>
+
+                                No negative marking
+
+                            </span>
+
+                        <?php endif; ?>
+
+                        <span>
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-check-double
+                                "
+                            ></i>
+
+                            <?= (int)
+                                $exam[
+                                    'required_question_count'
+                                ] ?>
+
+                            /
+
+                            <?= (int)
+                                $exam[
+                                    'required_question_count'
+                                ] ?>
+
+                            ready
+
+                        </span>
+
+                    </div>
+
+                    <?php if (
+                        !$hasAccess
+                    ): ?>
+
+                        <div
+                            class="
+                                practice-lock-message
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-lock
+                                "
+                            ></i>
+
+                            <span>
+
+                                <?= practice_e(
+                                    $exam[
+                                        'access_message'
+                                    ]
+                                ) ?>
+
+                            </span>
+
+                        </div>
+
+                    <?php endif; ?>
+
+                    <div
+                        class="
+                            practice-action
+                        "
+                    >
+
+                        <?php if (
+                            !$hasAccess
+                        ): ?>
+
+                            <a
+                                href="subscriptions.php"
+                                class="
+                                    practice-btn
+                                    full
+                                    premium-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-crown
+                                    "
+                                ></i>
+
+                                Get subscription
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+                        <?php elseif (
+                            $activeAttempt
+                        ): ?>
+
+                            <a
+                                href="
+                                    start_exam.php?id=
+                                    <?= $examId ?>
+                                "
+                                class="
+                                    practice-btn
+                                    full
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-play
+                                    "
+                                ></i>
+
+                                Resume practice
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+                        <?php elseif (
+                            $latestResult
+                        ): ?>
+
+                            <a
+                                href="
+                                    start_exam.php?id=
+                                    <?= $examId ?>
+                                "
+                                class="
+                                    practice-btn
+                                    full
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-rotate
+                                    "
+                                ></i>
+
+                                Practice again
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+                            <a
+                                href="
+                                    result.php?id=
+                                    <?= (int)(
+                                        $latestResult[
+                                            'id'
+                                        ]
+                                    ) ?>
+                                "
+                                class="
+                                    practice-result-link
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-chart-column
+                                    "
+                                ></i>
+
+                                Latest result:
+
+                                <?= practice_num(
+                                    $latestResult[
+                                        'percentage'
+                                    ]
+                                ) ?>%
+
+                            </a>
+
+                        <?php else: ?>
+
+                            <a
+                                href="
+                                    start_exam.php?id=
+                                    <?= $examId ?>
+                                "
+                                class="
+                                    practice-btn
+                                    full
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-rocket
+                                    "
+                                ></i>
+
+                                Start practice
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+                        <?php endif; ?>
+
+                    </div>
+
+                </article>
+
+            <?php endforeach; ?>
 
         </section>
 
+        <section
+            class="
+                practice-info-grid
+            "
+        >
 
-    </div>
+            <div>
+
+                <i
+                    class="
+                        fa-solid
+                        fa-shield-halved
+                    "
+                ></i>
+
+                <span>
+
+                    <strong>
+                        Verified exams only
+                    </strong>
+
+                    <small>
+                        Incomplete or invalid
+                        examinations stay hidden.
+                    </small>
+
+                </span>
+
+            </div>
+
+            <div>
+
+                <i
+                    class="
+                        fa-solid
+                        fa-database
+                    "
+                ></i>
+
+                <span>
+
+                    <strong>
+                        Database driven
+                    </strong>
+
+                    <small>
+                        Published exams appear
+                        automatically without
+                        editing this page.
+                    </small>
+
+                </span>
+
+            </div>
+
+            <div>
+
+                <i
+                    class="
+                        fa-solid
+                        fa-arrows-rotate
+                    "
+                ></i>
+
+                <span>
+
+                    <strong>
+                        Always current
+                    </strong>
+
+                    <small>
+                        Status and exam availability
+                        are checked on every page load.
+                    </small>
+
+                </span>
+
+            </div>
+
+        </section>
+
+    <?php else: ?>
+
+        <section class="practice-empty">
+
+            <div
+                class="
+                    practice-empty-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-book-open
+                    "
+                ></i>
+
+            </div>
+
+            <span>
+
+                <?= $filterActive
+                    ? 'NO MATCHING EXAMS'
+                    : 'NO PUBLISHED PRACTICE EXAMS'
+                ?>
+
+            </span>
+
+            <h2>
+
+                <?= $filterActive
+
+                    ? 'We could not find a matching practice exam.'
+
+                    : 'No practice exams are available right now.'
+
+                ?>
+
+            </h2>
+
+            <p>
+
+                <?= $filterActive
+
+                    ? 'Try another search or clear the current filters.'
+
+                    : 'As soon as an administrator or teacher publishes a complete active practice exam, it will appear automatically on this page.'
+
+                ?>
+
+            </p>
+
+            <?php if (
+                $filterActive
+            ): ?>
+
+                <a
+                    href="practice_exams.php"
+                    class="
+                        practice-btn
+                    "
+                >
+
+                    Show all exams
+
+                </a>
+
+            <?php endif; ?>
+
+        </section>
+
+    <?php endif; ?>
 
 </main>
 
-
 <script
     src="assets/js/practice-exams.js"
-    defer
 ></script>
 
 </body>

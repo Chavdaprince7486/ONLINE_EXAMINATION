@@ -1,129 +1,167 @@
 (() => {
-    "use strict";
 
-    const filterForm =
-        document.querySelector(
-            ".practice-filter-form"
+    'use strict';
+
+    const form =
+        document.getElementById(
+            'practiceFilterForm'
         );
 
     const searchInput =
-        document.querySelector(
+        form?.querySelector(
             'input[name="search"]'
         );
 
     const subjectSelect =
-        document.querySelector(
+        form?.querySelector(
             'select[name="subject_id"]'
         );
 
     const clearButton =
         document.querySelector(
-            ".practice-clear-btn"
+            '.practice-clear-btn'
+        );
+
+    const grid =
+        document.getElementById(
+            'practiceExamGrid'
         );
 
     const cards =
         Array.from(
             document.querySelectorAll(
-                ".practice-exam-card"
+                '.practice-card'
             )
         );
 
-    const resultCount =
-        document.querySelector(
-            ".practice-results-count span"
+    const countElement =
+        document.getElementById(
+            'practiceResultCount'
         );
 
-    const grid =
-        document.querySelector(
-            ".practice-exam-grid"
-        );
+    let searchTimer =
+        null;
 
-    let searchTimer = null;
 
-    function normalize(value) {
+    function normalize(
+        value
+    ) {
+
         return String(
-            value ?? ""
+            value ??
+            ''
         )
             .trim()
             .toLocaleLowerCase();
+
     }
 
-    function setResultCount(count) {
-        if (resultCount) {
-            resultCount.textContent =
-                String(count);
-        }
-    }
 
-    function filterCards() {
-        if (!cards.length) {
-            setResultCount(0);
+    function updateVisibleCount() {
+
+        if (
+            !countElement
+        ) {
+
             return;
+
         }
+
+        const visible =
+            cards.filter(
+                (
+                    card
+                ) =>
+                    !card.hidden
+            ).length;
+
+        countElement.textContent =
+            String(
+                visible
+            );
+
+    }
+
+
+    function filterLocalCards() {
 
         const query =
             normalize(
                 searchInput
-                    ? searchInput.value
-                    : ""
+                    ?.value
             );
 
-        let visibleCount = 0;
-
         cards.forEach(
-            function (card) {
+            (
+                card
+            ) => {
+
                 const text =
                     normalize(
+                        card.dataset.search
+                        ||
                         card.textContent
                     );
 
-                const matches =
-                    query === "" ||
-                    text.includes(
-                        query
+                card.hidden =
+                    (
+                        query !== ''
+                        &&
+                        !text.includes(
+                            query
+                        )
                     );
 
-                card.hidden =
-                    !matches;
-
-                if (matches) {
-                    visibleCount += 1;
-                }
             }
         );
 
-        setResultCount(
-            visibleCount
-        );
+        updateVisibleCount();
 
-        if (grid) {
-            grid.classList.toggle(
-                "has-filtered-results",
-                visibleCount > 0
-            );
+        if (
+            grid
+        ) {
 
             grid.classList.toggle(
-                "has-no-filtered-results",
-                visibleCount === 0
+                'no-visible-cards',
+                (
+                    cards.length > 0
+                    &&
+                    cards.every(
+                        (
+                            card
+                        ) =>
+                            card.hidden
+                    )
+                )
             );
-        }
-    }
 
-    function submitFilters() {
-        if (!filterForm) {
-            return;
         }
 
-        filterForm.submit();
     }
 
-    if (searchInput) {
+
+    function submitForm() {
+
+        if (
+            form
+        ) {
+
+            form.submit();
+
+        }
+
+    }
+
+
+    if (
+        searchInput
+    ) {
 
         searchInput.addEventListener(
-            "input",
-            function () {
+            'input',
+            () => {
 
-                filterCards();
+                filterLocalCards();
 
                 window.clearTimeout(
                     searchTimer
@@ -131,29 +169,33 @@
 
                 searchTimer =
                     window.setTimeout(
-                        submitFilters,
-                        650
+                        submitForm,
+                        700
                     );
 
             }
         );
 
+
         searchInput.addEventListener(
-            "keydown",
-            function (event) {
+            'keydown',
+            (
+                event
+            ) => {
 
                 if (
-                    event.key === "Escape"
+                    event.key ===
+                    'Escape'
                 ) {
 
                     event.preventDefault();
 
                     searchInput.value =
-                        "";
+                        '';
 
-                    filterCards();
+                    filterLocalCards();
 
-                    submitFilters();
+                    submitForm();
 
                 }
 
@@ -162,101 +204,125 @@
 
     }
 
-    if (subjectSelect) {
+
+    if (
+        subjectSelect
+    ) {
 
         subjectSelect.addEventListener(
-            "change",
-            function () {
-
-                submitFilters();
-
-            }
+            'change',
+            submitForm
         );
 
     }
 
-    if (clearButton) {
+
+    if (
+        clearButton
+    ) {
 
         clearButton.addEventListener(
-            "click",
-            function (event) {
+            'click',
+            (
+                event
+            ) => {
 
                 event.preventDefault();
 
-                window.location.assign(
-                    "practice_exams.php"
-                );
+                window.location.href =
+                    'practice_exams.php';
 
             }
         );
 
     }
 
-    cards.forEach(
-        function (card) {
 
-            const startButton =
-                card.querySelector(
-                    ".practice-start-btn"
-                );
+    document
+        .querySelectorAll(
+            '.practice-btn[href*="start_exam.php"]'
+        )
+        .forEach(
+            (
+                button
+            ) => {
 
-            if (startButton) {
-
-                startButton.addEventListener(
-                    "click",
-                    function () {
+                button.addEventListener(
+                    'click',
+                    () => {
 
                         if (
-                            startButton.dataset.loading ===
-                            "1"
+                            button.dataset.loading
+                            ===
+                            '1'
                         ) {
+
                             return;
+
                         }
 
-                        startButton.dataset.loading =
-                            "1";
+                        button.dataset.loading =
+                            '1';
 
-                        startButton.setAttribute(
-                            "aria-busy",
-                            "true"
+                        button.setAttribute(
+                            'aria-busy',
+                            'true'
                         );
 
-                        startButton.classList.add(
-                            "is-loading"
+                        button.classList.add(
+                            'loading'
                         );
 
-                        startButton.innerHTML =
-                            '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Opening...';
+                        button.innerHTML =
+                            '<i class="fa-solid fa-spinner fa-spin"></i> Opening...';
 
                     }
                 );
 
             }
+        );
+
+
+    cards.forEach(
+        (
+            card
+        ) => {
 
             card.addEventListener(
-                "keydown",
-                function (event) {
+                'keydown',
+                (
+                    event
+                ) => {
 
                     if (
                         event.key !==
-                        "Enter"
+                        'Enter'
                     ) {
+
                         return;
+
                     }
 
                     if (
                         event.target.closest(
-                            "a, button, input, select, textarea"
+                            'a,button,input,select,textarea'
                         )
                     ) {
+
                         return;
+
                     }
 
+                    const action =
+                        card.querySelector(
+                            'a[href*="start_exam.php"]'
+                        );
+
                     if (
-                        startButton
+                        action
                     ) {
 
-                        startButton.click();
+                        action.click();
 
                     }
 
@@ -266,6 +332,7 @@
         }
     );
 
-    filterCards();
+
+    filterLocalCards();
 
 })();

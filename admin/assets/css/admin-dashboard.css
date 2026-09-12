@@ -3684,3 +3684,80 @@ padding:10px 0;
 }
 
 }
+
+/* =========================================================
+   EXAMSPHERE ADMIN SIDEBAR
+   ========================================================= */
+
+.sidebar{
+    overflow-y:auto;
+    overflow-x:hidden;
+}
+
+.logo-section{
+    position:relative;
+    padding:20px 15px 16px;
+    text-align:center;
+}
+
+.admin-logo-link{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+}
+
+.admin-panel-label{
+    margin-top:7px;
+    color:#8a7c70;
+    font-size:.52rem;
+    font-weight:800;
+    letter-spacing:.16em;
+}
+
+.menu-section-title{
+    margin:15px 18px 6px !important;
+    padding:7px 4px 4px !important;
+    color:#9b8d80 !important;
+    font-size:.48rem !important;
+    font-weight:800 !important;
+    letter-spacing:.15em !important;
+    pointer-events:none;
+}
+
+.menu-section-title::before{
+    display:none !important;
+}
+
+.menu li a{
+    transition:
+        background .2s ease,
+        color .2s ease,
+        transform .2s ease;
+}
+
+.menu li:not(.menu-section-title):not(.menu-logout) a:hover{
+    transform:translateX(2px);
+}
+
+.menu-logout{
+    margin-top:10px;
+    padding-top:10px !important;
+    border-top:1px solid rgba(93,64,55,.08);
+}
+
+.menu-logout a{
+    color:#8f4c43 !important;
+}
+
+.menu-logout a:hover{
+    background:#fff1ee !important;
+}
+
+@media(max-width:900px){
+
+    .menu-section-title{
+        font-size:.46rem !important;
+    }
+
+}
