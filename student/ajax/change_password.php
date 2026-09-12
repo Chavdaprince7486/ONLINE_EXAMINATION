@@ -1,293 +1,127 @@
 <?php
 
-session_start();
+declare(strict_types=1);
 
-header("Content-Type: application/json");
+require_once __DIR__ . '/../../config/auth.php';
 
-require_once "../../config/config.php";
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
-/*==================================================
-        LOGIN CHECK
-==================================================*/
-
-if (
-    !isset($_SESSION['user_id']) ||
-    $_SESSION['user_role'] !== "student"
-) {
-
+function password_change_response(bool $success, string $title, string $message, int $httpCode = 200): never
+{
+    http_response_code($httpCode);
     echo json_encode([
-        "status"  => "error",
-        "title"   => "Access Denied",
-        "message" => "Please login again."
-    ]);
-
-    exit();
-
+        'status' => $success ? 'success' : 'error',
+        'title' => $title,
+        'message' => $message,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
-/*==================================================
-        READ JSON DATA
-==================================================*/
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    password_change_response(false, 'Invalid Request', 'This endpoint accepts POST requests only.', 405);
+}
 
-$data = json_decode(
+require_role('student');
 
-    file_get_contents("php://input"),
+$rawBody = file_get_contents('php://input');
+$data = json_decode($rawBody ?: '', true);
 
-    true
+if (!is_array($data)) {
+    password_change_response(false, 'Invalid Request', 'Invalid password request payload.', 400);
+}
 
-);
+if (!verify_csrf_token($data['csrf_token'] ?? null)) {
+    password_change_response(false, 'Security Check Failed', 'Your session security token is invalid. Refresh the page and try again.', 419);
+}
 
-$csrfToken =
-    trim(
-        (string) (
-            $data['csrf_token']
-            ?? ''
-        )
+$currentPassword = (string) ($data['current_password'] ?? '');
+$newPassword = (string) ($data['new_password'] ?? '');
+$confirmPassword = (string) ($data['confirm_password'] ?? '');
+
+if ($currentPassword === '' || $newPassword === '' || $confirmPassword === '') {
+    password_change_response(false, 'Validation Error', 'All password fields are required.', 422);
+}
+
+if (strlen($currentPassword) > 255 || strlen($newPassword) > 72 || strlen($confirmPassword) > 72) {
+    password_change_response(false, 'Invalid Password', 'The supplied password is too long.', 422);
+}
+
+if (strlen($newPassword) < 8) {
+    password_change_response(false, 'Weak Password', 'New password must contain at least 8 characters.', 422);
+}
+
+if (!preg_match('/[A-Za-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+    password_change_response(false, 'Weak Password', 'New password must contain at least one letter and one number.', 422);
+}
+
+if ($newPassword !== $confirmPassword) {
+    password_change_response(false, 'Password Mismatch', 'New password and confirmation do not match.', 422);
+}
+
+if ($currentPassword === $newPassword) {
+    password_change_response(false, 'Same Password', 'New password must be different from the current password.', 422);
+}
+
+$studentId = current_user_id();
+
+try {
+    $statement = $conn->prepare(
+        "SELECT password
+         FROM students
+         WHERE id = ? AND status = 'Active'
+         LIMIT 1
+         FOR UPDATE"
     );
 
-if (!verify_csrf_token($csrfToken)) {
-    echo json_encode([
-        "status"=>"error",
-        "title"=>"Security Check Failed",
-        "message"=>"Your session security token is invalid. Please refresh the page."
-    ]);
-    exit();
+    $conn->beginTransaction();
+    $statement->execute([$studentId]);
+    $student = $statement->fetch(PDO::FETCH_ASSOC);
+
+    if (!$student) {
+        $conn->rollBack();
+        password_change_response(false, 'Student Not Found', 'Unable to find your active student account.', 404);
+    }
+
+    $storedPassword = (string) ($student['password'] ?? '');
+    $currentPasswordValid = password_verify($currentPassword, $storedPassword);
+    $legacyPasswordMatch = false;
+
+    if (!$currentPasswordValid && $storedPassword !== '') {
+        $legacyPasswordMatch = hash_equals($storedPassword, $currentPassword);
+    }
+
+    if (!$currentPasswordValid && !$legacyPasswordMatch) {
+        $conn->rollBack();
+        password_change_response(false, 'Incorrect Password', 'Current password is incorrect.', 422);
+    }
+
+    $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+
+    if ($hashedPassword === false) {
+        throw new RuntimeException('Password hashing failed.');
+    }
+
+    $update = $conn->prepare(
+        "UPDATE students
+         SET password = ?
+         WHERE id = ? AND status = 'Active'"
+    );
+    $update->execute([$hashedPassword, $studentId]);
+
+    if ($update->rowCount() < 1) {
+        throw new RuntimeException('Password update was not persisted.');
+    }
+
+    $conn->commit();
+
+    password_change_response(true, 'Password Updated', 'Your password has been changed successfully.');
+} catch (Throwable $exception) {
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
+
+    error_log('Student password update failed: ' . $exception->getMessage());
+    password_change_response(false, 'Update Failed', 'Unable to update your password right now.', 500);
 }
-
-$currentPassword = trim($data['current_password'] ?? "");
-
-$newPassword = trim($data['new_password'] ?? "");
-
-$confirmPassword = trim($data['confirm_password'] ?? "");
-
-/*==================================================
-        VALIDATION
-==================================================*/
-
-if (
-
-$currentPassword=="" ||
-
-$newPassword=="" ||
-
-$confirmPassword==""
-
-){
-
-echo json_encode([
-
-"status"=>"error",
-
-"title"=>"Validation Error",
-
-"message"=>"All password fields are required."
-
-]);
-
-exit();
-
-}
-
-if(strlen($newPassword)<8){
-
-echo json_encode([
-
-"status"=>"error",
-
-"title"=>"Weak Password",
-
-"message"=>"Password must be at least 8 characters."
-
-]);
-
-exit();
-
-}
-
-if($newPassword!==$confirmPassword){
-
-echo json_encode([
-
-"status"=>"error",
-
-"title"=>"Password Mismatch",
-
-"message"=>"New password and confirm password do not match."
-
-]);
-
-exit();
-
-}
-
-$studentId=(int)$_SESSION['user_id'];
-
-try{
-
-/*==================================================
-        GET STUDENT PASSWORD
-==================================================*/
-
-$stmt = $conn->prepare("
-SELECT
-password
-FROM students
-WHERE id=?
-LIMIT 1
-");
-
-$stmt->execute([$studentId]);
-
-$student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if(!$student){
-
-    echo json_encode([
-
-        "status"=>"error",
-
-        "title"=>"Student Not Found",
-
-        "message"=>"Unable to find your account."
-
-    ]);
-
-    exit();
-
-}
-
-/*==================================================
-        VERIFY CURRENT PASSWORD
-==================================================*/
-
-if(
-
-!password_verify(
-
-$currentPassword,
-
-$student['password']
-
-)
-
-){
-
-    echo json_encode([
-
-        "status"=>"error",
-
-        "title"=>"Incorrect Password",
-
-        "message"=>"Current password is incorrect."
-
-    ]);
-
-    exit();
-
-}
-
-/*==================================================
-        CHECK SAME PASSWORD
-==================================================*/
-
-if(
-
-password_verify(
-
-$newPassword,
-
-$student['password']
-
-)
-
-){
-
-    echo json_encode([
-
-        "status"=>"error",
-
-        "title"=>"Same Password",
-
-        "message"=>"New password must be different from the current password."
-
-    ]);
-
-    exit();
-
-}
-
-/*==================================================
-        HASH NEW PASSWORD
-==================================================*/
-
-$hashedPassword = password_hash(
-
-    $newPassword,
-
-    PASSWORD_DEFAULT
-
-);
-
-/*==================================================
-        UPDATE PASSWORD
-==================================================*/
-
-$update = $conn->prepare("
-UPDATE students
-SET password=?
-WHERE id=?
-");
-
-$result = $update->execute([
-
-    $hashedPassword,
-
-    $studentId
-
-]);
-
-/*==================================================
-        RESPONSE
-==================================================*/
-
-if($result){
-
-    echo json_encode([
-
-        "status"=>"success",
-
-        "title"=>"Password Updated",
-
-        "message"=>"Your password has been changed successfully."
-
-    ]);
-
-}else{
-
-    echo json_encode([
-
-        "status"=>"error",
-
-        "title"=>"Update Failed",
-
-        "message"=>"Unable to update your password."
-
-    ]);
-
-}
-
-}catch(PDOException $e){
-
-    echo json_encode([
-
-        "status"=>"error",
-
-        "title"=>"Database Error",
-
-        "message"=>"Something went wrong while updating the password."
-
-    ]);
-
-}
-
-exit();
