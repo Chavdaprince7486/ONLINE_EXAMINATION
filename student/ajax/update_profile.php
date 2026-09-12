@@ -1,191 +1,158 @@
 <?php
 
-session_start();
+declare(strict_types=1);
 
-header("Content-Type: application/json");
+require_once __DIR__ . '/../../config/auth.php';
 
-require_once "../../config/config.php";
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
-if (
-    !isset($_SESSION['user_id']) ||
-    $_SESSION['user_role'] !== "student"
-) {
+function profile_update_response(bool $success, string $title, string $message, int $httpCode = 200): never
+{
+    http_response_code($httpCode);
     echo json_encode([
-        "status"  => "error",
-        "title"   => "Access Denied",
-        "message" => "Please login again."
-    ]);
-    exit();
+        'status' => $success ? 'success' : 'error',
+        'title' => $title,
+        'message' => $message,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
-$csrfToken =
-    trim(
-        (string) (
-            $_POST['csrf_token']
-            ?? ''
-        )
-    );
-
-if (!verify_csrf_token($csrfToken)) {
-    echo json_encode([
-        "status" => "error",
-        "title" => "Security Check Failed",
-        "message" => "Your session security token is invalid. Please refresh the page."
-    ]);
-    exit();
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    profile_update_response(false, 'Invalid Request', 'This endpoint accepts POST requests only.', 405);
 }
 
-$studentId = (int)$_SESSION['user_id'];
+require_role('student');
 
-$fullName = trim($_POST['full_name'] ?? "");
-$mobile   = trim($_POST['mobile'] ?? "");
-$gender   = trim($_POST['gender'] ?? "");
-$dob      = trim($_POST['dob'] ?? "");
-$address  = trim($_POST['address'] ?? "");
-$city     = trim($_POST['city'] ?? "");
-$state    = trim($_POST['state'] ?? "");
-$pincode  = trim($_POST['pincode'] ?? "");
-
-if ($fullName == "") {
-    echo json_encode([
-        "status"  => "error",
-        "title"   => "Validation Error",
-        "message" => "Full Name is required."
-    ]);
-    exit();
+if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+    profile_update_response(false, 'Security Check Failed', 'Your session security token is invalid. Refresh the page and try again.', 419);
 }
 
-if (
-    $mobile != "" &&
-    !preg_match('/^[0-9]{10}$/', $mobile)
-) {
-    echo json_encode([
-        "status"  => "error",
-        "title"   => "Invalid Mobile",
-        "message" => "Enter a valid 10 digit mobile number."
-    ]);
-    exit();
+$studentId = current_user_id();
+$fullName = trim((string) ($_POST['full_name'] ?? ''));
+$mobile = trim((string) ($_POST['mobile'] ?? ''));
+$gender = trim((string) ($_POST['gender'] ?? ''));
+$dob = trim((string) ($_POST['dob'] ?? ''));
+$address = trim((string) ($_POST['address'] ?? ''));
+$city = trim((string) ($_POST['city'] ?? ''));
+$state = trim((string) ($_POST['state'] ?? ''));
+$pincode = trim((string) ($_POST['pincode'] ?? ''));
+
+if ($fullName === '' || mb_strlen($fullName) < 2 || mb_strlen($fullName) > 100) {
+    profile_update_response(false, 'Invalid Name', 'Full name must be between 2 and 100 characters.', 422);
 }
 
-if (
-    $pincode != "" &&
-    !preg_match('/^[0-9]{6}$/', $pincode)
-) {
-    echo json_encode([
-        "status"  => "error",
-        "title"   => "Invalid Pincode",
-        "message" => "Enter a valid 6 digit pincode."
-    ]);
-    exit();
+if (!preg_match('/^[\p{L}][\p{L} .\-\']{1,99}$/u', $fullName)) {
+    profile_update_response(false, 'Invalid Name', 'Please enter a valid full name.', 422);
+}
+
+if ($mobile === '' || !preg_match('/^[0-9]{10,15}$/', $mobile)) {
+    profile_update_response(false, 'Invalid Mobile', 'Mobile number must contain 10 to 15 digits.', 422);
+}
+
+if ($gender !== '' && !in_array($gender, ['Male', 'Female', 'Other'], true)) {
+    profile_update_response(false, 'Invalid Gender', 'Please select a valid gender.', 422);
+}
+
+if ($dob !== '') {
+    $dobDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dob);
+    $dateErrors = DateTimeImmutable::getLastErrors();
+
+    if (
+        !$dobDate ||
+        ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0)) ||
+        $dobDate->format('Y-m-d') !== $dob ||
+        $dobDate > new DateTimeImmutable('today')
+    ) {
+        profile_update_response(false, 'Invalid Date of Birth', 'Date of birth must be a valid date and cannot be in the future.', 422);
+    }
+}
+
+if (mb_strlen($address) > 2000) {
+    profile_update_response(false, 'Address Too Long', 'Address cannot exceed 2000 characters.', 422);
+}
+
+if (mb_strlen($city) > 80 || ($city !== '' && !preg_match('/^[\p{L}0-9 .\-\']+$/u', $city))) {
+    profile_update_response(false, 'Invalid City', 'Please enter a valid city.', 422);
+}
+
+if (mb_strlen($state) > 80 || ($state !== '' && !preg_match('/^[\p{L}0-9 .\-\']+$/u', $state))) {
+    profile_update_response(false, 'Invalid State', 'Please enter a valid state.', 422);
+}
+
+if ($pincode !== '' && !preg_match('/^[0-9]{4,10}$/', $pincode)) {
+    profile_update_response(false, 'Invalid Pincode', 'Pincode must contain 4 to 10 digits.', 422);
 }
 
 try {
+    $studentStatement = $conn->prepare(
+        "SELECT id, mobile
+         FROM students
+         WHERE id = ? AND status = 'Active'
+         LIMIT 1
+         FOR UPDATE"
+    );
+    $conn->beginTransaction();
+    $studentStatement->execute([$studentId]);
 
-    /* Student Exists */
-
-    $check = $conn->prepare("
-        SELECT id
-        FROM students
-        WHERE id=?
-        LIMIT 1
-    ");
-
-    $check->execute([$studentId]);
-
-    if ($check->rowCount() == 0) {
-
-        echo json_encode([
-            "status"  => "error",
-            "title"   => "Student Not Found",
-            "message" => "Unable to find your account."
-        ]);
-
-        exit();
+    if (!$studentStatement->fetch(PDO::FETCH_ASSOC)) {
+        $conn->rollBack();
+        profile_update_response(false, 'Student Not Found', 'Unable to find your active student account.', 404);
     }
 
-    /* Duplicate Mobile */
+    $mobileCheck = $conn->prepare(
+        "SELECT id
+         FROM students
+         WHERE mobile = ? AND id <> ?
+         LIMIT 1"
+    );
+    $mobileCheck->execute([$mobile, $studentId]);
 
-    if ($mobile != "") {
-
-        $mobileCheck = $conn->prepare("
-            SELECT id
-            FROM students
-            WHERE mobile=?
-            AND id!=?
-            LIMIT 1
-        ");
-
-        $mobileCheck->execute([
-            $mobile,
-            $studentId
-        ]);
-
-        if ($mobileCheck->rowCount() > 0) {
-
-            echo json_encode([
-                "status"  => "error",
-                "title"   => "Duplicate Mobile",
-                "message" => "This mobile number is already registered."
-            ]);
-
-            exit();
-        }
+    if ($mobileCheck->fetchColumn()) {
+        $conn->rollBack();
+        profile_update_response(false, 'Duplicate Mobile', 'This mobile number is already registered with another student account.', 409);
     }
 
-    /* Update */
+    $update = $conn->prepare(
+        "UPDATE students
+         SET full_name = ?,
+             mobile = ?,
+             gender = ?,
+             dob = ?,
+             address = ?,
+             city = ?,
+             state = ?,
+             pincode = ?
+         WHERE id = ? AND status = 'Active'"
+    );
 
-    $update = $conn->prepare("
-        UPDATE students
-        SET
-            full_name=?,
-            mobile=?,
-            gender=?,
-            dob=?,
-            address=?,
-            city=?,
-            state=?,
-            pincode=?
-        WHERE id=?
-    ");
-
-    $result = $update->execute([
+    $update->execute([
         $fullName,
         $mobile,
-        $gender,
-        $dob,
-        $address,
-        $city,
-        $state,
-        $pincode,
-        $studentId
+        $gender !== '' ? $gender : null,
+        $dob !== '' ? $dob : null,
+        $address !== '' ? $address : null,
+        $city !== '' ? $city : null,
+        $state !== '' ? $state : null,
+        $pincode !== '' ? $pincode : null,
+        $studentId,
     ]);
 
-    if ($result) {
-
-        echo json_encode([
-            "status"  => "success",
-            "title"   => "Profile Updated",
-            "message" => "Your profile has been updated successfully."
-        ]);
-
-    } else {
-
-        echo json_encode([
-            "status"  => "error",
-            "title"   => "Update Failed",
-            "message" => "Unable to update profile."
-        ]);
-
+    if ($update->rowCount() < 1) {
+        $conn->rollBack();
+        profile_update_response(false, 'No Changes', 'No profile changes were detected.', 200);
     }
 
-} catch (PDOException $e) {
+    $conn->commit();
+    $_SESSION['user_name'] = $fullName;
 
-    echo json_encode([
-        "status"  => "error",
-        "title"   => "Database Error",
-        "message" => "Something went wrong while updating your profile."
-    ]);
+    profile_update_response(true, 'Profile Updated', 'Your profile has been updated successfully.');
+} catch (Throwable $exception) {
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
 
+    error_log('Student profile update failed: ' . $exception->getMessage());
+    profile_update_response(false, 'Update Failed', 'Unable to update your profile right now.', 500);
 }
-
-exit();
