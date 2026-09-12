@@ -73,8 +73,6 @@ try {
         'razorpay_payment_id' => (string)($payment['gateway_payment_id'] ?? ''),
     ];
 
-    // Session data is only used to identify the transaction.
-    // The database is the authoritative source for the receipt.
     unset($_SESSION['payment_receipt']);
 
 } catch (Throwable $e) {
@@ -262,8 +260,8 @@ function formatDateTimeValue(string $dateTime): string
                 </h1>
 
                 <p class="text-muted mb-0">
-                    Your subscription has been recorded successfully
-                    and your membership is now available.
+                    Your payment has been verified and your subscription
+                    has been activated according to the recorded transaction.
                 </p>
 
                 <div class="receipt-box text-start p-4 mt-4">
@@ -376,15 +374,13 @@ function formatDateTimeValue(string $dateTime): string
                 </div>
 
                 <div
-                    class="alert alert-warning border-0 mt-4 mb-4 text-start"
+                    class="alert alert-info border-0 mt-4 mb-4 text-start"
                     role="alert"
                 >
-                    <i class="fa-solid fa-circle-info me-2"></i>
-
-                    <strong>Demo project:</strong>
-                    this checkout is simulated.
-                    No real money was transferred, and card/UPI details
-                    are not stored by ExamSphere.
+                    <i class="fa-solid fa-shield-halved me-2"></i>
+                    <strong>Verified transaction:</strong>
+                    this receipt is displayed only after a matching paid
+                    transaction and subscription record are found for your account.
                 </div>
 
                 <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
