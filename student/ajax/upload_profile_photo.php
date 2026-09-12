@@ -1,366 +1,151 @@
 <?php
 
-session_start();
+declare(strict_types=1);
 
-header("Content-Type: application/json");
+require_once __DIR__ . '/../../config/auth.php';
 
-require_once "../../config/config.php";
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
-/*==================================================
-        LOGIN CHECK
-==================================================*/
-
-if (
-    !isset($_SESSION['user_id']) ||
-    $_SESSION['user_role'] !== "student"
-) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Access Denied",
-        "message" => "Please login again."
-
-    ]);
-
-    exit();
-
-}
-
-/*==================================================
-        CSRF CHECK
-==================================================*/
-
-$csrfToken =
-    trim(
-        (string) (
-            $_POST['csrf_token']
-            ?? ''
-        )
+function profile_photo_response(bool $success, string $title, string $message, array $data = [], int $httpCode = 200): never
+{
+    http_response_code($httpCode);
+    echo json_encode(
+        array_merge([
+            'status' => $success ? 'success' : 'error',
+            'title' => $title,
+            'message' => $message,
+        ], $data),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     );
-
-if (!verify_csrf_token($csrfToken)) {
-    echo json_encode([
-        "status"  => "error",
-        "title"   => "Security Check Failed",
-        "message" => "Your session security token is invalid. Please refresh the page."
-    ]);
-    exit();
+    exit;
 }
 
-/*==================================================
-        FILE CHECK
-==================================================*/
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    profile_photo_response(false, 'Invalid Request', 'This endpoint accepts POST requests only.', [], 405);
+}
 
-if (
-    !isset($_FILES['profile_photo'])
-) {
+require_role('student');
 
-    echo json_encode([
+if (!verify_csrf_token($_POST['csrf_token'] ?? null)) {
+    profile_photo_response(false, 'Security Check Failed', 'Your session security token is invalid. Refresh the page and try again.', [], 419);
+}
 
-        "status"  => "error",
-        "title"   => "No File",
-        "message" => "Please select an image."
-
-    ]);
-
-    exit();
-
+if (!isset($_FILES['profile_photo']) || !is_array($_FILES['profile_photo'])) {
+    profile_photo_response(false, 'No File', 'Please select a profile image.', [], 422);
 }
 
 $file = $_FILES['profile_photo'];
 
-/*==================================================
-        UPLOAD ERROR
-==================================================*/
-
-if (
-    $file['error'] !== UPLOAD_ERR_OK
-) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Upload Failed",
-        "message" => "Unable to upload image."
-
-    ]);
-
-    exit();
-
+if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+    profile_photo_response(false, 'Upload Failed', 'The selected image could not be uploaded.', [], 422);
 }
 
-/*==================================================
-        SIZE CHECK
-==================================================*/
+if (!isset($file['tmp_name'], $file['size'], $file['name']) || !is_uploaded_file((string) $file['tmp_name'])) {
+    profile_photo_response(false, 'Invalid Upload', 'The uploaded file is not valid.', [], 422);
+}
 
 $maxSize = 2 * 1024 * 1024;
-
-if (
-    $file['size'] > $maxSize
-) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Large File",
-        "message" => "Maximum size is 2 MB."
-
-    ]);
-
-    exit();
-
+if ((int) $file['size'] <= 0 || (int) $file['size'] > $maxSize) {
+    profile_photo_response(false, 'Invalid File Size', 'Profile photo must be larger than 0 bytes and no more than 2 MB.', [], 422);
 }
 
-/*==================================================
-        MIME TYPE VALIDATION
-==================================================*/
-
-$finfo = finfo_open(FILEINFO_MIME_TYPE);
-
-$mimeType = finfo_file(
-    $finfo,
-    $file['tmp_name']
-);
-
-finfo_close($finfo);
+$finfo = new finfo(FILEINFO_MIME_TYPE);
+$mimeType = (string) $finfo->file((string) $file['tmp_name']);
 
 $allowedMimeTypes = [
-
-    "image/jpeg",
-    "image/jpg",
-    "image/png"
-
+    'image/jpeg' => 'jpg',
+    'image/png' => 'png',
 ];
 
-if (
-    !in_array(
-        $mimeType,
-        $allowedMimeTypes
-    )
-) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Invalid Image",
-        "message" => "Only JPG, JPEG and PNG images are allowed."
-
-    ]);
-
-    exit();
-
+if (!isset($allowedMimeTypes[$mimeType])) {
+    profile_photo_response(false, 'Invalid Image', 'Only JPG, JPEG and PNG images are allowed.', [], 422);
 }
 
-/*==================================================
-        EXTENSION VALIDATION
-==================================================*/
-
-$extension = strtolower(
-
-    pathinfo(
-        $file['name'],
-        PATHINFO_EXTENSION
-    )
-
-);
-
-$allowedExtensions = [
-
-    "jpg",
-    "jpeg",
-    "png"
-
-];
-
-if (
-    !in_array(
-        $extension,
-        $allowedExtensions
-    )
-) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Invalid Extension",
-        "message" => "Unsupported image format."
-
-    ]);
-
-    exit();
-
+$imageInfo = @getimagesize((string) $file['tmp_name']);
+if ($imageInfo === false || empty($imageInfo[0]) || empty($imageInfo[1])) {
+    profile_photo_response(false, 'Invalid Image', 'The selected file is not a valid image.', [], 422);
 }
 
-/*==================================================
-        GET STUDENT DETAILS
-==================================================*/
+$width = (int) $imageInfo[0];
+$height = (int) $imageInfo[1];
 
-$studentId = (int)$_SESSION['user_id'];
-
-$stmt = $conn->prepare("
-SELECT
-student_code,
-profile_photo
-FROM students
-WHERE id=?
-LIMIT 1
-");
-
-$stmt->execute([$studentId]);
-
-$student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$student) {
-
-    echo json_encode([
-
-        "status"  => "error",
-        "title"   => "Student Not Found",
-        "message" => "Unable to find your account."
-
-    ]);
-
-    exit();
-
+if ($width < 80 || $height < 80 || $width > 5000 || $height > 5000) {
+    profile_photo_response(false, 'Invalid Dimensions', 'Profile photo dimensions must be between 80×80 and 5000×5000 pixels.', [], 422);
 }
 
-/*==================================================
-        UPLOAD DIRECTORY
-==================================================*/
+$extension = $allowedMimeTypes[$mimeType];
+$studentId = current_user_id();
+$uploadDir = dirname(__DIR__, 2) . '/uploads/students/';
 
-$uploadDir = "../../uploads/students/";
+if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+    profile_photo_response(false, 'Storage Error', 'Profile image storage is not available.', [], 500);
+}
 
-if (!is_dir($uploadDir)) {
+if (!is_writable($uploadDir)) {
+    profile_photo_response(false, 'Storage Error', 'Profile image storage is not writable.', [], 500);
+}
 
-    mkdir(
-        $uploadDir,
-        0777,
-        true
+try {
+    $studentStatement = $conn->prepare(
+        "SELECT profile_photo
+         FROM students
+         WHERE id = ? AND status = 'Active'
+         LIMIT 1
+         FOR UPDATE"
     );
 
+    $conn->beginTransaction();
+    $studentStatement->execute([$studentId]);
+    $student = $studentStatement->fetch(PDO::FETCH_ASSOC);
+
+    if (!$student) {
+        $conn->rollBack();
+        profile_photo_response(false, 'Student Not Found', 'Unable to find your active student account.', [], 404);
+    }
+
+    $newFileName = 'student_' . $studentId . '_' . bin2hex(random_bytes(16)) . '.' . $extension;
+    $destination = $uploadDir . $newFileName;
+
+    if (!move_uploaded_file((string) $file['tmp_name'], $destination)) {
+        $conn->rollBack();
+        profile_photo_response(false, 'Upload Failed', 'Unable to save the profile image.', [], 500);
+    }
+
+    $update = $conn->prepare(
+        "UPDATE students
+         SET profile_photo = ?
+         WHERE id = ? AND status = 'Active'"
+    );
+    $update->execute([$newFileName, $studentId]);
+
+    if ($update->rowCount() < 1) {
+        if (is_file($destination)) {
+            unlink($destination);
+        }
+        $conn->rollBack();
+        profile_photo_response(false, 'Update Failed', 'Unable to update the profile image record.', [], 500);
+    }
+
+    $conn->commit();
+
+    $oldPhoto = basename((string) ($student['profile_photo'] ?? ''));
+    if ($oldPhoto !== '' && $oldPhoto !== $newFileName) {
+        $oldPath = $uploadDir . $oldPhoto;
+        if (is_file($oldPath)) {
+            @unlink($oldPath);
+        }
+    }
+
+    profile_photo_response(true, 'Profile Photo Updated', 'Your profile photo has been updated successfully.', [
+        'photo' => '../uploads/students/' . rawurlencode($newFileName),
+    ]);
+} catch (Throwable $exception) {
+    if ($conn->inTransaction()) {
+        $conn->rollBack();
+    }
+
+    error_log('Student profile photo upload failed: ' . $exception->getMessage());
+    profile_photo_response(false, 'Upload Failed', 'Unable to update your profile photo right now.', [], 500);
 }
-
-/*==================================================
-        AUTO FILE NAME
-==================================================*/
-
-$newFileName =
-
-$student['student_code'] .
-
-"_" .
-
-time() .
-
-"." .
-
-$extension;
-
-$destination =
-
-$uploadDir .
-
-$newFileName;
-
-/*==================================================
-        MOVE FILE
-==================================================*/
-
-if (
-
-!move_uploaded_file(
-
-$file['tmp_name'],
-
-$destination
-
-)
-
-) {
-
-echo json_encode([
-
-"status"=>"error",
-
-"title"=>"Upload Failed",
-
-"message"=>"Unable to save image."
-
-]);
-
-exit();
-
-}
-
-/*==================================================
-        DELETE OLD PHOTO AFTER NEW FILE EXISTS
-==================================================*/
-
-if (!empty($student['profile_photo'])) {
-
-$oldPhotoName = basename((string) $student['profile_photo']);
-$oldPhoto = $uploadDir . $oldPhotoName;
-
-if ($oldPhoto !== $destination && file_exists($oldPhoto) && is_file($oldPhoto)) {
-    unlink($oldPhoto);
-}
-
-}
-
-
-/*==================================================
-        UPDATE DATABASE
-==================================================*/
-
-
-$update = $conn->prepare("
-
-UPDATE students
-
-SET profile_photo=?
-
-WHERE id=?
-
-");
-
-$update->execute([
-
-$newFileName,
-
-$studentId
-
-]);
-
-/*==================================================
-        RETURN IMAGE PATH
-==================================================*/
-
-$imagePath =
-
-"../uploads/students/" .
-
-$newFileName;
-
-/*==================================================
-        SUCCESS RESPONSE
-==================================================*/
-
-echo json_encode([
-
-"status"=>"success",
-
-"title"=>"Success",
-
-"message"=>"Profile photo updated successfully.",
-
-"photo"=>$imagePath
-
-]);
-
-exit();
-
-/*==================================================
-        END
-==================================================*/
-?>
