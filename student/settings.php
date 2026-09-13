@@ -1,787 +1,86 @@
 <?php
-
 declare(strict_types=1);
-
 require_once '../config/session.php';
 require_once '../config/config.php';
-require_once '../config/auth.php';
+require_once '../config/functions.php';
 
-require_role('student');
-
-$studentId = current_user_id();
-$student = null;
-
-try {
-
-    $stmt = $conn->prepare(
-        'SELECT
-            full_name,
-            email,
-            email_verified,
-            status,
-            last_login,
-            created_at
-
-         FROM students
-
-         WHERE id = ?
-
-         LIMIT 1'
-    );
-
-    $stmt->execute([
-        $studentId
-    ]);
-
-    $student =
-        $stmt->fetch(
-            PDO::FETCH_ASSOC
-        ) ?: null;
-
-} catch (Throwable $e) {
-
-    error_log(
-        'Student settings load failed: ' .
-        $e->getMessage()
-    );
-}
-
-if (!$student) {
-
-    clear_invalid_auth_session();
-
-    header(
-        'Location: ../auth/login.php'
-    );
-
+if (empty($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'student') {
+    header('Location: ../auth/login.php');
     exit;
 }
 
-function settings_e(
-    mixed $value
-): string {
-
-    return htmlspecialchars(
-        (string)($value ?? ''),
-        ENT_QUOTES |
-        ENT_SUBSTITUTE,
-        'UTF-8'
-    );
-}
-
-function settings_date(
-    ?string $value
-): string {
-
-    if (!$value) {
-        return '—';
-    }
-
-    try {
-
-        return (
-            new DateTimeImmutable(
-                $value
-            )
-        )->format(
-            'd M Y, h:i A'
-        );
-
-    } catch (Throwable) {
-
-        return '—';
-    }
-}
-
+$csrf = csrf_token();
+$e = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 ?>
-
 <!doctype html>
-
 <html lang="en">
-
 <head>
-
-    <meta charset="utf-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width,initial-scale=1"
-    >
-
-    <meta
-        name="csrf-token"
-        content="<?= settings_e(
-            csrf_token()
-        ) ?>"
-    >
-
-    <title>
-        Account Settings | ExamSphere
-    </title>
-
-    <link
-        rel="preconnect"
-        href="https://fonts.googleapis.com"
-    >
-
-    <link
-        rel="preconnect"
-        href="https://fonts.gstatic.com"
-        crossorigin
-    >
-
-    <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet"
-    >
-
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="assets/css/student-nav.css"
-    >
-
-    <link
-        rel="stylesheet"
-        href="assets/css/dashboard.css"
-    >
-
-    <style>
-
-        .settings-page{
-            width:min(1180px,94%);
-            margin:35px auto 55px
-        }
-
-        .settings-hero{
-            padding:28px;
-            border-radius:24px;
-            background:
-                linear-gradient(
-                    135deg,
-                    #5D4037,
-                    #556B2F
-                );
-            color:#fff;
-            box-shadow:
-                0 20px 48px
-                rgba(62,39,35,.14);
-            margin-bottom:22px
-        }
-
-        .settings-hero h1{
-            font-size:1.65rem;
-            margin:0 0 6px
-        }
-
-        .settings-hero p{
-            margin:0;
-            opacity:.85;
-            font-size:.72rem
-        }
-
-        .settings-grid{
-            display:grid;
-            grid-template-columns:
-                1.2fr
-                .8fr;
-            gap:18px
-        }
-
-        .settings-card{
-            background:#fff;
-            border:1px solid #e9e1d6;
-            border-radius:20px;
-            padding:22px;
-            box-shadow:
-                0 16px 45px
-                rgba(72,48,37,.08)
-        }
-
-        .settings-card h2{
-            font-size:.98rem;
-            margin:0
-        }
-
-        .settings-card p{
-            font-size:.67rem;
-            color:#81766f;
-            line-height:1.55
-        }
-
-        .settings-row{
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap:16px;
-            padding:15px 0;
-            border-bottom:1px solid #eee7de
-        }
-
-        .settings-row:last-child{
-            border-bottom:0
-        }
-
-        .settings-row span{
-            font-size:.65rem;
-            color:#81766f
-        }
-
-        .settings-row strong{
-            font-size:.7rem;
-            color:#433831;
-            text-align:right
-        }
-
-        .settings-links{
-            display:grid;
-            gap:10px;
-            margin-top:14px
-        }
-
-        .settings-link{
-            display:flex;
-            align-items:center;
-            gap:12px;
-            padding:13px;
-            border:1px solid #ece5da;
-            border-radius:14px;
-            background:#fcfaf6;
-            transition:.2s
-        }
-
-        .settings-link:hover{
-            transform:translateY(-2px);
-            background:#fff
-        }
-
-        .settings-link>i:first-child{
-            width:36px;
-            height:36px;
-            display:grid;
-            place-items:center;
-            border-radius:11px;
-            background:#f0eadf;
-            color:#5D4037
-        }
-
-        .settings-link div{
-            min-width:0
-        }
-
-        .settings-link strong{
-            display:block;
-            font-size:.68rem
-        }
-
-        .settings-link small{
-            display:block;
-            margin-top:2px;
-            color:#91877f;
-            font-size:.58rem
-        }
-
-        .settings-link>i:last-child{
-            margin-left:auto;
-            color:#9a9088;
-            font-size:.63rem
-        }
-
-        @media(max-width:820px){
-
-            .settings-grid{
-                grid-template-columns:1fr
-            }
-
-        }
-
-        @media(max-width:560px){
-
-            .settings-page{
-                width:
-                    calc(100% - 24px)
-            }
-
-            .settings-card{
-                padding:18px
-            }
-
-            .settings-row{
-                align-items:flex-start;
-                flex-direction:column;
-                gap:4px
-            }
-
-            .settings-row strong{
-                text-align:left
-            }
-
-        }
-
-    </style>
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings | ExamSphere</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<link rel="stylesheet" href="assets/css/dashboard.css">
+<link rel="stylesheet" href="assets/css/student-nav.css">
+<style>
+:root{--cream:#f5f1e8;--paper:#fffdf9;--brown:#5d4037;--brown-dark:#3e2723;--olive:#556b2f;--olive-soft:#eaf0df;--muted:#7b726b;--line:#e7dfd3;--shadow:0 18px 50px rgba(62,39,35,.10)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:linear-gradient(180deg,#faf8f3 0%,#f3eee5 100%);font-family:Poppins,sans-serif;color:#333;min-height:100vh}.settings-page{width:min(1450px,calc(100% - 28px));margin:0 auto;padding:8px 0 26px;position:relative;z-index:1}.settings-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin:0 0 20px;padding:28px 30px;border-radius:24px;background:#fffdfa;border:1px solid rgba(231,223,211,.95);box-shadow:var(--shadow)}.kicker{display:inline-flex;align-items:center;gap:8px;color:var(--olive);font-size:.66rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase}.settings-hero h1{margin:9px 0 7px;color:var(--brown-dark);font-size:clamp(2rem,4vw,3.3rem);line-height:1.05;letter-spacing:-.055em}.settings-hero p{margin:0;color:var(--muted);font-size:.86rem;line-height:1.7}.back-btn{display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 17px;border-radius:13px;background:#fff;border:1px solid var(--line);color:var(--brown);text-decoration:none;font-size:.78rem;font-weight:800;white-space:nowrap;box-shadow:0 10px 22px rgba(62,39,35,.06)}.settings-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:18px}.card{background:rgba(255,255,255,.9);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);overflow:hidden}.card-head{display:flex;align-items:center;justify-content:space-between;padding:23px 24px 18px;border-bottom:1px solid #efe8df}.card-head h2{margin:6px 0 0;color:var(--brown-dark);font-size:1.35rem}.card-body{padding:22px 24px}.security-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px}.field{display:flex;flex-direction:column;gap:7px}.field label{color:#7a7068;font-size:.67rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.field input{width:100%;min-height:50px;padding:0 14px;border:1px solid #ddd4c9;border-radius:13px;background:#fffdfa;color:#3e2723;outline:none;font:inherit;font-size:.82rem}.field input:focus{border-color:rgba(85,107,47,.65);box-shadow:0 0 0 4px rgba(85,107,47,.10)}.form-note{grid-column:1/-1;margin:0;color:var(--muted);font-size:.76rem;line-height:1.6}.save-row{grid-column:1/-1;display:flex;justify-content:flex-end;padding-top:4px}.btn-primary{min-height:46px;padding:0 18px;border:0;border-radius:13px;background:linear-gradient(135deg,#5d4037,#805537);color:#fff;font:800 .78rem Poppins;cursor:pointer;box-shadow:0 12px 26px rgba(93,64,55,.15)}.habit-list{display:grid;gap:12px;padding:22px 24px}.habit{display:flex;gap:12px;padding:14px 15px;border:1px solid #e6dfd6;border-radius:16px;background:#fcfaf5}.habit-icon{width:38px;height:38px;display:grid;place-items:center;flex:none;border-radius:12px;background:var(--olive-soft);color:var(--olive)}.habit strong{display:block;color:var(--brown-dark);font-size:.8rem;margin-bottom:4px}.habit small{display:block;color:var(--muted);font-size:.7rem;line-height:1.55}.tips-card{margin-top:18px}.tips-card .card-body{padding:22px 24px}.tip{display:flex;gap:12px;align-items:flex-start}.tip-icon{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:#f2e8dc;color:var(--brown);flex:none}.tip strong{display:block;color:var(--brown-dark);font-size:.8rem;margin-bottom:4px}.tip p{margin:0;color:var(--muted);font-size:.73rem;line-height:1.65}.footer-space{height:4px}.student-footer{width:min(1480px,calc(100% - 48px));margin:0 auto 30px;padding:18px 22px;border:1px solid #e8e3d8;border-radius:16px;color:#716961;background:rgba(255,255,255,.82);display:flex;align-items:center;justify-content:space-between;gap:18px;font-size:.73rem}.student-footer div{display:flex;align-items:center;gap:9px}.student-footer strong{color:#4a2b18;font-size:.92rem}.student-footer span{color:#716961}.student-footer p{margin:0}.student-footer a{color:#587130;font-weight:700;text-decoration:none}.student-footer a:hover{text-decoration:underline}.student-footer *{box-sizing:border-box}
+@media(max-width:1050px){.settings-grid{grid-template-columns:1fr}.security-form{grid-template-columns:1fr 1fr}}@media(max-width:680px){.settings-page{width:calc(100% - 20px);padding:6px 0 20px}.settings-hero{padding:22px 20px;display:block}.back-btn{margin-top:17px}.card-head,.card-body,.habit-list,.tips-card .card-body{padding-left:18px;padding-right:18px}.security-form{grid-template-columns:1fr}.save-row{justify-content:stretch}.btn-primary{width:100%}}
+</style>
 </head>
-
 <body>
-
 <?php include 'includes/navbar.php'; ?>
-
 <main class="settings-page">
-
     <section class="settings-hero">
-
-        <h1>
-            Account Settings
-        </h1>
-
-        <p>
-            Manage your student account
-            securely from one place.
-        </p>
-
+        <div>
+            <span class="kicker"><i class="fa-solid fa-gear"></i> Account settings</span>
+            <h1>Security &amp; settings.</h1>
+            <p>Protect your ExamSphere account and keep your login credentials secure.</p>
+        </div>
+        <a class="back-btn" href="profile.php"><i class="fa-solid fa-arrow-left"></i> Back to profile</a>
     </section>
 
     <section class="settings-grid">
-
-        <article class="settings-card">
-
-            <h2>
-                Account information
-            </h2>
-
-            <p>
-                These values are read directly
-                from your student account.
-            </p>
-
-            <div class="settings-row">
-
-                <span>
-                    Name
-                </span>
-
-                <strong>
-                    <?= settings_e(
-                        $student['full_name']
-                    ) ?>
-                </strong>
-
+        <article class="card">
+            <div class="card-head">
+                <div>
+                    <span class="kicker">Security</span>
+                    <h2>Change password</h2>
+                </div>
+                <i class="fa-solid fa-shield-halved" style="color:#556b2f;font-size:23px"></i>
             </div>
-
-            <div class="settings-row">
-
-                <span>
-                    Email
-                </span>
-
-                <strong>
-                    <?= settings_e(
-                        $student['email']
-                    ) ?>
-                </strong>
-
+            <div class="card-body">
+                <form id="passwordForm" class="security-form" novalidate>
+                    <input type="hidden" name="csrf_token" value="<?= $e($csrf) ?>">
+                    <div class="field"><label for="currentPassword">Current password</label><input id="currentPassword" type="password" name="current_password" autocomplete="current-password" required></div>
+                    <div class="field"><label for="newPassword">New password</label><input id="newPassword" type="password" name="new_password" minlength="8" maxlength="72" autocomplete="new-password" required></div>
+                    <div class="field"><label for="confirmPassword">Confirm new password</label><input id="confirmPassword" type="password" name="confirm_password" minlength="8" maxlength="72" autocomplete="new-password" required></div>
+                    <p class="form-note"><i class="fa-solid fa-circle-info"></i> Use at least 8 characters. A longer passphrase is stronger.</p>
+                    <div class="save-row"><button class="btn-primary" type="submit"><i class="fa-solid fa-key"></i> Update password</button></div>
+                </form>
             </div>
-
-            <div class="settings-row">
-
-                <span>
-                    Email verification
-                </span>
-
-                <strong>
-
-                    <?= $student['email_verified'] === 'Yes'
-                        ? 'Verified'
-                        : 'Pending'
-                    ?>
-
-                </strong>
-
-            </div>
-
-            <div class="settings-row">
-
-                <span>
-                    Account status
-                </span>
-
-                <strong>
-                    <?= settings_e(
-                        $student['status']
-                    ) ?>
-                </strong>
-
-            </div>
-
-            <div class="settings-row">
-
-                <span>
-                    Last login
-                </span>
-
-                <strong>
-                    <?= settings_date(
-                        $student['last_login']
-                    ) ?>
-                </strong>
-
-            </div>
-
-            <div class="settings-row">
-
-                <span>
-                    Member since
-                </span>
-
-                <strong>
-                    <?= settings_date(
-                        $student['created_at']
-                    ) ?>
-                </strong>
-
-            </div>
-
         </article>
 
-        <article class="settings-card">
-
-            <h2>
-                Security & profile
-            </h2>
-
-            <p>
-                Use these controls to manage your
-                personal information and password.
-            </p>
-
-            <div class="settings-links">
-
-                <a
-                    class="settings-link"
-                    href="profile.php#personalSection"
-                >
-
-                    <i class="fa-solid fa-user-pen"></i>
-
-                    <div>
-
-                        <strong>
-                            Edit profile
-                        </strong>
-
-                        <small>
-                            Update your personal
-                            and address details.
-                        </small>
-
-                    </div>
-
-                    <i class="fa-solid fa-arrow-right"></i>
-
-                </a>
-
-                <button
-                    type="button"
-                    class="settings-link"
-                    id="settingsChangePassword"
-                    style="
-                        width:100%;
-                        font:inherit;
-                        text-align:left;
-                        cursor:pointer
-                    "
-                >
-
-                    <i class="fa-solid fa-key"></i>
-
-                    <div>
-
-                        <strong>
-                            Change password
-                        </strong>
-
-                        <small>
-                            Set a new secure
-                            login password.
-                        </small>
-
-                    </div>
-
-                    <i class="fa-solid fa-arrow-right"></i>
-
-                </button>
-
-                <a
-                    class="settings-link"
-                    href="subscriptions.php"
-                >
-
-                    <i class="fa-solid fa-gem"></i>
-
-                    <div>
-
-                        <strong>
-                            Subscription plans
-                        </strong>
-
-                        <small>
-                            View and manage
-                            available plans.
-                        </small>
-
-                    </div>
-
-                    <i class="fa-solid fa-arrow-right"></i>
-
-                </a>
-
-                <a
-                    class="settings-link"
-                    href="dashboard.php"
-                >
-
-                    <i class="fa-solid fa-house"></i>
-
-                    <div>
-
-                        <strong>
-                            Back to dashboard
-                        </strong>
-
-                        <small>
-                            Return to your
-                            student home.
-                        </small>
-
-                    </div>
-
-                    <i class="fa-solid fa-arrow-right"></i>
-
-                </a>
-
-            </div>
-
-        </article>
-
+        <aside>
+            <article class="card">
+                <div class="card-head"><div><span class="kicker">Account protection</span><h2>Good security habits</h2></div></div>
+                <div class="habit-list">
+                    <div class="habit"><span class="habit-icon"><i class="fa-solid fa-lock"></i></span><div><strong>Never share your password</strong><small>ExamSphere staff will never need your password.</small></div></div>
+                    <div class="habit"><span class="habit-icon"><i class="fa-solid fa-right-from-bracket"></i></span><div><strong>Log out on shared devices</strong><small>Especially on lab, library and college computers.</small></div></div>
+                    <div class="habit"><span class="habit-icon"><i class="fa-solid fa-user-shield"></i></span><div><strong>Keep your profile current</strong><small>Accurate contact details help with account recovery.</small></div></div>
+                </div>
+            </article>
+            <article class="card tips-card">
+                <div class="card-body"><div class="tip"><span class="tip-icon"><i class="fa-solid fa-lightbulb"></i></span><div><strong>Keep your account protected.</strong><p>Use a unique password for ExamSphere and avoid reusing passwords from other accounts.</p></div></div></div>
+            </article>
+        </aside>
     </section>
-
+    <div class="footer-space"></div>
 </main>
-
-<script
-    src="https://cdn.jsdelivr.net/npm/sweetalert2@11"
-></script>
-
-<script>
-
-(() => {
-
-    const btn =
-        document.getElementById(
-            'settingsChangePassword'
-        );
-
-    if (!btn) {
-        return;
-    }
-
-    const csrf =
-        document.querySelector(
-            'meta[name="csrf-token"]'
-        )?.content
-        ||
-        '';
-
-    btn.addEventListener(
-        'click',
-        async () => {
-
-            const result =
-                await Swal.fire({
-
-                    title:
-                        'Change Password',
-
-                    html:
-                        '<input id="currentPassword" class="swal2-input" type="password" placeholder="Current password">' +
-                        '<input id="newPassword" class="swal2-input" type="password" placeholder="New password">' +
-                        '<input id="confirmPassword" class="swal2-input" type="password" placeholder="Confirm new password">',
-
-                    showCancelButton:true,
-
-                    confirmButtonText:
-                        'Update Password',
-
-                    confirmButtonColor:
-                        '#556B2F',
-
-                    preConfirm:() => {
-
-                        const current =
-                            document.getElementById(
-                                'currentPassword'
-                            )?.value
-                            || '';
-
-                        const next =
-                            document.getElementById(
-                                'newPassword'
-                            )?.value
-                            || '';
-
-                        const confirm =
-                            document.getElementById(
-                                'confirmPassword'
-                            )?.value
-                            || '';
-
-                        if (
-                            !current ||
-                            !next ||
-                            !confirm
-                        ) {
-
-                            Swal.showValidationMessage(
-                                'All fields are required.'
-                            );
-
-                            return false;
-                        }
-
-                        if (
-                            next.length < 8 ||
-                            next.length > 72 ||
-                            !/[A-Za-z]/.test(next) ||
-                            !/[0-9]/.test(next)
-                        ) {
-
-                            Swal.showValidationMessage(
-                                'Use 8–72 characters with at least one letter and one number.'
-                            );
-
-                            return false;
-                        }
-
-                        if (
-                            next !==
-                            confirm
-                        ) {
-
-                            Swal.showValidationMessage(
-                                'Passwords do not match.'
-                            );
-
-                            return false;
-                        }
-
-                        return {
-
-                            current_password:
-                                current,
-
-                            new_password:
-                                next,
-
-                            confirm_password:
-                                confirm
-
-                        };
-
-                    }
-
-                });
-
-            if (
-                !result.isConfirmed
-            ) {
-                return;
-            }
-
-            try {
-
-                const response =
-                    await fetch(
-                        'ajax/change_password.php',
-                        {
-
-                            method:'POST',
-
-                            credentials:
-                                'same-origin',
-
-                            headers:{
-
-                                'Content-Type':
-                                    'application/json',
-
-                                'Accept':
-                                    'application/json'
-
-                            },
-
-                            body:
-                                JSON.stringify({
-
-                                    ...result.value,
-
-                                    csrf_token:
-                                        csrf
-
-                                })
-
-                        }
-                    );
-
-                const data =
-                    await response.json();
-
-                Swal.fire({
-
-                    icon:
-                        data.status ||
-                        'info',
-
-                    title:
-                        data.title ||
-                        'ExamSphere',
-
-                    text:
-                        data.message ||
-                        '',
-
-                    confirmButtonColor:
-                        '#556B2F'
-
-                });
-
-            } catch (error) {
-
-                Swal.fire({
-
-                    icon:'error',
-
-                    title:'Request Failed',
-
-                    text:
-                        'Unable to update your password.',
-
-                    confirmButtonColor:
-                        '#556B2F'
-
-                });
-
-            }
-
-        }
-    );
-
-})();
-
-</script>
-
+<?php include 'includes/footer.php'; ?>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="assets/js/profile.js" defer></script>
 </body>
-
 </html>

@@ -521,6 +521,54 @@ $scoreDegree =
 
 /*
 |--------------------------------------------------------------------------
+| ACCURACY + TIME USED
+|--------------------------------------------------------------------------
+*/
+
+$accuracy =
+    $attemptedQuestions > 0
+        ? round(
+            ($correctAnswers / $attemptedQuestions) * 100,
+            2
+        )
+        : 0.00;
+
+$timeUsedSeconds = 0;
+
+try {
+    if (
+        !empty($result['started_at']) &&
+        !empty($result['submitted_at'])
+    ) {
+        $startedAt = new DateTimeImmutable(
+            (string) $result['started_at']
+        );
+
+        $submittedAt = new DateTimeImmutable(
+            (string) $result['submitted_at']
+        );
+
+        $timeUsedSeconds = max(
+            0,
+            $submittedAt->getTimestamp() - $startedAt->getTimestamp()
+        );
+    }
+} catch (Throwable) {
+    $timeUsedSeconds = 0;
+}
+
+$timeUsedMinutes = intdiv($timeUsedSeconds, 60);
+$timeUsedRemainder = $timeUsedSeconds % 60;
+
+$timeUsedLabel = sprintf(
+    '%dm %02ds',
+    $timeUsedMinutes,
+    $timeUsedRemainder
+);
+
+
+/*
+|--------------------------------------------------------------------------
 | QUESTION OPTION HELPER
 |--------------------------------------------------------------------------
 */
@@ -644,7 +692,7 @@ $csrfToken =
 
     <link
         rel="stylesheet"
-        href="../assets/css/result.css"
+        href="assets/css/result.css"
     >
 
 
@@ -2616,6 +2664,25 @@ $csrfToken =
             </div>
 
 
+            <div class="metric">
+
+                <i
+                    class="fa-solid fa-bullseye"
+                ></i>
+
+
+                <strong>
+                    <?= number_format($accuracy, 2) ?>%
+                </strong>
+
+
+                <span>
+                    Accuracy
+                </span>
+
+            </div>
+
+
         </div>
 
     </section>
@@ -2725,6 +2792,32 @@ $csrfToken =
                                 )
                             ) ?>
 
+                        </span>
+
+                    </div>
+
+
+                    <div class="info-row">
+
+                        <span>
+                            Time used
+                        </span>
+
+                        <span>
+                            <?= result_escape($timeUsedLabel) ?>
+                        </span>
+
+                    </div>
+
+
+                    <div class="info-row">
+
+                        <span>
+                            Accuracy
+                        </span>
+
+                        <span>
+                            <?= number_format($accuracy, 2) ?>%
                         </span>
 
                     </div>
@@ -3332,6 +3425,29 @@ $csrfToken =
 <script
     src="assets/js/result.js"
 ></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const emailButton = document.getElementById('emailResult');
+
+    if (emailButton) {
+        emailButton.addEventListener('click', function () {
+            const attemptId = this.dataset.attemptId || '';
+            const token = this.dataset.csrfToken || '';
+            const params = new URLSearchParams();
+            if (attemptId) params.set('attempt_id', attemptId);
+            if (token) params.set('csrf_token', token);
+            window.location.href = 'ajax/send_result_email.php?' + params.toString();
+        });
+    }
+
+    document.querySelectorAll('.btn-print').forEach(function (button) {
+        button.addEventListener('click', function () {
+            window.print();
+        });
+    });
+});
+</script>
 
 
 </body>

@@ -285,145 +285,189 @@ if (
     $now >= $deadline
 ) {
 
-    try {
-
-        $conn->beginTransaction();
-
-
-        $lockStatement =
-            $conn->prepare("
-                SELECT
-
-                    id,
-                    status
-
-                FROM exam_attempts
-
-                WHERE
-                    id = ?
-                    AND student_id = ?
-
-                LIMIT 1
-
-                FOR UPDATE
-            ");
-
-        $lockStatement->execute([
-            $attemptId,
-            $studentId
-        ]);
-
-        $lockedAttempt =
-            $lockStatement->fetch(
-                PDO::FETCH_ASSOC
-            );
-
-
-        if (
-            $lockedAttempt &&
-            (string) $lockedAttempt['status'] === 'Started'
-        ) {
-
-            $expireStatement =
-                $conn->prepare("
-                    UPDATE exam_attempts
-
-                    SET
-                        status = 'Auto Submitted',
-                        submitted_at =
-                            COALESCE(
-                                submitted_at,
-                                NOW()
-                            ),
-                        last_activity_at = NOW()
-
-                    WHERE
-                        id = ?
-                        AND student_id = ?
-                        AND status = 'Started'
-                ");
-
-            $expireStatement->execute([
-                $attemptId,
-                $studentId
-            ]);
-        }
-
-
-        $conn->commit();
-
-    } catch (Throwable $exception) {
-
-        if (
-            $conn->inTransaction()
-        ) {
-            $conn->rollBack();
-        }
-
-        error_log(
-            'Take exam auto-expire failed: ' .
-            $exception->getMessage()
-        );
-    }
-
-
     /*
     |--------------------------------------------------------------------------
-    | Locate finalized result
+    | DO NOT FINALIZE HERE
     |--------------------------------------------------------------------------
+    |
+    | Canonical server-side grading belongs to ajax/submit_exam.php.
+    | Marking the attempt Auto Submitted before grading would prevent the
+    | canonical submit transaction from processing it.
+    |
     */
+
+    $resultId = null;
 
     try {
 
         $resultStatement =
             $conn->prepare("
                 SELECT id
-
                 FROM results
-
                 WHERE
                     attempt_id = ?
-
+                    AND student_id = ?
                 LIMIT 1
             ");
 
         $resultStatement->execute([
-            $attemptId
+            $attemptId,
+            $studentId
         ]);
 
         $resultId =
             $resultStatement->fetchColumn();
 
-        if (
-            $resultId !== false &&
-            $resultId !== null
-        ) {
+    } catch (Throwable $exception) {
 
-            header(
-                'Location: result.php?id=' .
-                (int) $resultId
-            );
-
-            exit;
-        }
-
-    } catch (Throwable) {
+        error_log(
+            'Take exam expired result lookup failed: ' .
+            $exception->getMessage()
+        );
     }
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | AUTHORITATIVE SUBMIT ENDPOINT
-    |--------------------------------------------------------------------------
-    */
+    if (
+        $resultId !== false &&
+        $resultId !== null &&
+        $resultId !== ''
+    ) {
 
-    header(
-        'Location: ajax/submit_exam.php?' .
-        http_build_query([
-            'attempt_id' => $attemptId,
-            'auto_submit' => 1
-        ])
-    );
+        header(
+            'Location: result.php?id=' .
+            (int) $resultId
+        );
+
+        exit;
+    }
+
+
+    $examCsrfToken =
+        (string) (
+            $_SESSION['exam_csrf_token']
+            ?? ''
+        );
+
+
+    if (
+        $examCsrfToken === ''
+    ) {
+
+        $_SESSION['exam_csrf_token'] =
+            bin2hex(
+                random_bytes(32)
+            );
+
+        $examCsrfToken =
+            (string) $_SESSION['exam_csrf_token'];
+    }
+
+
+    $safeAttemptId =
+        (int) $attemptId;
+
+    $safeToken =
+        htmlspecialchars(
+            $examCsrfToken,
+            ENT_QUOTES | ENT_SUBSTITUTE,
+            'UTF-8'
+        );
+
+
+    echo '<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ExamSphere | Submitting Examination</title>
+<style>
+:root{
+    --cream:#F5F5DC;
+    --brown:#5D4037;
+    --dark:#3E2723;
+    --muted:#6E625A;
+    --border:#E4DED1;
+}
+*{box-sizing:border-box}
+body{
+    margin:0;
+    min-height:100vh;
+    display:grid;
+    place-items:center;
+    padding:24px;
+    background:var(--cream);
+    color:var(--dark);
+    font-family:Arial,sans-serif;
+}
+.card{
+    width:min(520px,100%);
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:24px;
+    padding:34px;
+    box-shadow:0 24px 70px rgba(62,39,35,.14);
+    text-align:center;
+}
+.spinner{
+    width:48px;
+    height:48px;
+    margin:0 auto 18px;
+    border:4px solid #E9E3D8;
+    border-top-color:var(--brown);
+    border-radius:50%;
+    animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+h1{margin:0 0 10px;font-size:24px}
+p{margin:0;color:var(--muted);line-height:1.7}
+form{margin-top:22px}
+button{
+    min-height:48px;
+    padding:0 18px;
+    border:0;
+    border-radius:14px;
+    background:var(--brown);
+    color:#fff;
+    font-weight:700;
+    cursor:pointer;
+}
+.note{
+    margin-top:16px;
+    font-size:13px;
+    color:var(--muted);
+}
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="spinner" aria-hidden="true"></div>
+    <h1>Time is over</h1>
+    <p>Your examination is being submitted and graded securely by the server.</p>
+
+    <form id="autoSubmitForm" method="post" action="ajax/submit_exam.php">
+        <input type="hidden" name="attempt_id" value="' . $safeAttemptId . '">
+        <input type="hidden" name="csrf_token" value="' . $safeToken . '">
+        <input type="hidden" name="auto_submit" value="1">
+        <button type="submit">Continue to Result</button>
+    </form>
+
+    <div class="note">
+        Keep this page open until the result page appears.
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var form = document.getElementById("autoSubmitForm");
+    if (form) {
+        window.setTimeout(function () {
+            form.submit();
+        }, 350);
+    }
+});
+</script>
+</body>
+</html>';
 
     exit;
 }
@@ -446,7 +490,7 @@ if (
 ) {
 
     exit(
-        'This examination is invalid because its required question count is not configured.'
+        'This examination has an invalid configured question count.'
     );
 }
 
@@ -498,11 +542,11 @@ try {
 
 
 if (
-    $activeQuestionCount !== 50
+    $activeQuestionCount !== $requiredQuestionCount
 ) {
 
     exit(
-        'This examination is no longer ready because exactly 50 active questions are required.'
+        'This examination is no longer ready because its active question count does not match the configured question count.'
     );
 }
 
@@ -577,11 +621,11 @@ try {
 
 
 if (
-    count($questions) !== 50
+    count($questions) !== $requiredQuestionCount
 ) {
 
     exit(
-        'This examination is not ready. Exactly 50 active questions are required.'
+        'This examination is not ready. Its active question count does not match the configured question count.'
     );
 }
 
@@ -907,7 +951,7 @@ $initialAnswered =
     >
 
     <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet"
     >
 

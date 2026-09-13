@@ -445,11 +445,11 @@ try {
 
 
     if (
-        $requiredQuestionCount !== 50
+        $requiredQuestionCount <= 0
     ) {
 
         throw new RuntimeException(
-            'The examination must contain exactly 50 questions.'
+            'The examination question configuration is invalid.'
         );
     }
 
@@ -619,7 +619,7 @@ try {
 
 
     if (
-        $activeQuestionCount !== 50
+        $activeQuestionCount !== $requiredQuestionCount
     ) {
 
         throw new RuntimeException(
@@ -887,6 +887,18 @@ try {
                     0,
                     0
                 )
+
+                ON DUPLICATE KEY UPDATE
+
+                    selected_answer = VALUES(selected_answer),
+
+                    question_status = VALUES(question_status),
+
+                    answered_at = NOW(),
+
+                    is_correct = 0,
+
+                    marks_awarded = 0
                 "
             );
 
@@ -1041,7 +1053,7 @@ try {
 
         'This examination is no longer available.',
 
-        'The examination must contain exactly 50 questions.',
+        'The examination question configuration is invalid.',
 
         'Examination deadline is missing.',
 

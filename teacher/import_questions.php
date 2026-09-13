@@ -4,1425 +4,1223 @@ declare(strict_types=1);
 
 require_once '../config/session.php';
 require_once '../config/config.php';
+require_once '../config/functions.php';
+require_once '../config/auth.php';
 
+require_login('teacher');
 
-/*
-|--------------------------------------------------------------------------
-| Authentication
-|--------------------------------------------------------------------------
-*/
+$teacherId = (int)($_SESSION['user_id'] ?? 0);
 
-if (
-    empty($_SESSION['user_id']) ||
-    ($_SESSION['user_role'] ?? '') !== 'teacher'
-) {
-    header('Location: ../auth/login.php');
-    exit;
-}
-
-$teacherId = (int)$_SESSION['user_id'];
-
-$message = '';
 $error = '';
+$success = '';
+$imported = 0;
+$skipped = 0;
 
 $subjects = [];
 
-
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
-
-function teacher_import_escape(mixed $value): string
+function teacher_import_e(mixed $value): string
 {
     return htmlspecialchars(
-        (string)$value,
+        (string)($value ?? ''),
         ENT_QUOTES | ENT_SUBSTITUTE,
         'UTF-8'
     );
 }
 
+function teacher_import_normalize_header(mixed $value): string
+{
+    $value = preg_replace(
+        '/^\xEF\xBB\xBF/',
+        '',
+        (string)$value
+    );
 
-/*
-|--------------------------------------------------------------------------
-| Load active subjects
-|--------------------------------------------------------------------------
-*/
+    return strtolower(
+        trim(
+            (string)$value
+        )
+    );
+}
+
+function teacher_import_parse_nullable_int(
+    string $value,
+    string $field,
+    int $row
+): ?int {
+    $value = trim($value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    $parsed = filter_var(
+        $value,
+        FILTER_VALIDATE_INT
+    );
+
+    if ($parsed === false || $parsed < 0) {
+        throw new RuntimeException(
+            "CSV row {$row}: {$field} must be a non-negative integer or blank."
+        );
+    }
+
+    return (int)$parsed;
+}
+
+function teacher_import_parse_float(
+    string $value,
+    string $field,
+    int $row,
+    float $minimum = 0.0
+): float {
+    $value = trim($value);
+
+    $parsed = filter_var(
+        $value,
+        FILTER_VALIDATE_FLOAT
+    );
+
+    if (
+        $parsed === false ||
+        !is_finite((float)$parsed) ||
+        (float)$parsed < $minimum
+    ) {
+        throw new RuntimeException(
+            "CSV row {$row}: {$field} must be a valid number greater than or equal to {$minimum}."
+        );
+    }
+
+    return round(
+        (float)$parsed,
+        2
+    );
+}
 
 try {
-
-    $subjectStatement = $conn->query("
+    $subjectStatement = $conn->query(
+        "
         SELECT
             id,
-            name
+            name,
+            code
         FROM subjects
         WHERE status = 'Active'
         ORDER BY
             name ASC,
             id ASC
-    ");
+        "
+    );
 
     $subjects = $subjectStatement->fetchAll(
         PDO::FETCH_ASSOC
     );
-
 } catch (Throwable $exception) {
-
     error_log(
-        'Teacher CSV subject loading failed: ' .
+        'Teacher question-import subject load failed: ' .
         $exception->getMessage()
     );
 
     $error =
-        'Unable to load subjects.';
+        'Unable to load active subjects.';
 }
 
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    $error === ''
+) {
+    try {
+        if (
+            !verify_csrf_token(
+                $_POST['csrf_token'] ?? null
+            )
+        ) {
+            throw new RuntimeException(
+                'Security verification failed. Refresh the page and try again.'
+            );
+        }
 
-/*
-|--------------------------------------------------------------------------
-| POST IMPORT
-|--------------------------------------------------------------------------
-*/
+        $subjectId = filter_var(
+            $_POST['subject_id'] ?? '',
+            FILTER_VALIDATE_INT
+        );
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (
+            $subjectId === false ||
+            $subjectId <= 0
+        ) {
+            throw new RuntimeException(
+                'Please select a valid subject.'
+            );
+        }
 
-    if (
-        !verify_csrf_token(
-            $_POST['csrf_token'] ?? null
-        )
-    ) {
+        $subjectStatement = $conn->prepare(
+            "
+            SELECT
+                id,
+                name,
+                status
+            FROM subjects
+            WHERE id = ?
+            LIMIT 1
+            "
+        );
 
-        $error =
-            'Security verification failed. Please refresh the page and try again.';
+        $subjectStatement->execute([
+            (int)$subjectId
+        ]);
 
-    } else {
+        $subject =
+            $subjectStatement->fetch(
+                PDO::FETCH_ASSOC
+            );
+
+        if (!$subject) {
+            throw new RuntimeException(
+                'Selected subject does not exist.'
+            );
+        }
+
+        if (
+            (string)$subject['status'] !==
+            'Active'
+        ) {
+            throw new RuntimeException(
+                'Selected subject is inactive.'
+            );
+        }
 
         $upload =
             $_FILES['questions_csv'] ?? null;
 
+        if (!is_array($upload)) {
+            throw new RuntimeException(
+                'Please select a CSV file.'
+            );
+        }
+
         if (
-            !is_array($upload)
+            (int)(
+                $upload['error']
+                ?? UPLOAD_ERR_NO_FILE
+            ) !== UPLOAD_ERR_OK
         ) {
-
-            $error =
-                'Please select a CSV file.';
+            throw new RuntimeException(
+                'CSV upload failed. Please try again.'
+            );
         }
 
-        elseif (
-            ($upload['error'] ?? UPLOAD_ERR_NO_FILE)
-            !== UPLOAD_ERR_OK
-        ) {
+        $tmpName =
+            (string)(
+                $upload['tmp_name'] ?? ''
+            );
 
-            $error =
-                'The CSV upload failed. Please try again.';
+        $originalName =
+            (string)(
+                $upload['name'] ?? ''
+            );
+
+        $fileSize =
+            (int)(
+                $upload['size'] ?? 0
+            );
+
+        if (
+            $tmpName === '' ||
+            !is_uploaded_file($tmpName)
+        ) {
+            throw new RuntimeException(
+                'Invalid uploaded file.'
+            );
         }
 
-        else {
+        if (
+            strtolower(
+                pathinfo(
+                    $originalName,
+                    PATHINFO_EXTENSION
+                )
+            ) !== 'csv'
+        ) {
+            throw new RuntimeException(
+                'Only CSV files are allowed.'
+            );
+        }
 
-            $tmpName =
-                (string)(
-                    $upload['tmp_name'] ?? ''
-                );
+        if ($fileSize <= 0) {
+            throw new RuntimeException(
+                'The uploaded CSV file is empty.'
+            );
+        }
 
-            $originalName =
-                (string)(
-                    $upload['name'] ?? ''
-                );
+        if ($fileSize > 5 * 1024 * 1024) {
+            throw new RuntimeException(
+                'Maximum CSV file size is 5 MB.'
+            );
+        }
 
-            $fileSize =
-                (int)(
-                    $upload['size'] ?? 0
-                );
+        $handle = fopen(
+            $tmpName,
+            'rb'
+        );
 
-            $extension =
-                strtolower(
-                    pathinfo(
-                        $originalName,
-                        PATHINFO_EXTENSION
-                    )
-                );
+        if ($handle === false) {
+            throw new RuntimeException(
+                'Unable to read the uploaded CSV file.'
+            );
+        }
 
-
+        try {
             /*
             |--------------------------------------------------------------------------
-            | File checks
+            | Canonical question-bank CSV format
+            |--------------------------------------------------------------------------
+            |
+            | Exam assignment is NOT stored on questions.
+            | Questions belong to the teacher + subject and are later connected
+            | to exams through exam_questions.
+            |
             |--------------------------------------------------------------------------
             */
 
+            $expectedHeader = [
+                'topic_id',
+                'question_text',
+                'question_type',
+                'option_a',
+                'option_b',
+                'option_c',
+                'option_d',
+                'correct_answer',
+                'explanation',
+                'difficulty',
+                'marks',
+                'negative_marks',
+                'estimated_time_seconds',
+                'status'
+            ];
+
+            $header = fgetcsv(
+                $handle,
+                0,
+                ','
+            );
+
+            if ($header === false) {
+                throw new RuntimeException(
+                    'CSV file must contain a header row.'
+                );
+            }
+
+            $normalizedHeader = array_map(
+                'teacher_import_normalize_header',
+                $header
+            );
+
             if (
-                $tmpName === '' ||
-                !is_uploaded_file($tmpName)
+                $normalizedHeader !==
+                $expectedHeader
             ) {
-
-                $error =
-                    'Invalid uploaded file.';
+                throw new RuntimeException(
+                    'Invalid CSV header. Use the ExamSphere question-bank CSV format shown on this page.'
+                );
             }
 
-            elseif (
-                $extension !== 'csv'
+            $rows = [];
+            $duplicateKeys = [];
+            $rowNumber = 1;
+
+            while (
+                (
+                    $data =
+                        fgetcsv(
+                            $handle,
+                            0,
+                            ','
+                        )
+                ) !== false
             ) {
-
-                $error =
-                    'Only CSV files are allowed.';
-            }
-
-            elseif (
-                $fileSize <= 0
-            ) {
-
-                $error =
-                    'The uploaded CSV file is empty.';
-            }
-
-            elseif (
-                $fileSize > 5 * 1024 * 1024
-            ) {
-
-                $error =
-                    'Maximum CSV file size is 5 MB.';
-            }
-
-            else {
-
-                $handle =
-                    fopen(
-                        $tmpName,
-                        'rb'
-                    );
-
+                $rowNumber++;
 
                 if (
-                    $handle === false
+                    count($data) === 1 &&
+                    trim((string)$data[0]) === ''
                 ) {
-
-                    $error =
-                        'Unable to read the uploaded CSV file.';
+                    continue;
                 }
 
-                else {
-
-                    try {
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Expected canonical format
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $expectedColumns = [
-
-                            'topic_id',
-
-                            'question_text',
-
-                            'question_type',
-
-                            'option_a',
-
-                            'option_b',
-
-                            'option_c',
-
-                            'option_d',
-
-                            'correct_answer',
-
-                            'explanation',
-
-                            'difficulty',
-
-                            'marks',
-
-                            'negative_marks',
-
-                            'estimated_time_seconds',
-
-                            'status'
-
-                        ];
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Subject
-                        |--------------------------------------------------------------------------
-                        |
-                        | Teacher selects the subject separately.
-                        |
-                        */
-
-                        $subjectId =
-                            filter_var(
-                                $_POST['subject_id'] ?? '',
-                                FILTER_VALIDATE_INT
-                            );
-
-
-                        if (
-                            $subjectId === false ||
-                            $subjectId === null ||
-                            $subjectId <= 0
-                        ) {
-
-                            throw new RuntimeException(
-                                'Please select a valid subject.'
-                            );
-                        }
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Validate subject
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $subjectCheck =
-                            $conn->prepare("
-                                SELECT
-                                    id,
-                                    name,
-                                    status
-                                FROM subjects
-                                WHERE id = ?
-                                LIMIT 1
-                            ");
-
-                        $subjectCheck->execute([
-                            (int)$subjectId
-                        ]);
-
-                        $subject =
-                            $subjectCheck->fetch(
-                                PDO::FETCH_ASSOC
-                            );
-
-
-                        if (
-                            !$subject
-                        ) {
-
-                            throw new RuntimeException(
-                                'Selected subject does not exist.'
-                            );
-                        }
-
-
-                        if (
-                            (string)$subject['status']
-                            !== 'Active'
-                        ) {
-
-                            throw new RuntimeException(
-                                'Selected subject is inactive.'
-                            );
-                        }
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Read CSV header
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $header =
-                            fgetcsv(
-                                $handle,
-                                0,
-                                ','
-                            );
-
-
-                        if (
-                            $header === false
-                        ) {
-
-                            throw new RuntimeException(
-                                'CSV file must contain a header row.'
-                            );
-                        }
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Normalize header
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $normalizedHeader = [];
-
-
-                        foreach (
-                            $header
-                            as $column
-                        ) {
-
-                            $column =
-                                preg_replace(
-                                    '/^\xEF\xBB\xBF/',
-                                    '',
-                                    (string)$column
-                                );
-
-                            $normalizedHeader[] =
-                                strtolower(
-                                    trim(
-                                        (string)$column
-                                    )
-                                );
-                        }
-
-
-                        if (
-                            $normalizedHeader !==
-                            $expectedColumns
-                        ) {
-
-                            throw new RuntimeException(
-                                'Invalid CSV header. Please download and use the current sample format.'
-                            );
-                        }
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Read rows
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $rows = [];
-
-                        $lineNumber = 1;
-
-                        $csvDuplicateKeys = [];
-
-
-                        while (
-                            (
-                                $data =
-                                    fgetcsv(
-                                        $handle,
-                                        0,
-                                        ','
-                                    )
-                            ) !== false
-                        ) {
-
-                            $lineNumber++;
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Skip blank rows
-                            |--------------------------------------------------------------------------
-                            */
-
-                            $nonEmpty =
-                                array_filter(
-                                    $data,
-                                    static function (
-                                        mixed $value
-                                    ): bool {
-
-                                        return trim(
-                                            (string)$value
-                                        ) !== '';
-
-                                    }
-                                );
-
-
-                            if (
-                                empty($nonEmpty)
-                            ) {
-
-                                continue;
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Exact column count
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                count($data) !==
-                                count($expectedColumns)
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber} must contain exactly " .
-                                    count($expectedColumns) .
-                                    " columns."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Extract
-                            |--------------------------------------------------------------------------
-                            */
-
-                            $topicIdRaw =
-                                trim(
-                                    (string)$data[0]
-                                );
-
-
-                            $topicId =
-                                null;
-
-
-                            if (
-                                $topicIdRaw !== ''
-                            ) {
-
-                                $topicId =
-                                    filter_var(
-                                        $topicIdRaw,
-                                        FILTER_VALIDATE_INT
-                                    );
-
-
-                                if (
-                                    $topicId === false ||
-                                    $topicId <= 0
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: topic_id must be a positive integer or blank."
-                                    );
-                                }
-                            }
-
-
-                            $questionText =
-                                trim(
-                                    (string)$data[1]
-                                );
-
-
-                            $questionType =
-                                trim(
-                                    (string)$data[2]
-                                );
-
-
-                            $optionA =
-                                trim(
-                                    (string)$data[3]
-                                );
-
-
-                            $optionB =
-                                trim(
-                                    (string)$data[4]
-                                );
-
-
-                            $optionC =
-                                trim(
-                                    (string)$data[5]
-                                );
-
-
-                            $optionD =
-                                trim(
-                                    (string)$data[6]
-                                );
-
-
-                            $correctAnswer =
-                                strtoupper(
-                                    trim(
-                                        (string)$data[7]
-                                    )
-                                );
-
-
-                            $explanation =
-                                trim(
-                                    (string)$data[8]
-                                );
-
-
-                            $difficulty =
-                                ucfirst(
-                                    strtolower(
-                                        trim(
-                                            (string)$data[9]
-                                        )
-                                    )
-                                );
-
-
-                            $marks =
-                                filter_var(
-                                    trim(
-                                        (string)$data[10]
-                                    ),
-                                    FILTER_VALIDATE_FLOAT
-                                );
-
-
-                            $negativeMarks =
-                                filter_var(
-                                    trim(
-                                        (string)$data[11]
-                                    ),
-                                    FILTER_VALIDATE_FLOAT
-                                );
-
-
-                            $estimatedTimeRaw =
-                                trim(
-                                    (string)$data[12]
-                                );
-
-
-                            $estimatedTime =
-                                null;
-
-
-                            if (
-                                $estimatedTimeRaw !== ''
-                            ) {
-
-                                $estimatedTime =
-                                    filter_var(
-                                        $estimatedTimeRaw,
-                                        FILTER_VALIDATE_INT
-                                    );
-
-
-                                if (
-                                    $estimatedTime === false ||
-                                    $estimatedTime <= 0
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: estimated_time_seconds must be greater than zero."
-                                    );
-                                }
-                            }
-
-
-                            $status =
-                                ucfirst(
-                                    strtolower(
-                                        trim(
-                                            (string)$data[13]
-                                        )
-                                    )
-                                );
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Question validation
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                $questionText === ''
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: question_text is required."
-                                );
-                            }
-
-
-                            if (
-                                mb_strlen($questionText) > 65535
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: question_text is too long."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Question type
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                !in_array(
-                                    $questionType,
-                                    [
-                                        'MCQ',
-                                        'TrueFalse'
-                                    ],
-                                    true
-                                )
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: question_type must be MCQ or TrueFalse."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | MCQ / TrueFalse
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                $questionType === 'TrueFalse'
-                            ) {
-
-                                $optionA =
-                                    'True';
-
-                                $optionB =
-                                    'False';
-
-                                $optionC =
-                                    null;
-
-                                $optionD =
-                                    null;
-
-
-                                if (
-                                    !in_array(
-                                        $correctAnswer,
-                                        [
-                                            'A',
-                                            'B'
-                                        ],
-                                        true
-                                    )
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: TrueFalse correct_answer must be A or B."
-                                    );
-                                }
-
-                            } else {
-
-                                if (
-                                    $optionA === '' ||
-                                    $optionB === '' ||
-                                    $optionC === '' ||
-                                    $optionD === ''
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: MCQ requires options A, B, C and D."
-                                    );
-                                }
-
-
-                                if (
-                                    !in_array(
-                                        $correctAnswer,
-                                        [
-                                            'A',
-                                            'B',
-                                            'C',
-                                            'D'
-                                        ],
-                                        true
-                                    )
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: MCQ correct_answer must be A, B, C or D."
-                                    );
-                                }
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Marks
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                $marks === false ||
-                                $marks === null ||
-                                $marks <= 0
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: marks must be greater than zero."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Negative marks
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                $negativeMarks === false ||
-                                $negativeMarks === null ||
-                                $negativeMarks < 0
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: negative_marks cannot be negative."
-                                );
-                            }
-
-
-                            if (
-                                $negativeMarks > $marks
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: negative_marks cannot exceed marks."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Difficulty
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                !in_array(
-                                    $difficulty,
-                                    [
-                                        'Easy',
-                                        'Medium',
-                                        'Hard'
-                                    ],
-                                    true
-                                )
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: difficulty must be Easy, Medium or Hard."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Status
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                !in_array(
-                                    $status,
-                                    [
-                                        'Active',
-                                        'Inactive'
-                                    ],
-                                    true
-                                )
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: status must be Active or Inactive."
-                                );
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Topic validation
-                            |--------------------------------------------------------------------------
-                            */
-
-                            if (
-                                $topicId !== null
-                            ) {
-
-                                $topicCheck =
-                                    $conn->prepare("
-                                        SELECT
-                                            id,
-                                            subject_id,
-                                            status
-                                        FROM topics
-                                        WHERE id = ?
-                                        LIMIT 1
-                                    ");
-
-                                $topicCheck->execute([
-                                    (int)$topicId
-                                ]);
-
-                                $topic =
-                                    $topicCheck->fetch(
-                                        PDO::FETCH_ASSOC
-                                    );
-
-
-                                if (
-                                    !$topic
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: topic {$topicId} does not exist."
-                                    );
-                                }
-
-
-                                if (
-                                    (int)$topic['subject_id'] !==
-                                    (int)$subjectId
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: topic {$topicId} does not belong to the selected subject."
-                                    );
-                                }
-
-
-                                if (
-                                    (string)$topic['status']
-                                    !== 'Active'
-                                ) {
-
-                                    throw new RuntimeException(
-                                        "CSV row {$lineNumber}: topic {$topicId} is inactive."
-                                    );
-                                }
-                            }
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Duplicate in CSV
-                            |--------------------------------------------------------------------------
-                            */
-
-                            $duplicateKey =
-                                md5(
-                                    (
-                                        (string)$subjectId
-                                        . '|'
-                                        . (string)(
-                                            $topicId ?? ''
-                                        )
-                                        . '|'
-                                        . mb_strtolower(
-                                            $questionText
-                                        )
-                                    )
-                                );
-
-
-                            if (
-                                isset(
-                                    $csvDuplicateKeys[
-                                        $duplicateKey
-                                    ]
-                                )
-                            ) {
-
-                                throw new RuntimeException(
-                                    "CSV row {$lineNumber}: duplicate question appears earlier in this file."
-                                );
-                            }
-
-
-                            $csvDuplicateKeys[
-                                $duplicateKey
-                            ] = true;
-
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Prepare row
-                            |--------------------------------------------------------------------------
-                            */
-
-                            $rows[] = [
-
-                                'topic_id' =>
-                                    $topicId,
-
-                                'question_text' =>
-                                    $questionText,
-
-                                'question_type' =>
-                                    $questionType,
-
-                                'option_a' =>
-                                    $optionA,
-
-                                'option_b' =>
-                                    $optionB,
-
-                                'option_c' =>
-                                    $optionC,
-
-                                'option_d' =>
-                                    $optionD,
-
-                                'correct_answer' =>
-                                    $correctAnswer,
-
-                                'explanation' =>
-                                    $explanation,
-
-                                'difficulty' =>
-                                    $difficulty,
-
-                                'marks' =>
-                                    (float)$marks,
-
-                                'negative_marks' =>
-                                    (float)$negativeMarks,
-
-                                'estimated_time_seconds' =>
-                                    $estimatedTime !== null
-                                        ? (int)$estimatedTime
-                                        : null,
-
-                                'status' =>
-                                    $status
-
-                            ];
-                        }
-
-
-                        if (
-                            empty($rows)
-                        ) {
-
-                            throw new RuntimeException(
-                                'The CSV file contains no question rows.'
-                            );
-                        }
-
-
-                        fclose(
-                            $handle
+                if (
+                    count($data) !==
+                    count($expectedHeader)
+                ) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber} must contain exactly " .
+                        count($expectedHeader) .
+                        " columns."
+                    );
+                }
+
+                $topicId =
+                    teacher_import_parse_nullable_int(
+                        (string)$data[0],
+                        'topic_id',
+                        $rowNumber
+                    );
+
+                $questionText =
+                    trim(
+                        (string)$data[1]
+                    );
+
+                $questionType =
+                    trim(
+                        (string)$data[2]
+                    );
+
+                $optionA =
+                    trim(
+                        (string)$data[3]
+                    );
+
+                $optionB =
+                    trim(
+                        (string)$data[4]
+                    );
+
+                $optionC =
+                    trim(
+                        (string)$data[5]
+                    );
+
+                $optionD =
+                    trim(
+                        (string)$data[6]
+                    );
+
+                $correctAnswer =
+                    strtoupper(
+                        trim(
+                            (string)$data[7]
+                        )
+                    );
+
+                $explanation =
+                    trim(
+                        (string)$data[8]
+                    );
+
+                $difficulty =
+                    ucfirst(
+                        strtolower(
+                            trim(
+                                (string)$data[9]
+                            )
+                        )
+                    );
+
+                $marks =
+                    teacher_import_parse_float(
+                        (string)$data[10],
+                        'marks',
+                        $rowNumber,
+                        0.01
+                    );
+
+                $negativeMarks =
+                    teacher_import_parse_float(
+                        (string)$data[11],
+                        'negative_marks',
+                        $rowNumber,
+                        0.0
+                    );
+
+                $estimatedTime =
+                    teacher_import_parse_nullable_int(
+                        (string)$data[12],
+                        'estimated_time_seconds',
+                        $rowNumber
+                    );
+
+                $status =
+                    ucfirst(
+                        strtolower(
+                            trim(
+                                (string)$data[13]
+                            )
+                        )
+                    );
+
+                if ($questionText === '') {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: question_text is required."
+                    );
+                }
+
+                if (mb_strlen($questionText) > 65535) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: question_text is too long."
+                    );
+                }
+
+                if (
+                    !in_array(
+                        $questionType,
+                        [
+                            'MCQ',
+                            'TrueFalse'
+                        ],
+                        true
+                    )
+                ) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: question_type must be MCQ or TrueFalse."
+                    );
+                }
+
+                if (
+                    $questionType === 'TrueFalse'
+                ) {
+                    $optionA = 'True';
+                    $optionB = 'False';
+                    $optionC = null;
+                    $optionD = null;
+
+                    if (
+                        !in_array(
+                            $correctAnswer,
+                            [
+                                'A',
+                                'B'
+                            ],
+                            true
+                        )
+                    ) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: TrueFalse correct_answer must be A or B."
                         );
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Duplicate check + INSERT transaction
-                        |--------------------------------------------------------------------------
-                        */
-
-                        $conn->beginTransaction();
-
-
-                        $duplicateDbCheck =
-                            $conn->prepare("
-                                SELECT
-                                    id
-                                FROM questions
-                                WHERE
-                                    created_by_teacher_id = ?
-                                    AND question_text = ?
-                                LIMIT 1
-                            ");
-
-
-                        $insert =
-                            $conn->prepare("
-                                INSERT INTO questions
-                                (
-                                    subject_id,
-                                    topic_id,
-                                    created_by_teacher_id,
-
-                                    question_type,
-                                    question_text,
-                                    question_image,
-
-                                    option_a,
-                                    option_b,
-                                    option_c,
-                                    option_d,
-
-                                    correct_answer,
-                                    explanation,
-
-                                    marks,
-                                    negative_marks,
-
-                                    estimated_time_seconds,
-
-                                    difficulty,
-                                    status
-                                )
-                                VALUES
-                                (
-                                    ?,
-                                    ?,
-                                    ?,
-
-                                    ?,
-                                    ?,
-                                    NULL,
-
-                                    ?,
-                                    ?,
-                                    ?,
-                                    ?,
-
-                                    ?,
-                                    ?,
-
-                                    ?,
-                                    ?,
-
-                                    ?,
-
-                                    ?,
-                                    ?
-                                )
-                            ");
-
-
-                        $imported = 0;
-
-                        $skipped = 0;
-
-
-                        foreach (
-                            $rows
-                            as $rowIndex => $row
-                        ) {
-
-                            $duplicateDbCheck->execute([
-
-                                $teacherId,
-
-                                $row[
-                                    'question_text'
-                                ]
-
-                            ]);
-
-
-                            if (
-                                $duplicateDbCheck->fetch(
-                                    PDO::FETCH_ASSOC
-                                )
-                            ) {
-
-                                $skipped++;
-
-                                continue;
-                            }
-
-
-                            $insert->execute([
-
-                                (int)$subjectId,
-
-                                $row[
-                                    'topic_id'
-                                ],
-
-                                $teacherId,
-
-                                $row[
-                                    'question_type'
-                                ],
-
-                                $row[
-                                    'question_text'
-                                ],
-
-                                $row[
-                                    'option_a'
-                                ],
-
-                                $row[
-                                    'option_b'
-                                ],
-
-                                $row[
-                                    'option_c'
-                                ],
-
-                                $row[
-                                    'option_d'
-                                ],
-
-                                $row[
-                                    'correct_answer'
-                                ],
-
-                                (
-                                    $row['explanation'] !== ''
-                                        ? $row['explanation']
-                                        : null
-                                ),
-
-                                $row[
-                                    'marks'
-                                ],
-
-                                $row[
-                                    'negative_marks'
-                                ],
-
-                                $row[
-                                    'estimated_time_seconds'
-                                ],
-
-                                $row[
-                                    'difficulty'
-                                ],
-
-                                $row[
-                                    'status'
-                                ]
-
-                            ]);
-
-
-                            $imported++;
-                        }
-
-
-                        if (
-                            $imported === 0
-                        ) {
-
-                            $conn->rollBack();
-
-                            throw new RuntimeException(
-                                'No new questions were imported. All questions already exist in your question bank.'
-                            );
-                        }
-
-
-                        $conn->commit();
-
-
-                        $message =
-                            $imported .
-                            ' question(s) imported successfully.';
-
-
-                        if (
-                            $skipped > 0
-                        ) {
-
-                            $message .=
-                                ' ' .
-                                $skipped .
-                                ' duplicate question(s) skipped.';
-                        }
-
-                    } catch (Throwable $exception) {
-
-                        if (
-                            $conn->inTransaction()
-                        ) {
-
-                            $conn->rollBack();
-                        }
-
-
-                        if (
-                            is_resource($handle)
-                        ) {
-
-                            fclose(
-                                $handle
-                            );
-                        }
-
-
-                        error_log(
-                            'Teacher CSV import failed: ' .
-                            $exception->getMessage()
+                    }
+                } else {
+                    if (
+                        $optionA === '' ||
+                        $optionB === '' ||
+                        $optionC === '' ||
+                        $optionD === ''
+                    ) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: MCQ requires options A, B, C and D."
                         );
+                    }
 
-
-                        $error =
-                            $exception->getMessage();
+                    if (
+                        !in_array(
+                            $correctAnswer,
+                            [
+                                'A',
+                                'B',
+                                'C',
+                                'D'
+                            ],
+                            true
+                        )
+                    ) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: MCQ correct_answer must be A, B, C or D."
+                        );
                     }
                 }
+
+                if ($negativeMarks > $marks) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: negative_marks cannot exceed marks."
+                    );
+                }
+
+                if (
+                    !in_array(
+                        $difficulty,
+                        [
+                            'Easy',
+                            'Medium',
+                            'Hard'
+                        ],
+                        true
+                    )
+                ) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: difficulty must be Easy, Medium or Hard."
+                    );
+                }
+
+                if (
+                    !in_array(
+                        $status,
+                        [
+                            'Active',
+                            'Inactive'
+                        ],
+                        true
+                    )
+                ) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: status must be Active or Inactive."
+                    );
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Topic must belong to selected subject
+                |--------------------------------------------------------------------------
+                */
+
+                if ($topicId !== null) {
+                    $topicStatement =
+                        $conn->prepare(
+                            "
+                            SELECT
+                                id,
+                                subject_id,
+                                status
+                            FROM topics
+                            WHERE id = ?
+                            LIMIT 1
+                            "
+                        );
+
+                    $topicStatement->execute([
+                        $topicId
+                    ]);
+
+                    $topic =
+                        $topicStatement->fetch(
+                            PDO::FETCH_ASSOC
+                        );
+
+                    if (!$topic) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: selected topic does not exist."
+                        );
+                    }
+
+                    if (
+                        (int)$topic['subject_id'] !==
+                        (int)$subjectId
+                    ) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: topic does not belong to the selected subject."
+                        );
+                    }
+
+                    if (
+                        (string)$topic['status'] !==
+                        'Active'
+                    ) {
+                        throw new RuntimeException(
+                            "CSV row {$rowNumber}: topic is inactive."
+                        );
+                    }
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Duplicate inside CSV
+                |--------------------------------------------------------------------------
+                */
+
+                $duplicateKey =
+                    strtolower(
+                        trim(
+                            (string)$questionText
+                        )
+                    );
+
+                if (
+                    isset(
+                        $duplicateKeys[
+                            $duplicateKey
+                        ]
+                    )
+                ) {
+                    throw new RuntimeException(
+                        "CSV row {$rowNumber}: duplicate question text appears more than once."
+                    );
+                }
+
+                $duplicateKeys[
+                    $duplicateKey
+                ] = true;
+
+                $rows[] = [
+                    'topic_id' =>
+                        $topicId,
+
+                    'question_text' =>
+                        $questionText,
+
+                    'question_type' =>
+                        $questionType,
+
+                    'option_a' =>
+                        $optionA,
+
+                    'option_b' =>
+                        $optionB,
+
+                    'option_c' =>
+                        $optionC,
+
+                    'option_d' =>
+                        $optionD,
+
+                    'correct_answer' =>
+                        $correctAnswer,
+
+                    'explanation' =>
+                        $explanation !== ''
+                            ? $explanation
+                            : null,
+
+                    'difficulty' =>
+                        $difficulty,
+
+                    'marks' =>
+                        $marks,
+
+                    'negative_marks' =>
+                        $negativeMarks,
+
+                    'estimated_time_seconds' =>
+                        $estimatedTime,
+
+                    'status' =>
+                        $status
+                ];
+            }
+
+            if (!$rows) {
+                throw new RuntimeException(
+                    'The CSV file contains no question rows.'
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Database transaction
+            |--------------------------------------------------------------------------
+            */
+
+            $conn->beginTransaction();
+
+            $existingQuestionStatement =
+                $conn->prepare(
+                    "
+                    SELECT
+                        id
+                    FROM questions
+                    WHERE
+                        created_by_teacher_id = ?
+                        AND subject_id = ?
+                        AND question_text = ?
+                    LIMIT 1
+                    "
+                );
+
+            $insertStatement =
+                $conn->prepare(
+                    "
+                    INSERT INTO questions
+                    (
+                        subject_id,
+                        topic_id,
+                        created_by_teacher_id,
+
+                        question_type,
+                        question_text,
+                        question_image,
+
+                        option_a,
+                        option_b,
+                        option_c,
+                        option_d,
+
+                        correct_answer,
+                        explanation,
+
+                        marks,
+                        negative_marks,
+                        estimated_time_seconds,
+
+                        difficulty,
+                        status
+                    )
+                    VALUES
+                    (
+                        ?,
+                        ?,
+                        ?,
+
+                        ?,
+                        ?,
+                        NULL,
+
+                        ?,
+                        ?,
+                        ?,
+                        ?,
+
+                        ?,
+                        ?,
+
+                        ?,
+                        ?,
+                        ?,
+
+                        ?,
+                        ?
+                    )
+                    "
+                );
+
+            foreach (
+                $rows as $row
+            ) {
+                $existingQuestionStatement->execute([
+                    $teacherId,
+                    (int)$subjectId,
+                    $row['question_text']
+                ]);
+
+                $existing =
+                    $existingQuestionStatement->fetch(
+                        PDO::FETCH_ASSOC
+                    );
+
+                if ($existing) {
+                    $skipped++;
+                    continue;
+                }
+
+                $insertStatement->execute([
+                    (int)$subjectId,
+                    $row['topic_id'],
+                    $teacherId,
+
+                    $row['question_type'],
+                    $row['question_text'],
+
+                    $row['option_a'],
+                    $row['option_b'],
+                    $row['option_c'],
+                    $row['option_d'],
+
+                    $row['correct_answer'],
+                    $row['explanation'],
+
+                    $row['marks'],
+                    $row['negative_marks'],
+                    $row['estimated_time_seconds'],
+
+                    $row['difficulty'],
+                    $row['status']
+                ]);
+
+                $imported++;
+            }
+
+            if ($imported === 0) {
+                $conn->rollBack();
+
+                throw new RuntimeException(
+                    'No new questions were imported. All uploaded questions already exist in your question bank.'
+                );
+            }
+
+            $conn->commit();
+
+            $success =
+                $imported .
+                ' question(s) imported successfully.';
+
+            if ($skipped > 0) {
+                $success .=
+                    ' ' .
+                    $skipped .
+                    ' duplicate question(s) skipped.';
+            }
+
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
             }
         }
+
+    } catch (Throwable $exception) {
+
+        if (
+            isset($conn) &&
+            $conn instanceof PDO &&
+            $conn->inTransaction()
+        ) {
+            $conn->rollBack();
+        }
+
+        error_log(
+            'Teacher CSV question import failed: ' .
+            $exception->getMessage()
+        );
+
+        $error =
+            $exception->getMessage();
     }
 }
 
 ?>
-
-<!DOCTYPE html>
-
+<!doctype html>
 <html lang="en">
 
 <head>
 
-    <meta charset="UTF-8">
+<meta charset="utf-8">
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+>
 
-    <title>
-        Import Questions | ExamSphere
-    </title>
+<title>
+    Import Questions | ExamSphere
+</title>
 
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
+<link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+>
 
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-    >
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+>
 
-    <link
-        rel="stylesheet"
-        href="../assets/css/portal.css"
-    >
+<link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+>
 
-    <style>
+<link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+>
 
-        .import-page {
-            max-width: 1150px;
-            margin: 0 auto;
-        }
+<link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+>
 
-        .import-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            gap: 20px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-        }
+<link
+    rel="stylesheet"
+    href="../assets/css/portal.css"
+>
 
-        .import-header h1 {
-            margin: 0;
-            font-weight: 900;
-            letter-spacing: -.03em;
-        }
+<style>
 
-        .import-header p {
-            margin: 7px 0 0;
-            color: #746d68;
-        }
+:root{
+    --earth:#5d4037;
+    --earth-dark:#3e2723;
+    --olive:#556b2f;
+    --cream:#f5f5dc;
+    --page:#f6f4ed;
+    --text:#3f342e;
+    --muted:#857a72;
+    --line:#e6ded4;
+    --white:#fff;
+}
 
-        .import-card {
-            border: 1px solid rgba(93,64,55,.08);
-            border-radius: 22px;
-            background: rgba(255,255,255,.82);
-            box-shadow:
-                0 18px 45px rgba(62,45,37,.08);
-            overflow: hidden;
-        }
+body.portal-body{
+    background:
+        radial-gradient(
+            circle at 10% 10%,
+            rgba(168,200,188,.10),
+            transparent 25%
+        ),
+        linear-gradient(
+            135deg,
+            #f8f6f0,
+            #eeeae2
+        );
+    font-family:'Poppins',sans-serif;
+}
 
-        .import-card-head {
-            padding: 22px 24px;
-            border-bottom: 1px solid #eee7df;
-        }
+.import-page{
+    width:min(1180px,100%);
+    margin:0 auto;
+    padding:18px 0 55px;
+}
 
-        .import-card-head h2 {
-            margin: 0;
-            color: #5d4037;
-            font-weight: 900;
-            font-size: 1.12rem;
-        }
+.import-header{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:20px;
+    margin-bottom:20px;
+}
 
-        .import-card-head p {
-            margin: 5px 0 0;
-            color: #746d68;
-            font-size: .86rem;
-        }
+.import-kicker{
+    font-size:.78rem !important;
+    font-weight:800 !important;
 
-        .import-card-body {
-            padding: 24px;
-        }
+    color:var(--olive);
+    font-size:.60rem;
+    font-weight:800;
+    letter-spacing:.14em;
+}
 
-        .import-label {
-            display: block;
-            margin-bottom: 7px;
-            color: #5d4037;
-            font-size: .82rem;
-            font-weight: 850;
-        }
+.import-header h1{
+    font-size:2.45rem !important;
+    font-weight:800 !important;
 
-        .import-control {
-            min-height: 47px;
-            border-radius: 12px;
-            border-color: #ddd3ca;
-        }
+    margin:7px 0 4px;
+    color:var(--earth);
+    font-size:2rem;
+    font-weight:900;
+    letter-spacing:-.03em;
+}
 
-        .import-control:focus {
-            border-color: #556b2f;
-            box-shadow:
-                0 0 0 .2rem rgba(85,107,47,.10);
-        }
+.import-header p{
+    font-size:.84rem !important;
+    font-weight:500 !important;
 
-        .import-submit {
-            min-height: 48px;
-            border: 0;
-            border-radius: 12px;
-            background: #5d4037;
-            color: #fff;
-            font-weight: 850;
-        }
+    margin:0;
+    color:var(--muted);
+    font-size:.74rem;
+}
 
-        .import-submit:hover {
-            background: #4e352e;
-            color: #fff;
-        }
+.import-card{
+    overflow:hidden;
+    border:1px solid rgba(93,64,55,.08);
+    border-radius:20px;
+    background:rgba(255,255,255,.86);
+    box-shadow:
+        0 18px 45px rgba(62,45,37,.08);
+}
 
-        .format-box {
-            padding: 17px;
-            border-radius: 14px;
-            background: #faf7f0;
-            border: 1px solid #ebe1d8;
-        }
+.import-card-head{
+    padding:20px 22px;
+    border-bottom:1px solid var(--line);
+}
 
-        .format-box code {
-            display: block;
-            overflow-x: auto;
-            white-space: nowrap;
-            color: #5d4037;
-            font-size: .77rem;
-        }
+.import-card-head h2{
+    font-size:1.35rem !important;
+    font-weight:800 !important;
 
-        .format-note {
-            margin-top: 14px;
-            color: #746d68;
-            font-size: .84rem;
-            line-height: 1.65;
-        }
+    margin:0;
+    color:var(--earth);
+    font-size:1rem;
+    font-weight:850;
+}
 
-        .rules {
-            margin: 0;
-            padding-left: 20px;
-            color: #746d68;
-            line-height: 1.75;
-            font-size: .88rem;
-        }
+.import-card-head p{
+    font-size:.82rem !important;
+    font-weight:500 !important;
 
-        .rules strong {
-            color: #5d4037;
-        }
+    margin:5px 0 0;
+    color:var(--muted);
+    font-size:.66rem;
+}
 
-        .alert {
-            border-radius: 13px;
-        }
+.import-card-body{
+    padding:22px;
+}
 
-    </style>
+.import-label{
+    font-size:1rem !important;
+    font-weight:800 !important;
+    color:var(--earth);
+
+    display:block;
+    margin-bottom:7px;
+    color:var(--earth);
+    font-size:.67rem;
+    font-weight:800;
+}
+
+.import-control{
+    font-size:1rem !important;
+    font-weight:600 !important;
+    min-height:52px !important;
+
+    min-height:44px;
+    border-radius:11px;
+    border-color:#ddd3ca;
+    font-size:.72rem;
+}
+
+.import-control:focus{
+    border-color:var(--olive);
+    box-shadow:
+        0 0 0 .2rem rgba(85,107,47,.10);
+}
+
+.import-submit{
+    font-size:.92rem !important;
+    font-weight:800 !important;
+    min-height:52px !important;
+
+    min-height:45px;
+    border:0;
+    border-radius:11px;
+    background:var(--earth);
+    color:#fff;
+    font-size:.72rem;
+    font-weight:800;
+}
+
+.import-submit:hover{
+    background:var(--earth-dark);
+    color:#fff;
+}
+
+.import-back{
+    font-size:.82rem !important;
+    font-weight:800 !important;
+
+    border-radius:10px;
+    font-size:.68rem;
+    font-weight:700;
+}
+
+.format-box{
+    padding:15px;
+    border-radius:13px;
+    border:1px solid var(--line);
+    background:#faf7f0;
+}
+
+.format-box code{
+    font-size:.76rem !important;
+    font-weight:700 !important;
+
+    display:block;
+    overflow-x:auto;
+    white-space:nowrap;
+    color:var(--earth);
+    font-size:.58rem;
+    line-height:1.7;
+}
+
+.sample-box{
+    margin-top:14px;
+    padding:14px;
+    border-radius:13px;
+    background:#211c19;
+    color:#f2eee8;
+    overflow:auto;
+}
+
+.sample-box pre{
+    font-size:.75rem !important;
+    font-weight:600 !important;
+
+    margin:0;
+    color:#f2eee8;
+    font-size:.57rem;
+    line-height:1.7;
+}
+
+.rule-grid{
+    display:grid;
+    grid-template-columns:
+        repeat(3,minmax(0,1fr));
+    gap:12px;
+}
+
+.rule-item{
+    padding:15px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#fcfaf6;
+}
+
+.rule-item i{
+    color:var(--olive);
+    margin-bottom:8px;
+}
+
+.rule-item strong{
+    font-size:.88rem !important;
+    font-weight:800 !important;
+
+    display:block;
+    color:var(--earth);
+    font-size:.68rem;
+}
+
+.rule-item span{
+    font-size:.74rem !important;
+    font-weight:500 !important;
+    line-height:1.7 !important;
+
+    display:block;
+    margin-top:4px;
+    color:var(--muted);
+    font-size:.58rem;
+    line-height:1.6;
+}
+
+.alert{
+    font-size:.82rem !important;
+    font-weight:700 !important;
+
+    border-radius:12px;
+    font-size:.70rem;
+}
+
+.upload-note{
+    font-size:.78rem !important;
+    font-weight:500 !important;
+
+    color:var(--muted);
+    font-size:.58rem;
+    line-height:1.55;
+}
+
+@media(max-width:900px){
+
+    .import-header{
+        align-items:flex-start;
+        flex-direction:column;
+    }
+
+    .rule-grid{
+        grid-template-columns:1fr 1fr;
+    }
+
+}
+
+@media(max-width:600px){
+
+    .import-page{
+        padding-left:7px;
+        padding-right:7px;
+    }
+
+    .import-header h1{
+        font-size:1.55rem;
+    }
+
+    .rule-grid{
+        grid-template-columns:1fr;
+    }
+
+}
+
+
+
+/* BIG + BOLD READABILITY UPGRADE — layout preserved */
+.import-page,.import-page *{letter-spacing:.01em;}
+.import-page h1,.import-page h2,.import-page h3,.import-page strong{font-weight:800;}
+.import-page p,.import-page span,.import-page label,.import-page small{line-height:1.65;}
+.import-page input,.import-page select,.import-page button{font-family:'Poppins',sans-serif;}
+@media(max-width:600px){.import-header h1{font-size:2rem !important}.import-card-head h2{font-size:1.15rem !important}.import-label{font-size:.92rem !important}.import-control{font-size:.92rem !important;min-height:50px !important}.import-submit{font-size:.88rem !important}.rule-item span{font-size:.72rem !important}.upload-note{font-size:.74rem !important}}
+</style>
 
 </head>
 
@@ -1430,310 +1228,397 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <div class="portal-layout">
 
-    <?php include 'includes/sidebar.php'; ?>
+<?php include 'includes/sidebar.php'; ?>
 
-    <main class="portal-main">
+<main class="portal-main">
 
-        <div class="import-page">
+<div class="import-page">
 
-            <header class="import-header">
+<header class="import-header">
 
-                <div>
+<div>
 
-                    <h1>
-                        Import Questions
-                    </h1>
+<span class="import-kicker">
 
-                    <p>
-                        Bulk-import MCQ and True/False questions into your teacher question bank.
-                    </p>
+<i class="fa-solid fa-file-csv me-1"></i>
 
-                </div>
+TEACHER QUESTION BANK
 
-                <a
-                    href="questions.php"
-                    class="btn btn-outline-secondary"
-                >
-                    <i class="fa-solid fa-circle-question me-1"></i>
-                    Question Bank
-                </a>
+</span>
 
-            </header>
+<h1>
+    Import Questions
+</h1>
 
-            <?php if ($message !== ''): ?>
+<p>
+    Bulk upload questions directly into your Question Bank.
+    Exams are connected later through the Exam Questions builder.
+</p>
 
-                <div class="alert alert-success">
+</div>
 
-                    <i class="fa-solid fa-circle-check me-1"></i>
+<a
+    href="questions.php"
+    class="btn btn-outline-secondary import-back"
+>
 
-                    <?= teacher_import_escape(
-                        $message
-                    ) ?>
+<i class="fa-solid fa-arrow-left me-1"></i>
 
-                </div>
+Question Bank
 
-            <?php endif; ?>
+</a>
 
-            <?php if ($error !== ''): ?>
+</header>
 
-                <div class="alert alert-danger">
 
-                    <i class="fa-solid fa-circle-exclamation me-1"></i>
+<?php if ($success !== ''): ?>
 
-                    <?= teacher_import_escape(
-                        $error
-                    ) ?>
+<div
+    class="alert alert-success mb-3"
+>
 
-                </div>
+<i
+    class="fa-solid fa-circle-check me-2"
+></i>
 
-            <?php endif; ?>
+<?= teacher_import_e(
+    $success
+) ?>
 
-            <div class="row g-4">
+</div>
 
-                <div class="col-lg-6">
+<?php endif; ?>
 
-                    <section class="import-card">
 
-                        <div class="import-card-head">
+<?php if ($error !== ''): ?>
 
-                            <h2>
-                                Upload CSV
-                            </h2>
+<div
+    class="alert alert-danger mb-3"
+>
 
-                            <p>
-                                The selected subject applies to every imported question.
-                            </p>
+<i
+    class="fa-solid fa-circle-exclamation me-2"
+></i>
 
-                        </div>
+<?= teacher_import_e(
+    $error
+) ?>
 
-                        <div class="import-card-body">
+</div>
 
-                            <?php if (!$subjects): ?>
+<?php endif; ?>
 
-                                <div class="alert alert-warning">
 
-                                    No active subject is available.
+<div class="row g-4">
 
-                                    Create or activate a subject before importing questions.
 
-                                </div>
+<div class="col-lg-7">
 
-                            <?php else: ?>
+<section class="import-card">
 
-                                <form
-                                    method="post"
-                                    enctype="multipart/form-data"
-                                >
+<div class="import-card-head">
 
-                                    <?= csrf_field() ?>
+<h2>
 
-                                    <div class="mb-3">
+Upload CSV
 
-                                        <label
-                                            class="import-label"
-                                            for="subject_id"
-                                        >
-                                            Subject *
-                                        </label>
+</h2>
 
-                                        <select
-                                            class="form-select import-control"
-                                            id="subject_id"
-                                            name="subject_id"
-                                            required
-                                        >
+<p>
 
-                                            <option value="">
-                                                Select subject
-                                            </option>
+Select a subject and import any valid number of questions.
 
-                                            <?php foreach ($subjects as $subject): ?>
+</p>
 
-                                                <option
-                                                    value="<?= (int)$subject['id'] ?>"
-                                                >
+</div>
 
-                                                    <?= teacher_import_escape(
-                                                        $subject['name']
-                                                    ) ?>
 
-                                                </option>
+<div class="import-card-body">
 
-                                            <?php endforeach; ?>
 
-                                        </select>
+<?php if (!$subjects): ?>
 
-                                    </div>
+<div class="alert alert-warning">
 
-                                    <div class="mb-3">
+No active subject is available.
+Please create or activate a subject first.
 
-                                        <label
-                                            class="import-label"
-                                            for="questions_csv"
-                                        >
-                                            CSV File *
-                                        </label>
+</div>
 
-                                        <input
-                                            class="form-control import-control"
-                                            id="questions_csv"
-                                            name="questions_csv"
-                                            type="file"
-                                            accept=".csv,text/csv"
-                                            required
-                                        >
+<?php else: ?>
 
-                                        <div class="form-text">
-                                            Maximum file size: 5 MB
-                                        </div>
 
-                                    </div>
+<form
+    method="post"
+    enctype="multipart/form-data"
+>
 
-                                    <button
-                                        type="submit"
-                                        class="btn import-submit w-100"
-                                    >
+<?= csrf_field() ?>
 
-                                        <i
-                                            class="fa-solid fa-file-import me-1"
-                                        ></i>
 
-                                        Import Questions
+<div class="mb-3">
 
-                                    </button>
+<label
+    class="import-label"
+    for="subject_id"
+>
 
-                                </form>
+Subject *
 
-                            <?php endif; ?>
+</label>
 
-                        </div>
+<select
+    id="subject_id"
+    name="subject_id"
+    class="form-select import-control"
+    required
+>
 
-                    </section>
+<option value="">
 
-                </div>
+Select subject
 
-                <div class="col-lg-6">
+</option>
 
-                    <section class="import-card">
+<?php foreach (
+    $subjects as $subject
+): ?>
 
-                        <div class="import-card-head">
+<option
+    value="<?= (int)$subject['id'] ?>"
+>
 
-                            <h2>
-                                Official CSV Format
-                            </h2>
+<?= teacher_import_e(
+    $subject['name']
+) ?>
 
-                            <p>
-                                Use this exact column order.
-                            </p>
+<?php if (
+    !empty(
+        $subject['code']
+    )
+): ?>
 
-                        </div>
+(
+<?= teacher_import_e(
+    $subject['code']
+) ?>
+)
 
-                        <div class="import-card-body">
+<?php endif; ?>
 
-                            <div class="format-box">
+</option>
 
-                                <code>
-topic_id,question_text,question_type,option_a,option_b,option_c,option_d,correct_answer,explanation,difficulty,marks,negative_marks,estimated_time_seconds,status
-                                </code>
+<?php endforeach; ?>
 
-                            </div>
+</select>
 
-                            <div class="format-note">
+</div>
 
-                                <strong>
-                                    Topic:
-                                </strong>
-                                use a topic ID belonging to the selected subject,
-                                or leave it blank.
 
-                                <br>
+<div class="mb-3">
 
-                                <strong>
-                                    Question Type:
-                                </strong>
-                                <code>MCQ</code>
-                                or
-                                <code>TrueFalse</code>.
+<label
+    class="import-label"
+    for="questions_csv"
+>
 
-                                <br>
+CSV File *
 
-                                <strong>
-                                    Correct Answer:
-                                </strong>
-                                A/B/C/D for MCQ and A/B for True/False.
+</label>
 
-                            </div>
+<input
+    id="questions_csv"
+    name="questions_csv"
+    class="form-control import-control"
+    type="file"
+    accept=".csv,text/csv"
+    required
+>
 
-                        </div>
+<div class="upload-note mt-2">
 
-                    </section>
+Maximum file size: 5 MB.
 
-                </div>
+The CSV can contain any number of valid question rows.
+There is no fixed 50/51 question restriction here.
 
-                <div class="col-12">
+</div>
 
-                    <section class="import-card">
+</div>
 
-                        <div class="import-card-head">
 
-                            <h2>
-                                Import Rules
-                            </h2>
+<button
+    class="btn import-submit w-100"
+    type="submit"
+>
 
-                        </div>
+<i
+    class="fa-solid fa-file-arrow-up me-1"
+></i>
 
-                        <div class="import-card-body">
+Import Questions
 
-                            <ul class="rules">
+</button>
 
-                                <li>
-                                    <strong>Subject:</strong>
-                                    All imported questions belong to the selected active subject.
-                                </li>
 
-                                <li>
-                                    <strong>Topic:</strong>
-                                    Topic IDs must belong to that selected subject and must be active.
-                                </li>
+</form>
 
-                                <li>
-                                    <strong>Duplicates:</strong>
-                                    Existing questions created by this teacher are skipped.
-                                </li>
+<?php endif; ?>
 
-                                <li>
-                                    <strong>Marks:</strong>
-                                    Marks must be greater than zero and negative marks cannot exceed marks.
-                                </li>
 
-                                <li>
-                                    <strong>Status:</strong>
-                                    Only Active or Inactive is accepted.
-                                </li>
+</div>
 
-                                <li>
-                                    <strong>Difficulty:</strong>
-                                    Easy, Medium or Hard.
-                                </li>
+</section>
 
-                                <li>
-                                    <strong>Safety:</strong>
-                                    If the import fails during database processing, the transaction is rolled back.
-                                </li>
+</div>
 
-                            </ul>
 
-                        </div>
+<div class="col-lg-5">
 
-                    </section>
+<section class="import-card">
 
-                </div>
+<div class="import-card-head">
 
-            </div>
+<h2>
 
-        </div>
+Official CSV Format
 
-    </main>
+</h2>
+
+<p>
+
+Use this exact header order.
+
+</p>
+
+</div>
+
+
+<div class="import-card-body">
+
+
+<div class="format-box">
+
+<code>topic_id,question_text,question_type,option_a,option_b,option_c,option_d,correct_answer,explanation,difficulty,marks,negative_marks,estimated_time_seconds,status</code>
+
+</div>
+
+
+<div class="sample-box">
+
+<pre>topic_id,question_text,question_type,option_a,option_b,option_c,option_d,correct_answer,explanation,difficulty,marks,negative_marks,estimated_time_seconds,status
+12,"What is 2 + 2?","MCQ","3","4","5","6","B","Basic arithmetic.","Easy",1,0,30,"Active"</pre>
+
+</div>
+
+
+<p
+    class="upload-note mt-3 mb-0"
+>
+
+For True/False questions,
+use question_type = TrueFalse and
+correct_answer = A or B.
+
+</p>
+
+
+</div>
+
+</section>
+
+</div>
+
+
+<div class="col-12">
+
+<section class="import-card">
+
+<div class="import-card-head">
+
+<h2>
+
+Import Rules
+
+</h2>
+
+<p>
+
+Questions are stored in the teacher-owned Question Bank.
+Exam assignment remains a separate step.
+
+</p>
+
+</div>
+
+
+<div class="import-card-body">
+
+<div class="rule-grid">
+
+
+<div class="rule-item">
+
+<i class="fa-solid fa-layer-group"></i>
+
+<strong>
+Subject & Topic
+</strong>
+
+<span>
+Every question belongs to the selected active subject.
+A topic, when provided, must belong to that subject and be active.
+</span>
+
+</div>
+
+
+<div class="rule-item">
+
+<i class="fa-solid fa-calculator"></i>
+
+<strong>
+Dynamic Marks
+</strong>
+
+<span>
+Each question can have its own marks and negative marks.
+Exam-level total marks are validated later when questions are assigned.
+</span>
+
+</div>
+
+
+<div class="rule-item">
+
+<i class="fa-solid fa-shield-halved"></i>
+
+<strong>
+Secure Import
+</strong>
+
+<span>
+CSRF verification, file validation, row validation, duplicate checks
+and transactional database insertion are applied.
+</span>
+
+</div>
+
+
+</div>
+
+</div>
+
+</section>
+
+</div>
+
+
+</div>
+
+</div>
+
+</main>
 
 </div>
 

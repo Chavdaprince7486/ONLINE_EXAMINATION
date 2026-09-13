@@ -785,8 +785,8 @@ try {
 
 
     if (
-        $requiredQuestionCount !== 50 ||
-        $activeQuestionCount !== 50
+        $requiredQuestionCount <= 0 ||
+        $activeQuestionCount !== $requiredQuestionCount
     ) {
 
         throw new RuntimeException(
@@ -1170,6 +1170,10 @@ try {
                     0,
                     0
                 )
+
+                ON DUPLICATE KEY UPDATE
+
+                    question_status = VALUES(question_status)
                 "
             );
 

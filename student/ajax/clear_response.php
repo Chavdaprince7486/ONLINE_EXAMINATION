@@ -758,6 +758,18 @@ try {
                     0,
                     0
                 )
+
+                ON DUPLICATE KEY UPDATE
+
+                    selected_answer = NULL,
+
+                    question_status = 'Not Answered',
+
+                    answered_at = NULL,
+
+                    is_correct = 0,
+
+                    marks_awarded = 0
             ");
 
 
