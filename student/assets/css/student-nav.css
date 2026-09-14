@@ -1,8 +1,1379 @@
-/* Shared premium Student navigation — used on every student page. */
-.navbar{position:sticky!important;top:14px!important;width:96%!important;min-height:88px!important;height:88px!important;margin:0 auto 24px!important;padding:10px 24px!important;display:flex!important;align-items:center!important;justify-content:space-between!important;flex-wrap:nowrap!important;overflow:hidden!important;gap:18px!important;background:rgba(255,255,255,.94)!important;border:1px solid #eee6da!important;border-radius:24px!important;box-shadow:0 14px 36px rgba(62,39,35,.09)!important;z-index:1000!important}
-.nav-left{flex:0 0 auto!important;min-width:0}.logo{display:flex!important;align-items:center!important;gap:10px!important}.logo img{width:46px!important;height:46px!important;object-fit:contain!important;flex:0 0 auto}.logo h2{font-size:1.45rem!important;line-height:1!important;margin:0!important;color:#3E2723!important;white-space:nowrap}.logo span{font-size:.72rem!important;color:#81766f!important;margin-top:5px!important;white-space:nowrap}.nav-menu{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:3px!important;flex:1 1 0!important;min-width:0!important;overflow-x:auto!important;overflow-y:hidden!important;margin:0!important;padding:0!important;white-space:nowrap!important;scrollbar-width:none!important}.nav-menu::-webkit-scrollbar{display:none}.nav-menu li{margin:0!important;flex:0 0 auto!important}.nav-menu li a{padding:11px 13px!important;font-size:.84rem!important;gap:7px!important;color:#5D4037!important;transform:none!important}.nav-menu li a:hover{background:#f5eee5!important;transform:none!important}.nav-menu .active a{background:linear-gradient(135deg,#7A4D22,#9B6736)!important;color:#fff!important;box-shadow:0 10px 24px rgba(122,77,34,.23)!important}.nav-right{display:flex!important;align-items:center!important;flex:0 0 auto!important;flex-wrap:nowrap!important;min-width:0!important;gap:12px!important}.notification{width:40px!important;height:40px!important;flex:0 0 auto!important;background:#fff!important;border:1px solid #eee6da!important;box-shadow:0 5px 14px rgba(62,39,35,.08)!important}.profile{display:flex!important;flex-wrap:nowrap!important;gap:8px!important;white-space:nowrap!important}.profile img{width:40px!important;height:40px!important;flex:0 0 auto!important}.profile h4{font-size:.85rem!important}.profile span{font-size:.7rem!important}
-@media(max-width:1450px){.navbar{padding:10px 16px!important}.nav-menu li a{padding:10px 9px!important;font-size:.78rem!important}.logo h2{font-size:1.2rem!important}.nav-right .profile div,.nav-right>.profile>i{display:none}}
-@media(max-width:1120px){.nav-menu{overflow-x:auto!important;justify-content:flex-start!important}.nav-menu::-webkit-scrollbar{height:0}.nav-right{display:none!important}.navbar{width:98%!important;border-radius:18px!important}}
-@media(max-width:700px){.navbar{position:relative!important;top:0!important;width:100%!important;border-radius:0!important;margin:0!important}.logo span{display:none}.logo h2{font-size:1.1rem!important}.nav-menu li a{font-size:0!important;padding:10px!important}.nav-menu li a i{font-size:1rem!important}}
-.profile{cursor:pointer;list-style:none}.profile::-webkit-details-marker{display:none}.student-account-menu{position:relative}.account-dropdown{position:absolute;right:0;top:52px;display:none;min-width:175px;padding:8px;border:1px solid #eee6da;border-radius:13px;background:#fff;box-shadow:0 14px 32px rgba(62,39,35,.15)}.student-account-menu[open] .account-dropdown{display:block}.account-dropdown a{display:flex;gap:8px;align-items:center;padding:9px 10px;color:#5d4037;text-decoration:none;font-size:.75rem;border-radius:8px}.account-dropdown a:hover{background:#f7f1e9}.account-dropdown .account-logout{color:#bf443c}
-.notification{position:relative;display:grid!important;place-items:center;cursor:pointer;border-radius:50%}.notification-count{position:absolute;top:-6px;right:-6px;min-width:21px;height:21px;padding:0 5px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;border-radius:999px;background:#ef5350;color:#fff;font-size:.67rem;font-weight:800}.notification-dropdown{position:absolute;right:-16px;top:52px;display:none;width:min(360px,calc(100vw - 32px));overflow:hidden;border:1px solid #eee6da;border-radius:16px;background:#fff;box-shadow:0 20px 44px rgba(62,39,35,.18);cursor:default}.notification-dropdown.show{display:block}.notification-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f0e9df}.notification-header h4{margin:0;color:#3e2723;font-size:.92rem}.notification-header a{color:#6d8120;font-size:.76rem;font-weight:700;text-decoration:none}.notification-body{max-height:340px;overflow-y:auto}.notification-loading{padding:24px 16px;color:#81766f;font-size:.8rem;text-align:center}.notification-item{display:flex;gap:11px;padding:13px 16px;border-bottom:1px solid #f6f1eb;color:#5d4037;text-decoration:none}.notification-item:hover,.notification-item.unread{background:#f8f5ee}.notification-item:last-child{border-bottom:0}.notification-icon{width:32px;height:32px;display:grid;place-items:center;flex:0 0 auto;border-radius:10px;background:#eef3e3;color:#6d8120}.notification-content{min-width:0}.notification-content h5{margin:0 0 3px;color:#3e2723;font-size:.79rem}.notification-content p{margin:0;color:#71655d;font-size:.73rem;line-height:1.4}.notification-content small{display:block;margin-top:5px;color:#a0958e;font-size:.65rem}
+:root{
+    --es-cream:#f5f1e8;
+    --es-surface:rgba(255,255,255,.92);
+    --es-surface-strong:#fff;
+    --es-brown:#5d4037;
+    --es-brown-dark:#3e2723;
+    --es-olive:#556b2f;
+    --es-olive-dark:#435622;
+    --es-muted:#7c726a;
+    --es-line:#e7dfd3;
+    --es-shadow:0 18px 46px rgba(62,39,35,.10);
+}
+
+
+/* =========================================================
+   BASE
+========================================================= */
+
+html{
+    scroll-behavior:smooth;
+}
+
+
+body{
+    min-height:100vh;
+    background:
+        linear-gradient(
+            180deg,
+            #faf8f3 0%,
+            #f3eee5 100%
+        );
+    color:#333;
+}
+
+
+/* =========================================================
+   NAVBAR
+========================================================= */
+
+.student-navbar{
+    position:sticky;
+    top:12px;
+    z-index:1100;
+
+    width:min(
+        1500px,
+        calc(100% - 28px)
+    );
+
+    margin:12px auto 22px;
+
+    border:1px solid rgba(
+        231,
+        223,
+        211,
+        .95
+    );
+
+    border-radius:22px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .88
+        );
+
+    backdrop-filter:blur(18px);
+
+    box-shadow:
+        var(--es-shadow);
+}
+
+
+/* =========================================================
+   INNER
+========================================================= */
+
+.student-nav-inner{
+    position:relative;
+
+    min-height:78px;
+
+    padding:
+        10px
+        14px
+        10px
+        18px;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:14px;
+}
+
+
+/* =========================================================
+   BRAND
+========================================================= */
+
+.student-brand{
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    text-decoration:none;
+
+    flex:0 0 auto;
+}
+
+
+.student-brand img{
+    width:44px;
+    height:44px;
+
+    object-fit:contain;
+}
+
+
+.student-brand-copy{
+    display:flex;
+
+    flex-direction:column;
+}
+
+
+.student-brand-copy strong{
+    color:
+        var(--es-brown-dark);
+
+    font-size:
+        1.15rem;
+
+    line-height:
+        1.1;
+
+    font-weight:
+        800;
+}
+
+
+.student-brand-copy small{
+    margin-top:3px;
+
+    color:
+        var(--es-muted);
+
+    font-size:
+        .66rem;
+}
+
+
+/* =========================================================
+   NAV MENU
+========================================================= */
+
+.student-nav-menu{
+    display:flex;
+
+    align-items:center;
+
+    gap:4px;
+
+    flex:1;
+
+    overflow-x:auto;
+
+    scrollbar-width:none;
+}
+
+
+.student-nav-menu::-webkit-scrollbar{
+    display:none;
+}
+
+
+.student-nav-menu a{
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:7px;
+
+    white-space:nowrap;
+
+    padding:
+        10px
+        12px;
+
+    border-radius:12px;
+
+    color:
+        var(--es-brown);
+
+    font-size:
+        .78rem;
+
+    font-weight:600;
+
+    text-decoration:none;
+
+    transition:
+        background .2s ease,
+        color .2s ease,
+        transform .2s ease,
+        box-shadow .2s ease;
+}
+
+
+.student-nav-menu a:hover{
+    background:#f3eee6;
+
+    transform:
+        translateY(-1px);
+}
+
+
+.student-nav-menu a.is-active{
+    color:#fff;
+
+    background:
+        linear-gradient(
+            135deg,
+            #6e4728,
+            #a06b3b
+        );
+
+    box-shadow:
+        0
+        10px
+        22px
+        rgba(
+            122,
+            77,
+            34,
+            .20
+        );
+}
+
+
+/* =========================================================
+   RIGHT SIDE
+========================================================= */
+
+.student-nav-actions{
+    position:relative;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:9px;
+
+    flex:0 0 auto;
+}
+
+
+/* =========================================================
+   NOTIFICATION BUTTON
+========================================================= */
+
+.student-notification-btn{
+    position:relative;
+
+    width:40px;
+    height:40px;
+
+    display:inline-flex;
+
+    align-items:center;
+    justify-content:center;
+
+    padding:0;
+
+    border:1px solid
+        var(--es-line);
+
+    border-radius:12px;
+
+    background:#fff;
+
+    color:var(--es-brown);
+
+    cursor:pointer;
+
+    transition:
+        background .2s ease,
+        color .2s ease,
+        transform .2s ease,
+        box-shadow .2s ease;
+}
+
+
+.student-notification-btn:hover{
+    background:#f7f2ea;
+
+    transform:
+        translateY(-1px);
+
+    box-shadow:
+        0
+        8px
+        18px
+        rgba(
+            62,
+            39,
+            35,
+            .08
+        );
+}
+
+
+.student-notification-btn[aria-expanded="true"]{
+    color:#fff;
+
+    background:
+        var(--es-brown);
+
+    border-color:
+        var(--es-brown);
+
+    box-shadow:
+        0
+        10px
+        22px
+        rgba(
+            93,
+            64,
+            55,
+            .17
+        );
+}
+
+
+/* =========================================================
+   NOTIFICATION BADGE
+========================================================= */
+
+.notification-count{
+    position:absolute;
+
+    top:-6px;
+    right:-6px;
+
+    min-width:20px;
+    height:20px;
+
+    padding:
+        0
+        5px;
+
+    display:grid;
+
+    place-items:center;
+
+    border:
+        2px solid
+        #fff;
+
+    border-radius:
+        999px;
+
+    background:
+        #e4564b;
+
+    color:#fff;
+
+    font-size:
+        .62rem;
+
+    font-weight:
+        800;
+
+    line-height:1;
+}
+
+
+.notification-count[hidden]{
+    display:none !important;
+}
+
+
+/* =========================================================
+   NOTIFICATION PANEL
+========================================================= */
+
+.student-notification-panel{
+    position:absolute;
+
+    right:60px;
+
+    top:54px;
+
+    z-index:1300;
+
+    width:
+        min(
+            370px,
+            calc(
+                100vw - 30px
+            )
+        );
+
+    overflow:hidden;
+
+    border:
+        1px solid
+        var(--es-line);
+
+    border-radius:
+        17px;
+
+    background:
+        #fff;
+
+    box-shadow:
+        0
+        24px
+        56px
+        rgba(
+            62,
+            39,
+            35,
+            .18
+        );
+
+    transform-origin:
+        top right;
+
+    animation:
+        notificationOpen .18s ease;
+}
+
+
+.student-notification-panel[hidden]{
+    display:none !important;
+}
+
+
+@keyframes notificationOpen{
+
+    from{
+        opacity:0;
+
+        transform:
+            translateY(-7px)
+            scale(.98);
+    }
+
+    to{
+        opacity:1;
+
+        transform:
+            translateY(0)
+            scale(1);
+    }
+
+}
+
+
+/* =========================================================
+   NOTIFICATION HEADER
+========================================================= */
+
+.student-notification-head{
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:15px;
+
+    padding:
+        14px
+        16px;
+
+    border-bottom:
+        1px solid
+        #f0ebe3;
+
+    background:
+        #fff;
+}
+
+
+.student-notification-head div{
+    display:flex;
+
+    flex-direction:column;
+
+    min-width:0;
+}
+
+
+.student-notification-head strong{
+    color:
+        var(--es-brown-dark);
+
+    font-size:
+        .88rem;
+
+    font-weight:
+        800;
+}
+
+
+.student-notification-head small{
+    margin-top:2px;
+
+    color:
+        var(--es-muted);
+
+    font-size:
+        .68rem;
+}
+
+
+.student-notification-head a{
+    flex:0 0 auto;
+
+    color:
+        var(--es-olive);
+
+    font-size:
+        .72rem;
+
+    font-weight:
+        700;
+
+    text-decoration:none;
+}
+
+
+.student-notification-head a:hover{
+    color:
+        var(--es-brown);
+}
+
+
+/* =========================================================
+   NOTIFICATION BODY
+========================================================= */
+
+.student-notification-body{
+    max-height:340px;
+
+    overflow-y:auto;
+
+    overscroll-behavior:
+        contain;
+}
+
+
+.student-notification-empty{
+    padding:
+        30px
+        16px;
+
+    text-align:center;
+
+    color:
+        var(--es-muted);
+
+    font-size:
+        .76rem;
+}
+
+
+.student-notification-item{
+    display:flex;
+
+    gap:10px;
+
+    padding:
+        12px
+        15px;
+
+    color:inherit;
+
+    text-decoration:none;
+
+    border-bottom:
+        1px solid
+        #f6f1eb;
+
+    transition:
+        background .18s ease;
+}
+
+
+.student-notification-item:last-child{
+    border-bottom:0;
+}
+
+
+.student-notification-item:hover,
+.student-notification-item.is-unread{
+    background:
+        #faf7f1;
+}
+
+
+.student-notification-icon{
+    width:34px;
+    height:34px;
+
+    flex:
+        0 0 34px;
+
+    display:grid;
+
+    place-items:center;
+
+    border-radius:
+        10px;
+
+    background:
+        #eef3e3;
+
+    color:
+        var(--es-olive);
+
+    font-size:
+        .75rem;
+}
+
+
+.student-notification-content{
+    min-width:0;
+}
+
+
+.student-notification-content strong{
+    display:block;
+
+    margin-bottom:3px;
+
+    color:
+        var(--es-brown-dark);
+
+    font-size:
+        .76rem;
+
+    font-weight:
+        800;
+}
+
+
+.student-notification-content p{
+    margin:0;
+
+    color:
+        #71675f;
+
+    font-size:
+        .7rem;
+
+    line-height:
+        1.45;
+}
+
+
+.student-notification-content small{
+    display:block;
+
+    margin-top:5px;
+
+    color:
+        #a0978f;
+
+    font-size:
+        .62rem;
+}
+
+
+/* =========================================================
+   ACCOUNT
+========================================================= */
+
+.student-account{
+    position:relative;
+
+    z-index:1200;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| IMPORTANT
+| Closed <details> must not show the menu.
+|--------------------------------------------------------------------------
+*/
+
+.student-account:not([open])
+.student-account-menu{
+    display:none !important;
+}
+
+
+.student-account[open]
+.student-account-menu{
+    display:block;
+}
+
+
+.student-account summary{
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
+
+    list-style:none;
+
+    cursor:pointer;
+
+    padding:
+        4px
+        5px;
+
+    border-radius:
+        12px;
+
+    transition:
+        background .2s ease,
+        box-shadow .2s ease;
+}
+
+
+.student-account summary::-webkit-details-marker{
+    display:none;
+}
+
+
+.student-account summary::marker{
+    display:none;
+}
+
+
+.student-account summary:hover{
+    background:
+        #f7f2ea;
+}
+
+
+.student-account[open]
+summary{
+    background:
+        #f7f2ea;
+}
+
+
+.student-account summary img{
+    width:40px;
+    height:40px;
+
+    flex:
+        0 0 40px;
+
+    object-fit:cover;
+
+    border:
+        2px solid
+        #fff;
+
+    border-radius:
+        50%;
+
+    box-shadow:
+        0
+        3px
+        10px
+        rgba(
+            62,
+            39,
+            35,
+            .13
+        );
+}
+
+
+.student-account summary span{
+    display:flex;
+
+    flex-direction:column;
+
+    min-width:88px;
+}
+
+
+.student-account summary strong{
+    max-width:120px;
+
+    overflow:hidden;
+
+    color:
+        var(--es-brown-dark);
+
+    font-size:
+        .76rem;
+
+    font-weight:
+        800;
+
+    white-space:nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.student-account summary small{
+    margin-top:2px;
+
+    color:
+        var(--es-muted);
+
+    font-size:
+        .62rem;
+}
+
+
+.student-account summary>i{
+    color:
+        var(--es-muted);
+
+    font-size:
+        .65rem;
+
+    transition:
+        transform .22s ease;
+}
+
+
+.student-account[open]
+summary>i{
+    transform:
+        rotate(
+            180deg
+        );
+}
+
+
+/* =========================================================
+   ACCOUNT MENU
+========================================================= */
+
+.student-account-menu{
+    position:absolute;
+
+    right:0;
+
+    top:
+        calc(
+            100% +
+            9px
+        );
+
+    z-index:1400;
+
+    width:205px;
+
+    padding:8px;
+
+    border:
+        1px solid
+        var(--es-line);
+
+    border-radius:
+        15px;
+
+    background:
+        #fff;
+
+    box-shadow:
+        0
+        24px
+        50px
+        rgba(
+            62,
+            39,
+            35,
+            .16
+        );
+
+    transform-origin:
+        top right;
+
+    animation:
+        accountOpen .18s ease;
+}
+
+
+@keyframes accountOpen{
+
+    from{
+        opacity:0;
+
+        transform:
+            translateY(-6px)
+            scale(.98);
+    }
+
+    to{
+        opacity:1;
+
+        transform:
+            translateY(0)
+            scale(1);
+    }
+
+}
+
+
+.student-account-menu a{
+    display:flex;
+
+    align-items:center;
+
+    gap:9px;
+
+    padding:
+        10px
+        11px;
+
+    border-radius:
+        10px;
+
+    color:
+        var(--es-brown);
+
+    font-size:
+        .74rem;
+
+    font-weight:
+        600;
+
+    text-decoration:none;
+
+    transition:
+        background .18s ease,
+        transform .18s ease,
+        color .18s ease;
+}
+
+
+.student-account-menu a:hover{
+    background:
+        #f7f2ea;
+
+    transform:
+        translateX(
+            2px
+        );
+}
+
+
+.student-account-menu a i{
+    width:17px;
+
+    text-align:center;
+
+    color:
+        var(--es-olive);
+}
+
+
+.student-account-menu .is-danger{
+    color:#b4473f;
+}
+
+
+.student-account-menu .is-danger i{
+    color:#b4473f;
+}
+
+
+/* =========================================================
+   MOBILE NAV TOGGLE
+========================================================= */
+
+.student-nav-toggle{
+    display:none;
+
+    width:40px;
+    height:40px;
+
+    align-items:center;
+    justify-content:center;
+
+    padding:0;
+
+    border:
+        1px solid
+        var(--es-line);
+
+    border-radius:
+        12px;
+
+    background:
+        #fff;
+
+    color:
+        var(--es-brown);
+
+    cursor:pointer;
+
+    transition:
+        .2s ease;
+}
+
+
+.student-nav-toggle:hover{
+    background:
+        #f7f2ea;
+}
+
+
+.student-nav-toggle:focus-visible,
+.student-notification-btn:focus-visible,
+.student-account summary:focus-visible{
+    outline:
+        3px solid
+        rgba(
+            85,
+            107,
+            47,
+            .20
+        );
+
+    outline-offset:
+        2px;
+}
+
+
+/* =========================================================
+   FOOTER
+========================================================= */
+
+.student-footer{
+    width:
+        min(
+            1500px,
+            calc(
+                100% - 28px
+            )
+        );
+
+    margin:
+        32px auto
+        18px;
+
+    padding:
+        18px
+        20px;
+
+    border:
+        1px solid
+        rgba(
+            231,
+            223,
+            211,
+            .95
+        );
+
+    border-radius:
+        16px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .78
+        );
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:16px;
+
+    color:
+        var(--es-muted);
+
+    font-size:
+        .7rem;
+}
+
+
+.student-footer div{
+    display:flex;
+
+    align-items:center;
+
+    gap:9px;
+}
+
+
+.student-footer strong{
+    color:
+        var(--es-brown-dark);
+
+    font-size:
+        .9rem;
+}
+
+
+.student-footer p{
+    margin:0;
+}
+
+
+.student-footer a{
+    color:
+        var(--es-olive);
+
+    font-weight:
+        700;
+
+    text-decoration:none;
+}
+
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media (
+    max-width:
+    1200px
+){
+
+    .student-brand-copy small{
+        display:none;
+    }
+
+
+    .student-nav-menu a span{
+        display:none;
+    }
+
+
+    .student-nav-menu a{
+        width:38px;
+
+        justify-content:center;
+    }
+
+
+    .student-account summary span{
+        display:none;
+    }
+
+
+    .student-account summary>i{
+        display:none;
+    }
+
+
+    .student-account-menu{
+        width:200px;
+    }
+
+}
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media (
+    max-width:
+    820px
+){
+
+    .student-navbar{
+        position:relative;
+
+        top:0;
+
+        width:100%;
+
+        margin:
+            0 0 16px;
+
+        border-radius:0;
+    }
+
+
+    .student-nav-inner{
+        position:relative;
+
+        flex-wrap:wrap;
+    }
+
+
+    .student-nav-toggle{
+        display:inline-flex;
+
+        margin-left:auto;
+    }
+
+
+    .student-nav-menu{
+        order:4;
+
+        display:none;
+
+        flex-basis:100%;
+
+        width:100%;
+
+        padding-top:4px;
+
+        overflow-x:visible;
+
+        flex-direction:column;
+
+        align-items:stretch;
+    }
+
+
+    .student-navbar.is-open
+    .student-nav-menu{
+        display:flex;
+    }
+
+
+    .student-nav-menu a{
+        width:auto;
+
+        justify-content:flex-start;
+
+        padding:
+            10px
+            12px;
+    }
+
+
+    .student-nav-menu a span{
+        display:inline;
+    }
+
+
+    .student-nav-actions{
+        margin-left:0;
+    }
+
+
+    .student-notification-panel{
+        right:0;
+
+        top:
+            calc(
+                100% +
+                8px
+            );
+    }
+
+
+    .student-account-menu{
+        right:0;
+
+        top:
+            calc(
+                100% +
+                8px
+            );
+    }
+
+
+    .student-footer{
+        width:
+            calc(
+                100% - 20px
+            );
+
+        flex-direction:column;
+
+        align-items:flex-start;
+    }
+
+}
+
+
+/* =========================================================
+   SMALL MOBILE
+========================================================= */
+
+@media (
+    max-width:
+    480px
+){
+
+    .student-brand img{
+        width:40px;
+        height:40px;
+    }
+
+
+    .student-brand-copy strong{
+        font-size:
+            1rem;
+    }
+
+
+    .student-notification-panel{
+        left:50%;
+
+        right:auto;
+
+        width:
+            calc(
+                100vw - 20px
+            );
+
+        transform:
+            translateX(
+                -50%
+            );
+
+        transform-origin:
+            top center;
+    }
+
+
+    .student-notification-panel[hidden]{
+        display:none !important;
+
+        transform:
+            translateX(-50%);
+    }
+
+
+    .student-account-menu{
+        right:
+            -2px;
+    }
+
+}
+
+
+/* =========================================================
+   REDUCED MOTION
+========================================================= */
+
+@media (
+    prefers-reduced-motion:
+    reduce
+){
+
+    *,
+    *::before,
+    *::after{
+
+        animation-duration:
+            .01ms !important;
+
+        animation-iteration-count:
+            1 !important;
+
+        transition-duration:
+            .01ms !important;
+
+        scroll-behavior:
+            auto !important;
+    }
+
+}

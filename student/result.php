@@ -22,8 +22,7 @@ if (
 }
 
 
-$studentId =
-    (int) $_SESSION['user_id'];
+$studentId = (int) $_SESSION['user_id'];
 
 
 /*
@@ -32,12 +31,11 @@ $studentId =
 |--------------------------------------------------------------------------
 */
 
-$resultId =
-    filter_input(
-        INPUT_GET,
-        'id',
-        FILTER_VALIDATE_INT
-    );
+$resultId = filter_input(
+    INPUT_GET,
+    'id',
+    FILTER_VALIDATE_INT
+);
 
 
 if (
@@ -45,13 +43,48 @@ if (
     $resultId === null ||
     $resultId <= 0
 ) {
-
     http_response_code(400);
-
-    exit(
-        'Invalid result.'
-    );
+    exit('Invalid result.');
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| CSRF
+|--------------------------------------------------------------------------
+*/
+
+if (
+    empty($_SESSION['csrf_token'])
+) {
+    try {
+        $_SESSION['csrf_token'] =
+            bin2hex(
+                random_bytes(32)
+            );
+    } catch (Throwable) {
+        $_SESSION['csrf_token'] =
+            hash(
+                'sha256',
+                uniqid(
+                    '',
+                    true
+                )
+            );
+    }
+}
+
+
+if (
+    empty($_SESSION['exam_csrf_token'])
+) {
+    $_SESSION['exam_csrf_token'] =
+        $_SESSION['csrf_token'];
+}
+
+
+$csrfToken =
+    (string) $_SESSION['exam_csrf_token'];
 
 
 /*
@@ -73,17 +106,19 @@ function result_escape(
 
 
 function result_number(
-    float|int|string|null $value
+    mixed $value
 ): string {
 
     $number =
-        (float) $value;
+        round(
+            (float) $value,
+            2
+        );
 
 
     if (
         floor($number) === $number
     ) {
-
         return number_format(
             $number,
             0,
@@ -115,7 +150,6 @@ function result_date(
     if (
         empty($value)
     ) {
-
         return '-';
     }
 
@@ -137,6 +171,115 @@ function result_date(
 }
 
 
+function result_time_label(
+    int $seconds
+): string {
+
+    $seconds =
+        max(
+            0,
+            $seconds
+        );
+
+
+    $hours =
+        intdiv(
+            $seconds,
+            3600
+        );
+
+
+    $minutes =
+        intdiv(
+            $seconds % 3600,
+            60
+        );
+
+
+    $remainingSeconds =
+        $seconds % 60;
+
+
+    if (
+        $hours > 0
+    ) {
+
+        return
+            $hours .
+            'h ' .
+            $minutes .
+            'm';
+
+    }
+
+
+    if (
+        $minutes > 0
+    ) {
+
+        return
+            $minutes .
+            'm ' .
+            $remainingSeconds .
+            's';
+    }
+
+
+    return
+        $remainingSeconds .
+        's';
+}
+
+
+function result_option_text(
+    array $question,
+    string $answer
+): string {
+
+    $answer =
+        strtoupper(
+            trim(
+                $answer
+            )
+        );
+
+
+    $map = [
+
+        'A' =>
+            $question['option_a']
+            ?? '',
+
+        'B' =>
+            $question['option_b']
+            ?? '',
+
+        'C' =>
+            $question['option_c']
+            ?? '',
+
+        'D' =>
+            $question['option_d']
+            ?? ''
+
+    ];
+
+
+    if (
+        !isset(
+            $map[$answer]
+        )
+    ) {
+        return '';
+    }
+
+
+    return trim(
+        (string) $map[$answer]
+    );
+}
+
+
 /*
 |--------------------------------------------------------------------------
 | LOAD RESULT
@@ -146,7 +289,8 @@ function result_date(
 try {
 
     $resultStatement =
-        $conn->prepare("
+        $conn->prepare(
+            "
             SELECT
 
                 r.id AS result_id,
@@ -173,10 +317,21 @@ try {
                 r.created_at,
 
                 e.title AS exam_title,
-                e.exam_type,
+                e.description AS exam_description,
 
+                e.exam_type,
                 e.duration_minutes,
+
+                e.required_question_count,
+
+                e.total_marks AS exam_configured_total_marks,
+
                 e.passing_marks,
+
+                e.negative_marking,
+
+                e.exam_fee,
+                e.subscription_required,
 
                 e.subject_id,
 
@@ -209,16 +364,16 @@ try {
                 AND r.student_id = ?
 
             LIMIT 1
-        ");
+            "
+        );
 
 
-    $resultStatement->execute([
-
-        $resultId,
-
-        $studentId
-
-    ]);
+    $resultStatement->execute(
+        [
+            $resultId,
+            $studentId
+        ]
+    );
 
 
     $result =
@@ -226,13 +381,13 @@ try {
             PDO::FETCH_ASSOC
         );
 
-
 } catch (Throwable $exception) {
 
     error_log(
         'ExamSphere result load failed: ' .
         $exception->getMessage()
     );
+
 
     http_response_code(500);
 
@@ -262,7 +417,7 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| ONLY FINALIZED ATTEMPTS
+| FINALIZED ATTEMPT
 |--------------------------------------------------------------------------
 */
 
@@ -297,7 +452,8 @@ $analysis = [];
 try {
 
     $analysisStatement =
-        $conn->prepare("
+        $conn->prepare(
+            "
             SELECT
 
                 q.id AS question_id,
@@ -305,6 +461,8 @@ try {
                 eq.position,
 
                 q.question_text,
+
+                q.question_image,
 
                 q.option_a,
                 q.option_b,
@@ -337,20 +495,22 @@ try {
 
                 eq.exam_id = ?
 
+                AND q.status = 'Active'
+
             ORDER BY
 
                 eq.position ASC,
                 q.id ASC
-        ");
+            "
+        );
 
 
-    $analysisStatement->execute([
-
-        (int) $result['attempt_id'],
-
-        (int) $result['exam_id']
-
-    ]);
+    $analysisStatement->execute(
+        [
+            (int) $result['attempt_id'],
+            (int) $result['exam_id']
+        ]
+    );
 
 
     $analysis =
@@ -365,13 +525,14 @@ try {
         $exception->getMessage()
     );
 
+
     $analysis = [];
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| REMOVE DUPLICATE QUESTION IDS
+| REMOVE DUPLICATES
 |--------------------------------------------------------------------------
 */
 
@@ -383,7 +544,17 @@ foreach (
 ) {
 
     $questionId =
-        (int) $question['question_id'];
+        (int) (
+            $question['question_id']
+            ?? 0
+        );
+
+
+    if (
+        $questionId <= 0
+    ) {
+        continue;
+    }
 
 
     if (
@@ -393,7 +564,6 @@ foreach (
             ]
         )
     ) {
-
         continue;
     }
 
@@ -417,72 +587,533 @@ $analysis =
 |--------------------------------------------------------------------------
 */
 
-$percentage =
+$totalQuestions =
     max(
         0,
-        min(
-            100,
-            (float) $result['percentage']
+        (int) (
+            $result['total_questions']
+            ?? 0
         )
     );
 
 
-$obtainedMarks =
+$requiredQuestionCount =
     max(
         0,
-        (float) $result['obtained_marks']
+        (int) (
+            $result['required_question_count']
+            ?? 0
+        )
     );
 
 
-$totalMarks =
+if (
+    $requiredQuestionCount > 0
+    &&
+    $totalQuestions !==
+    $requiredQuestionCount
+) {
+
+    http_response_code(409);
+
+    exit(
+        'The result question configuration is inconsistent.'
+    );
+}
+
+
+$attemptedQuestions =
     max(
         0,
-        (float) $result['total_marks']
+        (int) (
+            $result['attempted_questions']
+            ?? 0
+        )
     );
 
 
 $correctAnswers =
     max(
         0,
-        (int) $result['correct_answers']
+        (int) (
+            $result['correct_answers']
+            ?? 0
+        )
     );
 
 
 $wrongAnswers =
     max(
         0,
-        (int) $result['wrong_answers']
+        (int) (
+            $result['wrong_answers']
+            ?? 0
+        )
     );
 
 
 $unansweredQuestions =
     max(
         0,
-        (int) $result['unanswered_questions']
+        (int) (
+            $result['unanswered_questions']
+            ?? 0
+        )
     );
 
 
-$attemptedQuestions =
+$totalMarks =
     max(
         0,
-        (int) $result['attempted_questions']
+        round(
+            (float) (
+                $result['total_marks']
+                ?? 0
+            ),
+            2
+        )
     );
 
 
-$totalQuestions =
+$obtainedMarks =
+    round(
+        (float) (
+            $result['obtained_marks']
+            ?? 0
+        ),
+        2
+    );
+
+
+$obtainedMarks =
     max(
         0,
-        (int) $result['total_questions']
+        min(
+            $totalMarks,
+            $obtainedMarks
+        )
+    );
+
+
+$percentage =
+    max(
+        0,
+        min(
+            100,
+            round(
+                (float) (
+                    $result['percentage']
+                    ?? 0
+                ),
+                2
+            )
+        )
+    );
+
+
+$passingMarks =
+    max(
+        0,
+        min(
+            $totalMarks,
+            round(
+                (float) (
+                    $result['passing_marks']
+                    ?? 0
+                ),
+                2
+            )
+        )
+    );
+
+
+$grade =
+    trim(
+        (string) (
+            $result['grade']
+            ?? ''
+        )
+    );
+
+
+$resultStatus =
+    trim(
+        (string) (
+            $result['result_status']
+            ?? ''
+        )
     );
 
 
 $isPassed =
-    (
-        (string) $result[
-            'result_status'
-        ]
-        ===
-        'Pass'
+    $resultStatus === 'Pass';
+
+
+/*
+|--------------------------------------------------------------------------
+| DYNAMIC MARKS
+|--------------------------------------------------------------------------
+*/
+
+$marksPerQuestion =
+    null;
+
+
+foreach (
+    $analysis as $question
+) {
+
+    $questionMarks =
+        round(
+            (float) (
+                $question['marks']
+                ?? 0
+            ),
+            2
+        );
+
+
+    if (
+        $questionMarks <= 0
+    ) {
+        continue;
+    }
+
+
+    if (
+        $marksPerQuestion === null
+    ) {
+
+        $marksPerQuestion =
+            $questionMarks;
+
+    } elseif (
+        abs(
+            $marksPerQuestion -
+            $questionMarks
+        ) > 0.00001
+    ) {
+
+        http_response_code(409);
+
+        exit(
+            'The result contains inconsistent per-question marks.'
+        );
+    }
+}
+
+
+if (
+    $marksPerQuestion === null
+    &&
+    $totalQuestions > 0
+) {
+
+    $marksPerQuestion =
+        round(
+            $totalMarks /
+            $totalQuestions,
+            2
+        );
+}
+
+
+if (
+    $marksPerQuestion === null
+) {
+
+    $marksPerQuestion =
+        0;
+}
+
+
+$calculatedTotalMarks =
+    round(
+        $totalQuestions *
+        $marksPerQuestion,
+        2
+    );
+
+
+if (
+    $totalQuestions > 0
+    &&
+    abs(
+        $calculatedTotalMarks -
+        $totalMarks
+    ) > 0.01
+) {
+
+    http_response_code(409);
+
+    exit(
+        'The result total marks do not match the configured question marks.'
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| METRICS
+|--------------------------------------------------------------------------
+*/
+
+$accuracy =
+    $attemptedQuestions > 0
+        ? round(
+            (
+                $correctAnswers /
+                $attemptedQuestions
+            ) * 100,
+            2
+        )
+        : 0;
+
+
+$completion =
+    $totalQuestions > 0
+        ? round(
+            (
+                $attemptedQuestions /
+                $totalQuestions
+            ) * 100,
+            2
+        )
+        : 0;
+
+
+$correctPercentage =
+    $totalQuestions > 0
+        ? round(
+            (
+                $correctAnswers /
+                $totalQuestions
+            ) * 100,
+            2
+        )
+        : 0;
+
+
+$wrongPercentage =
+    $totalQuestions > 0
+        ? round(
+            (
+                $wrongAnswers /
+                $totalQuestions
+            ) * 100,
+            2
+        )
+        : 0;
+
+
+$unansweredPercentage =
+    $totalQuestions > 0
+        ? round(
+            (
+                $unansweredQuestions /
+                $totalQuestions
+            ) * 100,
+            2
+        )
+        : 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| TIME USED
+|--------------------------------------------------------------------------
+*/
+
+$timeUsedSeconds =
+    0;
+
+
+try {
+
+    if (
+        !empty(
+            $result['started_at']
+        )
+        &&
+        !empty(
+            $result['submitted_at']
+        )
+    ) {
+
+        $startedAt =
+            new DateTimeImmutable(
+                (string) $result[
+                    'started_at'
+                ]
+            );
+
+
+        $submittedAt =
+            new DateTimeImmutable(
+                (string) $result[
+                    'submitted_at'
+                ]
+            );
+
+
+        $timeUsedSeconds =
+            max(
+                0,
+                $submittedAt->getTimestamp()
+                -
+                $startedAt->getTimestamp()
+            );
+    }
+
+} catch (Throwable) {
+
+    $timeUsedSeconds =
+        0;
+}
+
+
+$timeUsedLabel =
+    result_time_label(
+        $timeUsedSeconds
+    );
+
+
+$durationMinutes =
+    max(
+        0,
+        (int) (
+            $result['duration_minutes']
+            ?? 0
+        )
+    );
+
+
+$durationSeconds =
+    $durationMinutes * 60;
+
+
+$timeEfficiency =
+    $durationSeconds > 0
+        ? round(
+            min(
+                100,
+                (
+                    $timeUsedSeconds /
+                    $durationSeconds
+                ) * 100
+            ),
+            1
+        )
+        : 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| PERFORMANCE LABEL
+|--------------------------------------------------------------------------
+*/
+
+$performanceLabel =
+    match (true) {
+
+        $percentage >= 90 =>
+            'Outstanding',
+
+        $percentage >= 80 =>
+            'Excellent',
+
+        $percentage >= 70 =>
+            'Very Good',
+
+        $percentage >= 60 =>
+            'Good',
+
+        $percentage >= 50 =>
+            'Fair',
+
+        $percentage >= 40 =>
+            'Needs Improvement',
+
+        default =>
+            'Needs More Practice'
+    };
+
+
+/*
+|--------------------------------------------------------------------------
+| PASS / FAIL PRESENTATION
+|--------------------------------------------------------------------------
+*/
+
+$statusLabel =
+    $isPassed
+        ? 'PASS'
+        : 'FAIL';
+
+
+$statusIcon =
+    $isPassed
+        ? 'fa-circle-check'
+        : 'fa-circle-xmark';
+
+
+$statusClass =
+    $isPassed
+        ? 'is-pass'
+        : 'is-fail';
+
+
+$statusMessage =
+    $isPassed
+        ? 'Congratulations! You passed this examination.'
+        : 'This attempt did not reach the configured passing marks.';
+
+
+$statusSubmessage =
+    $isPassed
+        ? 'Your performance met or exceeded the required passing score.'
+        : 'Use your detailed analysis below to improve your next attempt.';
+
+
+/*
+|--------------------------------------------------------------------------
+| EXAM DATA
+|--------------------------------------------------------------------------
+*/
+
+$examTitle =
+    trim(
+        (string) (
+            $result['exam_title']
+            ?? 'Examination'
+        )
+    );
+
+
+$examType =
+    trim(
+        (string) (
+            $result['exam_type']
+            ?? 'Examination'
+        )
+    );
+
+
+$subjectName =
+    trim(
+        (string) (
+            $result['subject_name']
+            ?? 'General'
+        )
+    );
+
+
+$subjectCode =
+    trim(
+        (string) (
+            $result['subject_code']
+            ?? ''
+        )
     );
 
 
@@ -492,149 +1123,99 @@ $resultDate =
     );
 
 
-$performanceLabel =
-    $percentage >= 80
-        ? 'Excellent'
-        : (
-            $percentage >= 60
-                ? 'Good'
-                : (
-                    $percentage >= 40
-                        ? 'Needs Improvement'
-                        : 'Needs More Practice'
-                )
-        );
+$submittedDate =
+    result_date(
+        $result['submitted_at']
+    );
 
 
-/*
-|--------------------------------------------------------------------------
-| SCORE CIRCLE
-|--------------------------------------------------------------------------
-*/
-
-$scoreDegree =
-    round(
-        $percentage * 3.6,
-        2
+$examDescription =
+    trim(
+        (string) (
+            $result['exam_description']
+            ?? ''
+        )
     );
 
 
 /*
 |--------------------------------------------------------------------------
-| ACCURACY + TIME USED
+| ANALYSIS COUNTERS
 |--------------------------------------------------------------------------
 */
 
-$accuracy =
-    $attemptedQuestions > 0
-        ? round(
-            ($correctAnswers / $attemptedQuestions) * 100,
-            2
-        )
-        : 0.00;
-
-$timeUsedSeconds = 0;
-
-try {
-    if (
-        !empty($result['started_at']) &&
-        !empty($result['submitted_at'])
-    ) {
-        $startedAt = new DateTimeImmutable(
-            (string) $result['started_at']
-        );
-
-        $submittedAt = new DateTimeImmutable(
-            (string) $result['submitted_at']
-        );
-
-        $timeUsedSeconds = max(
-            0,
-            $submittedAt->getTimestamp() - $startedAt->getTimestamp()
-        );
-    }
-} catch (Throwable) {
-    $timeUsedSeconds = 0;
-}
-
-$timeUsedMinutes = intdiv($timeUsedSeconds, 60);
-$timeUsedRemainder = $timeUsedSeconds % 60;
-
-$timeUsedLabel = sprintf(
-    '%dm %02ds',
-    $timeUsedMinutes,
-    $timeUsedRemainder
-);
+$analysisCorrect = 0;
+$analysisWrong = 0;
+$analysisUnanswered = 0;
 
 
-/*
-|--------------------------------------------------------------------------
-| QUESTION OPTION HELPER
-|--------------------------------------------------------------------------
-*/
+foreach (
+    $analysis as $question
+) {
 
-function result_option_text(
-    array $question,
-    string $answer
-): string {
-
-    return match (
+    $selected =
         strtoupper(
-            trim($answer)
+            trim(
+                (string) (
+                    $question[
+                        'selected_answer'
+                    ] ?? ''
+                )
+            )
+        );
+
+
+    if (
+        !in_array(
+            $selected,
+            [
+                'A',
+                'B',
+                'C',
+                'D'
+            ],
+            true
         )
     ) {
 
-        'A' =>
-            (string) (
-                $question['option_a']
-                ?? ''
-            ),
+        $analysisUnanswered++;
 
-        'B' =>
-            (string) (
-                $question['option_b']
-                ?? ''
-            ),
+    } elseif (
+        (int) (
+            $question[
+                'is_correct'
+            ] ?? 0
+        ) === 1
+    ) {
 
-        'C' =>
-            (string) (
-                $question['option_c']
-                ?? ''
-            ),
+        $analysisCorrect++;
 
-        'D' =>
-            (string) (
-                $question['option_d']
-                ?? ''
-            ),
+    } else {
 
-        default =>
-            ''
-    };
+        $analysisWrong++;
+    }
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| CSRF
-|--------------------------------------------------------------------------
-*/
-
-$csrfToken =
-    function_exists('csrf_token')
-        ? csrf_token()
-        : '';
+$analysisTotal =
+    count(
+        $analysis
+    );
 
 
 ?>
 
 <!DOCTYPE html>
 
-<html lang="en">
+<html
+    lang="en"
+>
 
 <head>
 
-    <meta charset="UTF-8">
+    <meta
+        charset="UTF-8"
+    >
 
     <meta
         name="viewport"
@@ -648,13 +1229,11 @@ $csrfToken =
 
     <title>
 
-        Result |
-
         <?= result_escape(
-            $result['exam_title']
-        ) ?>
+            $examTitle
+        ); ?>
 
-        | ExamSphere
+        | Result | ExamSphere
 
     </title>
 
@@ -664,16 +1243,14 @@ $csrfToken =
         href="https://fonts.googleapis.com"
     >
 
-
     <link
         rel="preconnect"
-        href="https://fonts.googleapis.com"
+        href="https://fonts.gstatic.com"
         crossorigin
     >
 
-
     <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet"
     >
 
@@ -685,20 +1262,8 @@ $csrfToken =
 
 
     <link
-        rel="stylesheet"
-        href="assets/css/dashboard.css"
-    >
-
-
-    <link
-        rel="stylesheet"
-        href="assets/css/result.css"
-    >
-
-
-    <link
-        rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+        rel="stylesheet"
     >
 
 
@@ -706,42 +1271,74 @@ $csrfToken =
 
         :root {
 
-            --result-brown:
-                #5D4037;
-
-            --result-brown-dark:
+            --brown-dark:
                 #3E2723;
 
-            --result-olive:
+            --brown:
+                #5D4037;
+
+            --brown-soft:
+                #795548;
+
+            --olive:
                 #556B2F;
 
-            --result-olive-dark:
+            --olive-dark:
                 #465925;
 
-            --result-cream:
+            --cream:
                 #F5F5DC;
 
-            --result-cream-light:
-                #FAF8F4;
+            --cream-light:
+                #FAF9F4;
 
-            --result-text:
-                #333333;
+            --white:
+                #FFFFFF;
 
-            --result-muted:
-                #777;
+            --text:
+                #302A26;
 
-            --result-border:
-                #E8E1D8;
+            --muted:
+                #7C736C;
 
-            --result-green:
-                #27723C;
+            --border:
+                #E4DED3;
 
-            --result-red:
-                #A33A3A;
+            --green:
+                #2E7D52;
 
-            --result-orange:
-                #D78920;
+            --green-bg:
+                #EAF4E4;
 
+            --red:
+                #B84A42;
+
+            --red-bg:
+                #FBEAE7;
+
+            --gold:
+                #B48735;
+
+            --gold-bg:
+                #FFF4DD;
+
+            --purple:
+                #70579B;
+
+            --purple-bg:
+                #F0EAF8;
+
+            --shadow:
+                0 22px 65px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .10
+                );
+
+            --radius:
+                24px;
         }
 
 
@@ -751,42 +1348,53 @@ $csrfToken =
         }
 
 
+        html {
+            scroll-behavior:
+                smooth;
+        }
+
+
         body {
 
             margin:
                 0;
 
+            min-height:
+                100vh;
+
             background:
+
                 radial-gradient(
-                    circle at top left,
+                    circle at 8% 4%,
                     rgba(
                         85,
                         107,
                         47,
-                        .08
+                        .09
                     ),
-                    transparent 26%
+                    transparent 25%
                 ),
 
                 radial-gradient(
-                    circle at bottom right,
+                    circle at 94% 8%,
                     rgba(
                         93,
                         64,
                         55,
-                        .08
+                        .10
                     ),
-                    transparent 30%
+                    transparent 25%
                 ),
 
                 linear-gradient(
-                    135deg,
-                    #F7F3ED,
-                    var(--result-cream)
+                    180deg,
+                    #F7F6E9 0%,
+                    #F5F5DC 42%,
+                    #F2F0E5 100%
                 );
 
             color:
-                var(--result-text);
+                var(--text);
 
             font-family:
                 Poppins,
@@ -795,18 +1403,290 @@ $csrfToken =
         }
 
 
-        .result-page {
-
-            max-width:
-                1280px;
-
-            margin:
-                0 auto;
-
-            padding:
-                32px 18px 65px;
+        a {
+            text-decoration:
+                none;
         }
 
+
+        button,
+        a {
+            -webkit-tap-highlight-color:
+                transparent;
+        }
+
+
+        .result-shell {
+
+            width:
+                min(
+                    1440px,
+                    calc(
+                        100% - 36px
+                    )
+                );
+
+            margin:
+                22px auto 50px;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | TOP NAV
+        |--------------------------------------------------------------------------
+        */
+
+        .result-nav {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                18px;
+
+            min-height:
+                68px;
+
+            padding:
+                12px 16px 12px 18px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                20px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .88
+                );
+
+            box-shadow:
+                var(--shadow);
+
+            backdrop-filter:
+                blur(
+                    18px
+                );
+
+            position:
+                sticky;
+
+            top:
+                12px;
+
+            z-index:
+                100;
+        }
+
+
+        .brand {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                11px;
+        }
+
+
+        .brand-icon {
+
+            width:
+                43px;
+
+            height:
+                43px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            border-radius:
+                14px;
+
+            color:
+                var(--white);
+
+            background:
+                linear-gradient(
+                    145deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+
+            box-shadow:
+                0 10px 25px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .18
+                );
+        }
+
+
+        .brand strong {
+
+            display:
+                block;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                14px;
+
+            font-weight:
+                800;
+        }
+
+
+        .brand small {
+
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                9px;
+
+            margin-top:
+                1px;
+        }
+
+
+        .nav-actions {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                8px;
+
+            flex-wrap:
+                wrap;
+
+            justify-content:
+                flex-end;
+        }
+
+
+        .nav-btn {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            min-height:
+                40px;
+
+            padding:
+                0 13px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                12px;
+
+            color:
+                var(--brown-dark);
+
+            background:
+                var(--white);
+
+            font-size:
+                10px;
+
+            font-weight:
+                700;
+
+            transition:
+                .2s ease;
+        }
+
+
+        .nav-btn:hover {
+
+            color:
+                var(--brown-dark);
+
+            transform:
+                translateY(
+                    -1px
+                );
+
+            box-shadow:
+                0 10px 22px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .08
+                );
+        }
+
+
+        .nav-btn.primary {
+
+            color:
+                var(--white);
+
+            border-color:
+                var(--brown);
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+        }
+
+
+        .nav-btn.primary:hover {
+
+            color:
+                var(--white);
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | HERO
+        |--------------------------------------------------------------------------
+        */
 
         .result-hero {
 
@@ -816,44 +1696,33 @@ $csrfToken =
             overflow:
                 hidden;
 
-            margin-bottom:
-                22px;
+            margin-top:
+                20px;
 
             padding:
-                32px;
-
-            border:
-                1px solid
-                rgba(
-                    93,
-                    64,
-                    55,
-                    .10
-                );
-
-            border-radius:
                 28px;
 
+            border-radius:
+                30px;
+
+            color:
+                var(--white);
+
             background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    .90
+                linear-gradient(
+                    135deg,
+                    #5D4037 0%,
+                    #4A302A 56%,
+                    #3E2723 100%
                 );
 
             box-shadow:
-                0 24px 70px
+                0 28px 70px
                 rgba(
-                    80,
-                    55,
-                    40,
-                    .10
-                );
-
-            backdrop-filter:
-                blur(
-                    15px
+                    62,
+                    39,
+                    35,
+                    .19
                 );
         }
 
@@ -861,7 +1730,7 @@ $csrfToken =
         .result-hero::before {
 
             content:
-                "";
+                '';
 
             position:
                 absolute;
@@ -872,11 +1741,44 @@ $csrfToken =
             height:
                 260px;
 
-            top:
-                -110px;
-
             right:
-                -70px;
+                -80px;
+
+            top:
+                -100px;
+
+            border-radius:
+                50%;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .08
+                );
+        }
+
+
+        .result-hero::after {
+
+            content:
+                '';
+
+            position:
+                absolute;
+
+            width:
+                180px;
+
+            height:
+                180px;
+
+            left:
+                42%;
+
+            bottom:
+                -120px;
 
             border-radius:
                 50%;
@@ -886,25 +1788,38 @@ $csrfToken =
                     85,
                     107,
                     47,
-                    .10
+                    .18
                 );
-
-            pointer-events:
-                none;
         }
 
 
-        .result-title {
+        .hero-content {
 
             position:
                 relative;
 
             z-index:
-                1;
+                2;
         }
 
 
-        .result-kicker {
+        .hero-top {
+
+            display:
+                flex;
+
+            align-items:
+                flex-start;
+
+            justify-content:
+                space-between;
+
+            gap:
+                24px;
+        }
+
+
+        .hero-kicker {
 
             display:
                 inline-flex;
@@ -913,68 +1828,351 @@ $csrfToken =
                 center;
 
             gap:
-                8px;
+                7px;
 
-            margin-bottom:
-                8px;
+            padding:
+                7px 10px;
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .18
+                );
+
+            border-radius:
+                10px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .08
+                );
 
             color:
-                var(--result-olive);
+                #E8DECE;
 
             font-size:
-                10px;
+                9px;
 
             font-weight:
                 800;
 
             letter-spacing:
-                1.5px;
+                1.1px;
 
             text-transform:
                 uppercase;
         }
 
 
-        .result-title h1 {
+        .hero-title {
 
             margin:
-                0;
+                12px 0 6px;
+
+            max-width:
+                900px;
 
             color:
-                var(--result-brown);
+                #FFFFFF;
 
             font-size:
                 clamp(
-                    26px,
+                    25px,
                     4vw,
-                    38px
+                    42px
                 );
+
+            line-height:
+                1.18;
 
             font-weight:
                 800;
         }
 
 
-        .result-title p {
-
-            max-width:
-                780px;
-
-            margin:
-                7px 0 0;
-
-            color:
-                var(--result-muted);
-
-            line-height:
-                1.65;
-        }
-
-
-        .exam-meta-row {
+        .hero-meta {
 
             display:
                 flex;
+
+            align-items:
+                center;
+
+            flex-wrap:
+                wrap;
+
+            gap:
+                8px 13px;
+
+            color:
+                #EDE8DF;
+
+            font-size:
+                11px;
+
+            font-weight:
+                500;
+        }
+
+
+        .hero-meta-item {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                6px;
+        }
+
+
+        .hero-meta-divider {
+
+            opacity:
+                .45;
+        }
+
+
+        .hero-status {
+
+            min-width:
+                160px;
+
+            padding:
+                18px;
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .18
+                );
+
+            border-radius:
+                20px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .08
+                );
+
+            text-align:
+                center;
+
+            backdrop-filter:
+                blur(
+                    12px
+                );
+        }
+
+
+        .hero-status i {
+
+            font-size:
+                29px;
+
+            margin-bottom:
+                8px;
+        }
+
+
+        .hero-status-label {
+
+            display:
+                block;
+
+            font-size:
+                9px;
+
+            letter-spacing:
+                1.3px;
+
+            font-weight:
+                800;
+
+            color:
+                #DED5C8;
+
+        }
+
+
+        .hero-status strong {
+
+            display:
+                block;
+
+            margin-top:
+                2px;
+
+            font-size:
+                24px;
+
+            font-weight:
+                900;
+        }
+
+
+        .hero-status.is-pass {
+
+            color:
+                #DCECCF;
+        }
+
+
+        .hero-status.is-fail {
+
+            color:
+                #FFDAD5;
+        }
+
+
+        .hero-bottom {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            flex-wrap:
+                wrap;
+
+            gap:
+                15px;
+
+            margin-top:
+                24px;
+
+            padding-top:
+                18px;
+
+            border-top:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .13
+                );
+        }
+
+
+        .hero-message {
+
+            min-width:
+                240px;
+        }
+
+
+        .hero-message strong {
+
+            display:
+                block;
+
+            color:
+                #FFFFFF;
+
+            font-size:
+                13px;
+
+            font-weight:
+                800;
+        }
+
+
+        .hero-message span {
+
+            display:
+                block;
+
+            margin-top:
+                4px;
+
+            color:
+                #DED7CE;
+
+            font-size:
+                10px;
+
+            line-height:
+                1.55;
+        }
+
+
+        .hero-report {
+
+            text-align:
+                right;
+        }
+
+
+        .hero-report small {
+
+            display:
+                block;
+
+            color:
+                #BFB5AA;
+
+            font-size:
+                8px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                1px;
+        }
+
+
+        .hero-report strong {
+
+            display:
+                block;
+
+            margin-top:
+                2px;
+
+            color:
+                #FFFFFF;
+
+            font-size:
+                12px;
+
+            font-weight:
+                800;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | ACTION BAR
+        |--------------------------------------------------------------------------
+        */
+
+        .result-actions {
+
+            display:
+                flex;
+
+            align-items:
+                center;
 
             flex-wrap:
                 wrap;
@@ -987,109 +2185,7 @@ $csrfToken =
         }
 
 
-        .exam-meta-pill {
-
-            display:
-                inline-flex;
-
-            align-items:
-                center;
-
-            gap:
-                7px;
-
-            padding:
-                8px 12px;
-
-            border:
-                1px solid
-                var(--result-border);
-
-            border-radius:
-                999px;
-
-            color:
-                var(--result-brown);
-
-            background:
-                var(--result-cream-light);
-
-            font-size:
-                11px;
-
-            font-weight:
-                600;
-        }
-
-
-        .status-pill {
-
-            display:
-                inline-flex;
-
-            align-items:
-                center;
-
-            gap:
-                8px;
-
-            padding:
-                10px 16px;
-
-            border-radius:
-                999px;
-
-            font-size:
-                13px;
-
-            font-weight:
-                800;
-        }
-
-
-        .status-pass {
-
-            color:
-                var(--result-green);
-
-            background:
-                #EDF7EF;
-        }
-
-
-        .status-fail {
-
-            color:
-                var(--result-red);
-
-            background:
-                #FFF0F0;
-        }
-
-
-        .result-actions {
-
-            display:
-                flex;
-
-            flex-wrap:
-                wrap;
-
-            gap:
-                10px;
-
-            margin-top:
-                22px;
-        }
-
-
-        .result-btn {
-
-            min-height:
-                46px;
-
-            padding:
-                10px 16px;
+        .action-btn {
 
             display:
                 inline-flex;
@@ -1103,136 +2199,264 @@ $csrfToken =
             gap:
                 8px;
 
+            min-height:
+                45px;
+
+            padding:
+                0 16px;
+
             border:
                 1px solid
-                transparent;
+                var(--border);
 
             border-radius:
-                12px;
+                13px;
 
-            text-decoration:
-                none;
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .96
+                );
+
+            color:
+                var(--brown-dark);
 
             font-size:
-                12px;
+                10px;
 
             font-weight:
-                700;
-
-            cursor:
-                pointer;
+                800;
 
             transition:
                 .2s ease;
+
+            cursor:
+                pointer;
         }
 
 
-        .result-btn:hover {
+        .action-btn:hover {
+
+            color:
+                var(--brown-dark);
 
             transform:
                 translateY(
-                    -1px
+                    -2px
                 );
-        }
-
-
-        .result-btn-primary {
-
-            color:
-                #FFFFFF;
-
-            background:
-                var(--result-brown);
 
             box-shadow:
-                0 10px 25px
+                0 12px 28px
                 rgba(
-                    93,
-                    64,
-                    55,
-                    .16
+                    62,
+                    39,
+                    35,
+                    .08
                 );
         }
 
 
-        .result-btn-secondary {
+        .action-btn.primary {
 
             color:
-                var(--result-brown);
-
-            background:
-                #FFFFFF;
+                var(--white);
 
             border-color:
-                var(--result-border);
+                var(--brown);
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
         }
 
 
-        .result-btn-secondary:hover {
+        .action-btn.primary:hover {
 
             color:
-                var(--result-olive);
+                var(--white);
+        }
 
-            border-color:
+
+        /*
+        |--------------------------------------------------------------------------
+        | SCORE LAYOUT
+        |--------------------------------------------------------------------------
+        */
+
+        .main-grid {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                minmax(
+                    0,
+                    1.65fr
+                )
+                minmax(
+                    330px,
+                    .85fr
+                );
+
+            gap:
+                20px;
+
+            margin-top:
+                20px;
+        }
+
+
+        .card {
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                var(--radius);
+
+            background:
                 rgba(
-                    85,
-                    107,
-                    47,
-                    .30
+                    255,
+                    255,
+                    255,
+                    .93
+                );
+
+            box-shadow:
+                var(--shadow);
+
+            backdrop-filter:
+                blur(
+                    16px
                 );
         }
 
 
         .score-card {
 
-            margin-bottom:
-                22px;
-
             padding:
-                30px;
+                25px;
+        }
 
-            border:
-                1px solid
-                var(--result-border);
 
-            border-radius:
-                26px;
+        .section-header {
 
-            background:
-                #FFFFFF;
+            display:
+                flex;
 
-            box-shadow:
-                0 18px 50px
-                rgba(
-                    80,
-                    55,
-                    40,
-                    .08
-                );
+            align-items:
+                flex-start;
+
+            justify-content:
+                space-between;
+
+            gap:
+                15px;
+
+            margin-bottom:
+                20px;
+        }
+
+
+        .section-heading small {
+
+            display:
+                block;
+
+            color:
+                var(--olive);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                1.4px;
+        }
+
+
+        .section-heading h2 {
+
+            margin:
+                3px 0 0;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                18px;
+
+            font-weight:
+                800;
+        }
+
+
+        .section-heading p {
+
+            margin:
+                5px 0 0;
+
+            color:
+                var(--muted);
+
+            font-size:
+                10px;
+        }
+
+
+        .score-layout {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                270px
+                1fr;
+
+            align-items:
+                center;
+
+            gap:
+                28px;
+        }
+
+
+        .score-circle-wrap {
+
+            display:
+                flex;
+
+            justify-content:
+                center;
+
+            align-items:
+                center;
         }
 
 
         .score-circle {
 
             width:
-                190px;
+                220px;
 
             height:
-                190px;
-
-            margin:
-                0 auto;
+                220px;
 
             display:
-                flex;
+                grid;
 
-            flex-direction:
-                column;
-
-            align-items:
-                center;
-
-            justify-content:
+            place-items:
                 center;
 
             border-radius:
@@ -1240,33 +2464,46 @@ $csrfToken =
 
             background:
                 conic-gradient(
-                    var(--result-brown)
-                    <?= $scoreDegree ?>deg,
-                    #EEE6DE
-                    0
+                    var(--olive)
+                    <?= result_number(
+                        $percentage * 3.6
+                    ); ?>deg,
+                    #ECE7DD
+                    <?= result_number(
+                        $percentage * 3.6
+                    ); ?>deg
                 );
 
             position:
                 relative;
+
+            box-shadow:
+                0 18px 40px
+                rgba(
+                    85,
+                    107,
+                    47,
+                    .12
+                );
         }
 
 
-        .score-circle::after {
+        .score-circle::before {
 
             content:
-                "";
+                '';
 
             position:
                 absolute;
 
             inset:
-                13px;
+                14px;
 
             border-radius:
                 50%;
 
             background:
-                #FFFFFF;
+                var(--white);
         }
 
 
@@ -1283,390 +2520,130 @@ $csrfToken =
         }
 
 
-        .score-percentage {
+        .score-percent {
 
             color:
-                var(--result-brown);
+                var(--brown-dark);
 
             font-size:
-                36px;
+                37px;
+
+            line-height:
+                1;
 
             font-weight:
-                800;
+                900;
         }
 
 
         .score-label {
 
-            color:
-                var(--result-muted);
-
-            font-size:
-                12px;
-
-            font-weight:
-                500;
-        }
-
-
-        .score-caption {
-
             margin-top:
-                14px;
-
-            text-align:
-                center;
+                7px;
 
             color:
-                var(--result-muted);
-
-            font-size:
-                11px;
-        }
-
-
-        .score-caption strong {
-
-            color:
-                var(--result-brown);
-        }
-
-
-        .info-box {
-
-            padding:
-                20px;
-
-            border:
-                1px solid
-                var(--result-border);
-
-            border-radius:
-                20px;
-
-            background:
-                #FFFFFF;
-        }
-
-
-        .info-box h4 {
-
-            margin:
-                0 0 14px;
-
-            color:
-                var(--result-brown);
-
-            font-size:
-                16px;
-
-            font-weight:
-                800;
-        }
-
-
-        .info-row {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            gap:
-                18px;
-
-            padding:
-                9px 0;
-
-            border-bottom:
-                1px dashed
-                #E7E0D8;
-
-            font-size:
-                12px;
-        }
-
-
-        .info-row:last-child {
-
-            border-bottom:
-                0;
-        }
-
-
-        .info-row span:first-child {
-
-            color:
-                var(--result-muted);
-        }
-
-
-        .info-row span:last-child {
-
-            color:
-                var(--result-brown-dark);
-
-            text-align:
-                right;
-
-            font-weight:
-                700;
-        }
-
-
-        .metric-grid {
-
-            display:
-                grid;
-
-            grid-template-columns:
-                repeat(
-                    4,
-                    1fr
-                );
-
-            gap:
-                13px;
-
-            margin-top:
-                25px;
-        }
-
-
-        .metric {
-
-            padding:
-                17px;
-
-            border:
-                1px solid
-                var(--result-border);
-
-            border-radius:
-                17px;
-
-            text-align:
-                center;
-
-            background:
-                var(--result-cream-light);
-        }
-
-
-        .metric i {
-
-            margin-bottom:
-                6px;
-
-            color:
-                var(--result-brown);
-
-            font-size:
-                19px;
-        }
-
-
-        .metric strong {
-
-            display:
-                block;
-
-            color:
-                var(--result-brown);
-
-            font-size:
-                24px;
-
-            font-weight:
-                800;
-        }
-
-
-        .metric span {
-
-            color:
-                var(--result-muted);
-
-            font-size:
-                11px;
-        }
-
-
-        .section-card {
-
-            margin-bottom:
-                22px;
-
-            padding:
-                25px;
-
-            border:
-                1px solid
-                var(--result-border);
-
-            border-radius:
-                24px;
-
-            background:
-                #FFFFFF;
-
-            box-shadow:
-                0 15px 42px
-                rgba(
-                    80,
-                    55,
-                    40,
-                    .06
-                );
-        }
-
-
-        .section-heading {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                15px;
-
-            margin-bottom:
-                19px;
-        }
-
-
-        .section-heading small {
-
-            display:
-                block;
-
-            margin-bottom:
-                3px;
-
-            color:
-                var(--result-olive);
+                var(--muted);
 
             font-size:
                 9px;
-
-            font-weight:
-                800;
-
-            letter-spacing:
-                1.5px;
-        }
-
-
-        .section-heading h3 {
-
-            margin:
-                0;
-
-            color:
-                var(--result-brown);
-
-            font-size:
-                21px;
-
-            font-weight:
-                800;
-        }
-
-
-        .section-heading > span {
-
-            color:
-                var(--result-muted);
-
-            font-size:
-                11px;
 
             font-weight:
                 600;
         }
 
 
-        .question-analysis {
+        .score-performance {
 
-            margin-bottom:
+            display:
+                inline-flex;
+
+            margin-top:
                 13px;
 
-            overflow:
-                hidden;
-
-            border:
-                1px solid
-                #EEE7E0;
+            padding:
+                6px 9px;
 
             border-radius:
-                18px;
+                9px;
+
+            color:
+                var(--olive-dark);
 
             background:
-                #FFFFFF;
+                var(--green-bg);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
         }
 
 
-        .question-analysis:last-child {
-
-            margin-bottom:
-                0;
-        }
-
-
-        .question-analysis-top {
+        .score-details {
 
             display:
-                flex;
+                grid;
 
-            justify-content:
-                space-between;
-
-            align-items:
-                flex-start;
-
-            gap:
-                15px;
-
-            padding:
-                15px 17px;
-
-            background:
-                #FAF8F4;
-        }
-
-
-        .question-analysis-left {
-
-            display:
-                flex;
-
-            align-items:
-                flex-start;
+            grid-template-columns:
+                repeat(
+                    2,
+                    minmax(
+                        0,
+                        1fr
+                    )
+                );
 
             gap:
                 11px;
-
-            min-width:
-                0;
         }
 
 
-        .question-number {
+        .metric-box {
+
+            padding:
+                15px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                17px;
+
+            background:
+                var(--cream-light);
+
+            transition:
+                .2s ease;
+        }
+
+
+        .metric-box:hover {
+
+            transform:
+                translateY(
+                    -2px
+                );
+
+            box-shadow:
+                0 12px 28px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .06
+                );
+        }
+
+
+        .metric-icon {
 
             width:
-                38px;
+                36px;
 
             height:
-                38px;
-
-            flex:
-                0 0 38px;
+                36px;
 
             display:
                 grid;
@@ -1675,98 +2652,572 @@ $csrfToken =
                 center;
 
             border-radius:
-                12px;
+                11px;
 
-            color:
-                var(--result-brown);
-
-            background:
-                var(--result-cream);
-
-            font-size:
-                12px;
-
-            font-weight:
-                800;
-        }
-
-
-        .question-title {
-
-            min-width:
-                0;
-
-            color:
-                var(--result-brown-dark);
+            margin-bottom:
+                9px;
 
             font-size:
                 13px;
+        }
 
-            line-height:
-                1.65;
+
+        .metric-icon.olive {
+
+            color:
+                var(--olive-dark);
+
+            background:
+                #EAF2DF;
+        }
+
+
+        .metric-icon.green {
+
+            color:
+                var(--green);
+
+            background:
+                var(--green-bg);
+        }
+
+
+        .metric-icon.red {
+
+            color:
+                var(--red);
+
+            background:
+                var(--red-bg);
+        }
+
+
+        .metric-icon.gold {
+
+            color:
+                #9B711F;
+
+            background:
+                var(--gold-bg);
+        }
+
+
+        .metric-icon.purple {
+
+            color:
+                var(--purple);
+
+            background:
+                var(--purple-bg);
+        }
+
+
+        .metric-label {
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+
+            font-weight:
+                600;
+        }
+
+
+        .metric-value {
+
+            margin-top:
+                2px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                20px;
+
+            font-weight:
+                900;
+        }
+
+
+        .metric-sub {
+
+            margin-top:
+                2px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | FORMULA
+        |--------------------------------------------------------------------------
+        */
+
+        .formula-card {
+
+            margin-top:
+                20px;
+
+            padding:
+                16px 18px;
+
+            border:
+                1px solid
+                #DCD4C6;
+
+            border-radius:
+                17px;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    #FAF8F0,
+                    #F3F1E7
+                );
+        }
+
+
+        .formula-title {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                8px;
+
+            color:
+                var(--olive-dark);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                1px;
+        }
+
+
+        .formula-main {
+
+            margin-top:
+                9px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                clamp(
+                    15px,
+                    2vw,
+                    21px
+                );
+
+            font-weight:
+                900;
+
+            text-align:
+                center;
+        }
+
+
+        .formula-note {
+
+            margin-top:
+                5px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+
+            text-align:
+                center;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | PERFORMANCE CARD
+        |--------------------------------------------------------------------------
+        */
+
+        .performance-card {
+
+            padding:
+                25px;
+        }
+
+
+        .performance-row {
+
+            margin-bottom:
+                18px;
+        }
+
+
+        .performance-row:last-child {
+
+            margin-bottom:
+                0;
+        }
+
+
+        .performance-top {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                10px;
+
+            margin-bottom:
+                7px;
+        }
+
+
+        .performance-name {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                7px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                9px;
 
             font-weight:
                 700;
         }
 
 
-        .question-result {
+        .performance-value {
 
-            flex:
-                0 0 auto;
+            color:
+                var(--muted);
 
-            padding:
-                6px 9px;
+            font-size:
+                9px;
+
+            font-weight:
+                700;
+        }
+
+
+        .progress-track {
+
+            height:
+                8px;
+
+            overflow:
+                hidden;
 
             border-radius:
-                999px;
+                99px;
+
+            background:
+                #ECE7DC;
+        }
+
+
+        .progress-fill {
+
+            height:
+                100%;
+
+            border-radius:
+                inherit;
+
+            min-width:
+                2px;
+        }
+
+
+        .fill-green {
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #6C8640,
+                    #556B2F
+                );
+        }
+
+
+        .fill-red {
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #D1766C,
+                    #B84A42
+                );
+        }
+
+
+        .fill-gold {
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #D2AE62,
+                    #B48735
+                );
+        }
+
+
+        .fill-gray {
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #A9A099,
+                    #7F766E
+                );
+        }
+
+
+        .mini-grid {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+
+            gap:
+                9px;
+
+            margin-top:
+                18px;
+        }
+
+
+        .mini-stat {
+
+            padding:
+                12px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                14px;
+
+            background:
+                #FFFFFF;
+        }
+
+
+        .mini-stat span {
+
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+        }
+
+
+        .mini-stat strong {
+
+            display:
+                block;
+
+            margin-top:
+                4px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                14px;
+
+            font-weight:
+                900;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | EXAM INFO
+        |--------------------------------------------------------------------------
+        */
+
+        .info-card {
+
+            padding:
+                25px;
+
+            margin-top:
+                20px;
+        }
+
+
+        .info-list {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    2,
+                    minmax(
+                        0,
+                        1fr
+                    )
+                );
+
+            gap:
+                11px;
+        }
+
+
+        .info-item {
+
+            padding:
+                13px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                14px;
+
+            background:
+                var(--cream-light);
+        }
+
+
+        .info-item span {
+
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .7px;
+        }
+
+
+        .info-item strong {
+
+            display:
+                block;
+
+            margin-top:
+                3px;
+
+            color:
+                var(--brown-dark);
 
             font-size:
                 10px;
 
             font-weight:
                 800;
+
+            word-break:
+                break-word;
         }
 
 
-        .correct-result {
+        /*
+        |--------------------------------------------------------------------------
+        | ANALYSIS
+        |--------------------------------------------------------------------------
+        */
 
-            color:
-                var(--result-green);
+        .analysis-card {
 
-            background:
-                #EDF7EF;
-        }
-
-
-        .wrong-result {
-
-            color:
-                var(--result-red);
-
-            background:
-                #FFF0F0;
-        }
-
-
-        .unanswered-result {
-
-            color:
-                #6D675F;
-
-            background:
-                #F0EEE9;
-        }
-
-
-        .question-analysis-body {
+            margin-top:
+                20px;
 
             padding:
-                17px;
+                25px;
         }
 
 
-        .answer-line {
+        .analysis-summary {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            flex-wrap:
+                wrap;
+
+            gap:
+                12px;
+
+            margin-bottom:
+                20px;
+
+            padding:
+                14px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                16px;
+
+            background:
+                var(--cream-light);
+        }
+
+
+        .analysis-summary-left {
 
             display:
                 flex;
@@ -1774,239 +3225,956 @@ $csrfToken =
             flex-wrap:
                 wrap;
 
-            gap:
-                7px;
+            align-items:
+                center;
 
-            margin-top:
+            gap:
+                8px;
+        }
+
+
+        .summary-pill {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                6px;
+
+            min-height:
+                30px;
+
+            padding:
+                0 9px;
+
+            border-radius:
                 9px;
 
-            color:
-                var(--result-text);
-
             font-size:
-                12px;
-
-            line-height:
-                1.65;
-        }
-
-
-        .answer-line:first-child {
-
-            margin-top:
-                0;
-        }
-
-
-        .answer-line > strong {
-
-            color:
-                var(--result-brown-dark);
-        }
-
-
-        .answer-correct {
-
-            color:
-                var(--result-green);
-
-            font-weight:
-                700;
-        }
-
-
-        .answer-wrong {
-
-            color:
-                var(--result-red);
-
-            font-weight:
-                700;
-        }
-
-
-        .answer-neutral {
-
-            color:
-                var(--result-muted);
-
-            font-weight:
-                600;
-        }
-
-
-        .marks-earned {
-
-            color:
-                var(--result-brown);
+                8px;
 
             font-weight:
                 800;
         }
 
 
-        .explanation {
-
-            margin-top:
-                14px;
-
-            padding:
-                14px;
-
-            border-left:
-                3px solid
-                var(--result-olive);
-
-            border-radius:
-                0 12px 12px 0;
-
-            background:
-                #F7F5EF;
+        .summary-pill.green {
 
             color:
-                #555;
+                var(--green);
+
+            background:
+                var(--green-bg);
+        }
+
+
+        .summary-pill.red {
+
+            color:
+                var(--red);
+
+            background:
+                var(--red-bg);
+        }
+
+
+        .summary-pill.gray {
+
+            color:
+                #6F6861;
+
+            background:
+                #ECE8E1;
+        }
+
+
+        .summary-pill.olive {
+
+            color:
+                var(--olive-dark);
+
+            background:
+                #EAF2DF;
+        }
+
+
+        .analysis-item {
+
+            overflow:
+                hidden;
+
+            margin-bottom:
+                13px;
+
+            padding:
+                17px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                18px;
+
+            background:
+                #FFFFFF;
+
+            transition:
+                .2s ease;
+        }
+
+
+        .analysis-item:hover {
+
+            transform:
+                translateY(
+                    -1px
+                );
+
+            box-shadow:
+                0 12px 30px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .07
+                );
+        }
+
+
+        .analysis-item.correct {
+
+            border-left:
+                4px solid
+                var(--olive);
+        }
+
+
+        .analysis-item.wrong {
+
+            border-left:
+                4px solid
+                var(--red);
+        }
+
+
+        .analysis-item.unanswered {
+
+            border-left:
+                4px solid
+                #8B837B;
+        }
+
+
+        .analysis-head {
+
+            display:
+                flex;
+
+            align-items:
+                flex-start;
+
+            justify-content:
+                space-between;
+
+            gap:
+                14px;
+
+            margin-bottom:
+                10px;
+        }
+
+
+        .question-no {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                7px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                10px;
+
+            font-weight:
+                900;
+        }
+
+
+        .question-no span {
+
+            width:
+                31px;
+
+            height:
+                31px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            border-radius:
+                9px;
+
+            color:
+                var(--white);
+
+            background:
+                var(--brown);
+
+            font-size:
+                9px;
+        }
+
+
+        .question-result-badge {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                6px;
+
+            padding:
+                6px 9px;
+
+            border-radius:
+                9px;
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            white-space:
+                nowrap;
+        }
+
+
+        .question-result-badge.correct {
+
+            color:
+                var(--green);
+
+            background:
+                var(--green-bg);
+        }
+
+
+        .question-result-badge.wrong {
+
+            color:
+                var(--red);
+
+            background:
+                var(--red-bg);
+        }
+
+
+        .question-result-badge.unanswered {
+
+            color:
+                #6D665F;
+
+            background:
+                #ECE8E1;
+        }
+
+
+        .question-text {
+
+            color:
+                var(--brown-dark);
 
             font-size:
                 12px;
 
             line-height:
-                1.75;
+                1.65;
+
+            font-weight:
+                700;
         }
 
 
-        .footer-note {
+        .question-image {
+
+            display:
+                block;
+
+            max-width:
+                100%;
+
+            max-height:
+                280px;
+
+            margin:
+                12px 0;
+
+            object-fit:
+                contain;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                13px;
+
+            background:
+                #FAF8F3;
+        }
+
+
+        .answers-grid {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    2,
+                    minmax(
+                        0,
+                        1fr
+                    )
+                );
+
+            gap:
+                9px;
 
             margin-top:
-                20px;
+                13px;
+        }
 
-            text-align:
-                center;
+
+        .answer-box {
+
+            padding:
+                11px 12px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                12px;
+
+            background:
+                var(--cream-light);
+        }
+
+
+        .answer-box span {
+
+            display:
+                block;
+
+            margin-bottom:
+                4px;
 
             color:
-                var(--result-muted);
+                var(--muted);
+
+            font-size:
+                7px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .7px;
+        }
+
+
+        .answer-box strong {
+
+            display:
+                block;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                9px;
+
+            line-height:
+                1.5;
+        }
+
+
+        .answer-box.your-answer.correct-answer {
+
+            border-color:
+                #CFE0C1;
+
+            background:
+                #F3F8ED;
+        }
+
+
+        .answer-box.your-answer.wrong-answer {
+
+            border-color:
+                #ECC9C4;
+
+            background:
+                #FCF2F0;
+        }
+
+
+        .explanation {
+
+            margin-top:
+                11px;
+
+            padding:
+                11px 12px;
+
+            border-radius:
+                12px;
+
+            background:
+                #F7F4EE;
+        }
+
+
+        .explanation-title {
+
+            margin-bottom:
+                4px;
+
+            color:
+                var(--olive-dark);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+        }
+
+
+        .explanation-text {
+
+            color:
+                #6B635D;
+
+            font-size:
+                9px;
+
+            line-height:
+                1.65;
+        }
+
+
+        .marks-line {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                12px;
+
+            margin-top:
+                11px;
+
+            padding-top:
+                10px;
+
+            border-top:
+                1px dashed
+                #DDD6CC;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+        }
+
+
+        .marks-line strong {
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                9px;
+
+            font-weight:
+                900;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | SIDEBAR
+        |--------------------------------------------------------------------------
+        */
+
+        .sticky-column {
+
+            position:
+                relative;
+        }
+
+
+        .sidebar-card {
+
+            padding:
+                22px;
+        }
+
+
+        .score-big {
+
+            padding:
+                18px;
+
+            border-radius:
+                19px;
+
+            color:
+                var(--white);
+
+            background:
+                linear-gradient(
+                    145deg,
+                    var(--olive),
+                    var(--olive-dark)
+                );
+
+            box-shadow:
+                0 18px 35px
+                rgba(
+                    85,
+                    107,
+                    47,
+                    .18
+                );
+        }
+
+
+        .score-big small {
+
+            display:
+                block;
+
+            color:
+                #DCE7CF;
+
+            font-size:
+                8px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                1px;
+        }
+
+
+        .score-big strong {
+
+            display:
+                block;
+
+            margin-top:
+                5px;
+
+            color:
+                #FFFFFF;
+
+            font-size:
+                34px;
+
+            line-height:
+                1;
+
+            font-weight:
+                900;
+        }
+
+
+        .score-big span {
+
+            display:
+                block;
+
+            margin-top:
+                5px;
+
+            color:
+                #DDE6D2;
+
+            font-size:
+                8px;
+        }
+
+
+        .sidebar-section {
+
+            margin-top:
+                19px;
+        }
+
+
+        .sidebar-title {
+
+            margin-bottom:
+                10px;
+
+            color:
+                var(--brown-dark);
 
             font-size:
                 10px;
+
+            font-weight:
+                800;
+        }
+
+
+        .detail-row {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                10px;
+
+            padding:
+                9px 0;
+
+            border-bottom:
+                1px dashed
+                #E2DBD1;
+        }
+
+
+        .detail-row:last-child {
+
+            border-bottom:
+                0;
+        }
+
+
+        .detail-row span {
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+        }
+
+
+        .detail-row strong {
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            text-align:
+                right;
+        }
+
+
+        .notice {
+
+            margin-top:
+                18px;
+
+            padding:
+                12px;
+
+            border:
+                1px solid
+                #DDD7CA;
+
+            border-radius:
+                13px;
+
+            background:
+                #F8F5ED;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
 
             line-height:
                 1.6;
         }
 
 
-        .empty-analysis {
+        .notice i {
+
+            color:
+                var(--olive);
+
+            margin-right:
+                4px;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | EMPTY ANALYSIS
+        |--------------------------------------------------------------------------
+        */
+
+        .empty-state {
 
             padding:
-                45px 20px;
+                40px 20px;
 
             text-align:
                 center;
 
-            color:
-                var(--result-muted);
+            border:
+                1px dashed
+                var(--border);
+
+            border-radius:
+                18px;
+
+            background:
+                var(--cream-light);
         }
 
 
-        .empty-analysis i {
+        .empty-state i {
 
             margin-bottom:
                 10px;
 
+            color:
+                var(--muted);
+
             font-size:
-                32px;
+                28px;
+        }
+
+
+        .empty-state h3 {
+
+            margin:
+                0 0 5px;
 
             color:
-                var(--result-olive);
+                var(--brown-dark);
+
+            font-size:
+                14px;
+
+            font-weight:
+                800;
         }
 
 
-        @media (
-            max-width: 900px
-        ) {
+        .empty-state p {
 
-            .metric-grid {
+            margin:
+                0;
 
-                grid-template-columns:
-                    repeat(
-                        2,
-                        1fr
-                    );
-            }
+            color:
+                var(--muted);
 
+            font-size:
+                9px;
         }
 
 
-        @media (
-            max-width: 700px
-        ) {
+        /*
+        |--------------------------------------------------------------------------
+        | FOOTER
+        |--------------------------------------------------------------------------
+        */
 
-            .result-page {
+        .result-footer {
 
-                padding:
-                    18px 11px 45px;
-            }
+            margin-top:
+                22px;
 
+            padding:
+                18px;
 
-            .result-hero,
-            .score-card,
-            .section-card {
+            border:
+                1px solid
+                var(--border);
 
-                padding:
-                    19px;
+            border-radius:
+                18px;
 
-                border-radius:
-                    20px;
-            }
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .75
+                );
 
+            color:
+                var(--muted);
 
-            .result-actions .result-btn {
+            font-size:
+                8px;
 
-                flex:
-                    1 1
-                    calc(
-                        50% - 6px
-                    );
-            }
-
-
-            .metric-grid {
-
-                grid-template-columns:
-                    1fr 1fr;
-            }
-
-
-            .score-circle {
-
-                width:
-                    160px;
-
-                height:
-                    160px;
-            }
-
-
-            .score-percentage {
-
-                font-size:
-                    30px;
-            }
-
-
-            .question-analysis-top {
-
-                flex-direction:
-                    column;
-            }
-
-
-            .question-result {
-
-                align-self:
-                    flex-start;
-            }
-
+            text-align:
+                center;
         }
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | EMAIL MODAL
+        |--------------------------------------------------------------------------
+        */
+
+        .modal-content {
+
+            border:
+                0;
+
+            border-radius:
+                22px;
+
+            overflow:
+                hidden;
+
+            box-shadow:
+                0 30px 80px
+                rgba(
+                    0,
+                    0,
+                    0,
+                    .20
+                );
+        }
+
+
+        .modal-header {
+
+            color:
+                var(--white);
+
+            border:
+                0;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+        }
+
+
+        .modal-title {
+
+            font-size:
+                15px;
+
+            font-weight:
+                800;
+        }
+
+
+        .modal-body {
+
+            padding:
+                22px;
+        }
+
+
+        .email-status {
+
+            display:
+                none;
+
+            margin-top:
+                14px;
+
+            padding:
+                10px 12px;
+
+            border-radius:
+                10px;
+
+            font-size:
+                9px;
+
+            font-weight:
+                700;
+        }
+
+
+        .email-status.show {
+            display:
+                block;
+        }
+
+
+        .email-status.success {
+
+            color:
+                var(--green);
+
+            background:
+                var(--green-bg);
+        }
+
+
+        .email-status.error {
+
+            color:
+                var(--red);
+
+            background:
+                var(--red-bg);
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | PRINT
+        |--------------------------------------------------------------------------
+        */
 
         @media print {
 
@@ -2017,35 +4185,326 @@ $csrfToken =
             }
 
 
-            .result-page {
+            .result-shell {
 
-                max-width:
+                width:
                     100%;
 
-                padding:
+                margin:
                     0;
             }
 
 
+            .result-nav,
             .result-actions {
+
+                display:
+                    none !important;
+            }
+
+
+            .result-hero {
+
+                margin-top:
+                    0;
+
+                box-shadow:
+                    none;
+            }
+
+
+            .card {
+
+                box-shadow:
+                    none;
+
+                break-inside:
+                    avoid;
+            }
+
+
+            .analysis-item {
+
+                break-inside:
+                    avoid;
+            }
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | RESPONSIVE
+        |--------------------------------------------------------------------------
+        */
+
+        @media (
+            max-width: 1180px
+        ) {
+
+            .main-grid {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .sticky-column {
+
+                display:
+                    grid;
+
+                grid-template-columns:
+                    repeat(
+                        2,
+                        minmax(
+                            0,
+                            1fr
+                        )
+                    );
+
+                gap:
+                    20px;
+            }
+
+
+            .sticky-column .info-card {
+
+                margin-top:
+                    0;
+            }
+        }
+
+
+        @media (
+            max-width: 900px
+        ) {
+
+            .score-layout {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .score-circle-wrap {
+
+                justify-content:
+                    flex-start;
+            }
+
+
+            .sticky-column {
+
+                display:
+                    block;
+            }
+
+
+            .sticky-column .info-card {
+
+                margin-top:
+                    20px;
+            }
+        }
+
+
+        @media (
+            max-width: 700px
+        ) {
+
+            .result-shell {
+
+                width:
+                    calc(
+                        100% - 18px
+                    );
+
+                margin:
+                    9px auto 30px;
+            }
+
+
+            .result-nav {
+
+                position:
+                    static;
+
+                border-radius:
+                    17px;
+
+                padding:
+                    10px;
+            }
+
+
+            .nav-actions {
 
                 display:
                     none;
             }
 
 
-            .result-hero,
-            .score-card,
-            .section-card {
+            .result-hero {
 
-                box-shadow:
-                    none;
+                margin-top:
+                    12px;
 
-                border:
-                    1px solid
-                    #DDD;
+                padding:
+                    19px;
+
+                border-radius:
+                    22px;
             }
 
+
+            .hero-top {
+
+                flex-direction:
+                    column;
+            }
+
+
+            .hero-status {
+
+                width:
+                    100%;
+
+                min-width:
+                    0;
+            }
+
+
+            .hero-title {
+
+                font-size:
+                    25px;
+            }
+
+
+            .hero-bottom {
+
+                align-items:
+                    flex-start;
+
+                flex-direction:
+                    column;
+            }
+
+
+            .hero-report {
+
+                text-align:
+                    left;
+            }
+
+
+            .score-card,
+            .performance-card,
+            .info-card,
+            .analysis-card,
+            .sidebar-card {
+
+                padding:
+                    17px;
+
+                border-radius:
+                    19px;
+            }
+
+
+            .score-circle {
+
+                width:
+                    190px;
+
+                height:
+                    190px;
+            }
+
+
+            .score-details {
+
+                grid-template-columns:
+                    1fr
+                    1fr;
+            }
+
+
+            .mini-grid {
+
+                grid-template-columns:
+                    1fr
+                    1fr;
+            }
+
+
+            .info-list {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .answers-grid {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .analysis-head {
+
+                flex-direction:
+                    column;
+            }
+
+
+            .question-result-badge {
+
+                align-self:
+                    flex-start;
+            }
+
+
+            .action-btn {
+
+                flex:
+                    1 1 140px;
+            }
+        }
+
+
+        @media (
+            max-width: 450px
+        ) {
+
+            .score-details {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .mini-grid {
+
+                grid-template-columns:
+                    1fr;
+            }
+
+
+            .brand small {
+
+                display:
+                    none;
+            }
+
+
+            .hero-meta-divider {
+
+                display:
+                    none;
+            }
         }
 
     </style>
@@ -2056,96 +4515,206 @@ $csrfToken =
 <body>
 
 
-<main class="result-page">
+<div class="result-shell">
+
+
+    <!-- =====================================================
+         NAVIGATION
+    ====================================================== -->
+
+    <nav class="result-nav">
+
+
+        <a
+            href="dashboard.php"
+            class="brand"
+        >
+
+            <span class="brand-icon">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-graduation-cap
+                    "
+                ></i>
+
+            </span>
+
+
+            <span>
+
+                <strong>
+                    ExamSphere
+                </strong>
+
+                <small>
+                    Examination Result
+                </small>
+
+            </span>
+
+        </a>
+
+
+        <div class="nav-actions">
+
+            <a
+                href="dashboard.php"
+                class="nav-btn"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-house
+                    "
+                ></i>
+
+                Dashboard
+
+            </a>
+
+
+            <a
+                href="my_exams.php"
+                class="nav-btn"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-file-lines
+                    "
+                ></i>
+
+                My Exams
+
+            </a>
+
+        </div>
+
+    </nav>
 
 
     <!-- =====================================================
          HERO
     ====================================================== -->
 
-    <section class="result-hero">
+    <section
+        class="
+            result-hero
+            <?= $statusClass; ?>
+        "
+    >
 
-        <div class="result-title">
-
-            <span class="result-kicker">
-
-                <i
-                    class="fa-solid fa-chart-column"
-                ></i>
-
-                ExamSphere Result
-
-            </span>
+        <div class="hero-content">
 
 
-            <div
-                class="
-                    d-flex
-                    flex-wrap
-                    justify-content-between
-                    align-items-start
-                    gap-3
-                "
-            >
+            <div class="hero-top">
+
 
                 <div>
 
-                    <h1>
-                        Examination result
+
+                    <div class="hero-kicker">
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-award
+                            "
+                        ></i>
+
+                        <?= result_escape(
+                            $examType
+                        ); ?>
+
+                        Result
+
+                    </div>
+
+
+                    <h1 class="hero-title">
+
+                        <?= result_escape(
+                            $examTitle
+                        ); ?>
+
                     </h1>
 
 
-                    <p>
-
-                        <?= result_escape(
-                            $result['exam_title']
-                        ) ?>
-
-                    </p>
-
-
-                    <div class="exam-meta-row">
+                    <div class="hero-meta">
 
 
                         <span
-                            class="exam-meta-pill"
+                            class="
+                                hero-meta-item
+                            "
                         >
 
                             <i
                                 class="
                                     fa-solid
-                                    fa-book-open
+                                    fa-book
                                 "
                             ></i>
 
                             <?= result_escape(
-                                $result['subject_name']
-                                ?: 'General'
-                            ) ?>
+                                $subjectName
+                            ); ?>
 
                         </span>
 
 
-                        <span
-                            class="exam-meta-pill"
-                        >
+                        <?php if (
+                            $subjectCode !== ''
+                        ): ?>
 
-                            <i
+                            <span
                                 class="
-                                    fa-solid
-                                    fa-file-lines
+                                    hero-meta-divider
                                 "
-                            ></i>
+                            >
+                                •
+                            </span>
 
-                            <?= result_escape(
-                                $result['exam_type']
-                            ) ?>
 
+                            <span
+                                class="
+                                    hero-meta-item
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-hashtag
+                                    "
+                                ></i>
+
+                                <?= result_escape(
+                                    $subjectCode
+                                ); ?>
+
+                            </span>
+
+                        <?php endif; ?>
+
+
+                        <span
+                            class="
+                                hero-meta-divider
+                            "
+                        >
+                            •
                         </span>
 
 
                         <span
-                            class="exam-meta-pill"
+                            class="
+                                hero-meta-item
+                            "
                         >
 
                             <i
@@ -2157,119 +4726,2106 @@ $csrfToken =
 
                             <?= result_escape(
                                 $resultDate
-                            ) ?>
+                            ); ?>
 
                         </span>
-
 
                     </div>
 
                 </div>
 
 
-                <div>
-
-                    <span
-                        class="
-                            status-pill
-                            <?= $isPassed
-                                ? 'status-pass'
-                                : 'status-fail'
-                            ?>
-                        "
-                    >
-
-                        <i
-                            class="
-                                fa-solid
-                                <?= $isPassed
-                                    ? 'fa-circle-check'
-                                    : 'fa-circle-xmark'
-                                ?>
-                            "
-                        ></i>
-
+                <div
+                    class="
+                        hero-status
                         <?= $isPassed
-                            ? 'PASS'
-                            : 'FAIL'
-                        ?>
+                            ? 'is-pass'
+                            : 'is-fail'
+                        ?>"
+                >
 
+                    <i
+                        class="
+                            fa-solid
+                            <?= $statusIcon; ?>
+                        "
+                    ></i>
+
+
+                    <span class="hero-status-label">
+                        Result Status
                     </span>
+
+
+                    <strong>
+                        <?= $statusLabel; ?>
+                    </strong>
 
                 </div>
 
             </div>
 
 
-            <div class="result-actions">
+            <div class="hero-bottom">
+
+
+                <div class="hero-message">
+
+                    <strong>
+
+                        <?= result_escape(
+                            $statusMessage
+                        ); ?>
+
+                    </strong>
+
+
+                    <span>
+
+                        <?= result_escape(
+                            $statusSubmessage
+                        ); ?>
+
+                    </span>
+
+                </div>
+
+
+                <div class="hero-report">
+
+                    <small>
+                        Result ID
+                    </small>
+
+                    <strong>
+                        #<?= (int) $resultId; ?>
+                    </strong>
+
+                </div>
+
+
+            </div>
+
+
+        </div>
+
+    </section>
+
+
+    <!-- =====================================================
+         ACTIONS
+    ====================================================== -->
+
+    <div class="result-actions">
+
+
+        <a
+            href="dashboard.php"
+            class="action-btn"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-house
+                "
+            ></i>
+
+            Dashboard
+
+        </a>
+
+
+        <a
+            href="my_exams.php"
+            class="action-btn"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-file-lines
+                "
+            ></i>
+
+            My Exams
+
+        </a>
+
+
+        <a
+            href="
+                ajax/download_result_pdf.php?attempt_id=<?= (int) $result['attempt_id']; ?>
+            "
+            class="
+                action-btn
+                primary
+            "
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-file-pdf
+                "
+            ></i>
+
+            Download PDF
+
+        </a>
+
+
+        <button
+            type="button"
+            class="action-btn"
+            id="emailResult"
+            data-attempt-id="<?= (int) $result['attempt_id']; ?>"
+            data-csrf-token="<?= result_escape(
+                $csrfToken
+            ); ?>"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-envelope
+                "
+            ></i>
+
+            Email Result
+
+        </button>
+
+
+        <button
+            type="button"
+            class="action-btn"
+            id="printResult"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-print
+                "
+            ></i>
+
+            Print
+
+        </button>
+
+    </div>
+
+
+    <!-- =====================================================
+         MAIN GRID
+    ====================================================== -->
+
+    <div class="main-grid">
+
+
+        <!-- =================================================
+             LEFT
+        ================================================== -->
+
+        <div>
+
+
+            <!-- =============================================
+                 SCORE CARD
+            ============================================== -->
+
+            <section class="card score-card">
+
+
+                <div class="section-header">
+
+
+                    <div class="section-heading">
+
+                        <small>
+                            Final Performance
+                        </small>
+
+                        <h2>
+                            Your Score
+                        </h2>
+
+                        <p>
+                            Complete result summary from your finalized attempt.
+                        </p>
+
+                    </div>
+
+
+                    <div
+                        class="score-performance"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-chart-line
+                                me-1
+                            "
+                        ></i>
+
+                        <?= result_escape(
+                            $performanceLabel
+                        ); ?>
+
+                    </div>
+
+
+                </div>
+
+
+                <div class="score-layout">
+
+
+                    <!-- SCORE -->
+
+                    <div class="score-circle-wrap">
+
+                        <div
+                            class="score-circle"
+                            aria-label="
+                                <?= result_escape(
+                                    $percentage
+                                ); ?> percent
+                            "
+                        >
+
+                            <div
+                                class="
+                                    score-circle-content
+                                "
+                            >
+
+                                <div
+                                    class="
+                                        score-percent
+                                    "
+                                >
+
+                                    <?= result_number(
+                                        $percentage
+                                    ); ?>%
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        score-label
+                                    "
+                                >
+
+                                    Overall Score
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        score-performance
+                                    "
+                                >
+
+                                    <?= result_number(
+                                        $obtainedMarks
+                                    ); ?>
+
+                                    /
+
+                                    <?= result_number(
+                                        $totalMarks
+                                    ); ?>
+
+                                    Marks
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- METRICS -->
+
+                    <div class="score-details">
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    olive
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-list-check
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Total Questions
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= $totalQuestions; ?>
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                Full configured set
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    green
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-circle-check
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Correct
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= $correctAnswers; ?>
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                <?= result_number(
+                                    $correctPercentage
+                                ); ?>% of questions
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    red
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-circle-xmark
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Wrong
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= $wrongAnswers; ?>
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                <?= result_number(
+                                    $wrongPercentage
+                                ); ?>% of questions
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    gold
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-regular
+                                        fa-circle
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Unanswered
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= $unansweredQuestions; ?>
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                <?= result_number(
+                                    $unansweredPercentage
+                                ); ?>% of questions
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    purple
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-bullseye
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Accuracy
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= result_number(
+                                    $accuracy
+                                ); ?>%
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                Correct / attempted
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="metric-box">
+
+                            <div
+                                class="
+                                    metric-icon
+                                    olive
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-stopwatch
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div class="metric-label">
+                                Time Used
+                            </div>
+
+
+                            <div class="metric-value">
+
+                                <?= result_escape(
+                                    $timeUsedLabel
+                                ); ?>
+
+                            </div>
+
+
+                            <div class="metric-sub">
+
+                                <?= $durationMinutes; ?>
+                                minute limit
+
+                            </div>
+
+                        </div>
+
+
+                    </div>
+
+
+                </div>
+
+
+                <!-- FORMULA -->
+
+                <div class="formula-card">
+
+
+                    <div class="formula-title">
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-calculator
+                            "
+                        ></i>
+
+                        Dynamic Marks Calculation
+
+                    </div>
+
+
+                    <div class="formula-main">
+
+                        <?= $totalQuestions; ?>
+
+                        Questions
+
+                        ×
+
+                        <?= result_number(
+                            $marksPerQuestion
+                        ); ?>
+
+                        Mark/Question
+
+                        =
+
+                        <?= result_number(
+                            $calculatedTotalMarks
+                        ); ?>
+
+                        Total Marks
+
+                    </div>
+
+
+                    <div class="formula-note">
+
+                        Final result total is calculated from the configured
+                        question count and per-question marks.
+
+                    </div>
+
+                </div>
+
+
+            </section>
+
+
+            <!-- =============================================
+                 PERFORMANCE
+            ============================================== -->
+
+            <section
+                class="
+                    card
+                    performance-card
+                "
+            >
+
+
+                <div class="section-header">
+
+                    <div class="section-heading">
+
+                        <small>
+                            Performance Analysis
+                        </small>
+
+                        <h2>
+                            Question Distribution
+                        </h2>
+
+                        <p>
+                            Visual breakdown of your attempt.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="performance-row">
+
+
+                    <div class="performance-top">
+
+                        <div
+                            class="
+                                performance-name
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-pen
+                                "
+                            ></i>
+
+                            Attempted
+
+                        </div>
+
+
+                        <div
+                            class="
+                                performance-value
+                            "
+                        >
+
+                            <?= $attemptedQuestions; ?>
+
+                            /
+
+                            <?= $totalQuestions; ?>
+
+                            &nbsp;
+
+                            (<?= result_number(
+                                $completion
+                            ); ?>%)
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="progress-track">
+
+                        <div
+                            class="
+                                progress-fill
+                                fill-gold
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $completion
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="performance-row">
+
+
+                    <div class="performance-top">
+
+                        <div
+                            class="
+                                performance-name
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-check
+                                "
+                            ></i>
+
+                            Correct
+
+                        </div>
+
+
+                        <div
+                            class="
+                                performance-value
+                            "
+                        >
+
+                            <?= $correctAnswers; ?>
+
+                            (<?= result_number(
+                                $correctPercentage
+                            ); ?>%)
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="progress-track">
+
+                        <div
+                            class="
+                                progress-fill
+                                fill-green
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $correctPercentage
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="performance-row">
+
+
+                    <div class="performance-top">
+
+                        <div
+                            class="
+                                performance-name
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-xmark
+                                "
+                            ></i>
+
+                            Wrong
+
+                        </div>
+
+
+                        <div
+                            class="
+                                performance-value
+                            "
+                        >
+
+                            <?= $wrongAnswers; ?>
+
+                            (<?= result_number(
+                                $wrongPercentage
+                            ); ?>%)
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="progress-track">
+
+                        <div
+                            class="
+                                progress-fill
+                                fill-red
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $wrongPercentage
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="performance-row">
+
+
+                    <div class="performance-top">
+
+                        <div
+                            class="
+                                performance-name
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-circle
+                                "
+                            ></i>
+
+                            Unanswered
+
+                        </div>
+
+
+                        <div
+                            class="
+                                performance-value
+                            "
+                        >
+
+                            <?= $unansweredQuestions; ?>
+
+                            (<?= result_number(
+                                $unansweredPercentage
+                            ); ?>%)
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="progress-track">
+
+                        <div
+                            class="
+                                progress-fill
+                                fill-gray
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $unansweredPercentage
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="mini-grid">
+
+
+                    <div class="mini-stat">
+
+                        <span>
+                            Accuracy
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $accuracy
+                            ); ?>%
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="mini-stat">
+
+                        <span>
+                            Passing Score
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $passingMarks
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="mini-stat">
+
+                        <span>
+                            Grade
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $grade
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+            </section>
+
+
+            <!-- =============================================
+                 EXAM INFORMATION
+            ============================================== -->
+
+            <section
+                class="
+                    card
+                    info-card
+                "
+            >
+
+
+                <div class="section-header">
+
+                    <div class="section-heading">
+
+                        <small>
+                            Examination Details
+                        </small>
+
+                        <h2>
+                            Attempt Information
+                        </h2>
+
+                    </div>
+
+                </div>
+
+
+                <div class="info-list">
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Examination
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $examTitle
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Subject
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $subjectName
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Exam Type
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $examType
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Duration
+                        </span>
+
+                        <strong>
+
+                            <?= $durationMinutes; ?>
+
+                            minutes
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Time Used
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $timeUsedLabel
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Submitted
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $submittedDate
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Negative Marking
+                        </span>
+
+                        <strong>
+
+                            <?= (int) (
+                                $result[
+                                    'negative_marking'
+                                ] ?? 0
+                            ) === 1
+                                ? 'Enabled'
+                                : 'None'
+                            ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="info-item">
+
+                        <span>
+                            Attempt Status
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $result[
+                                    'attempt_status'
+                                ]
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                </div>
+
+
+                <?php if (
+                    $examDescription !== ''
+                ): ?>
+
+                    <div class="notice">
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-circle-info
+                            "
+                        ></i>
+
+                        <?= nl2br(
+                            result_escape(
+                                $examDescription
+                            )
+                        ); ?>
+
+                    </div>
+
+                <?php endif; ?>
+
+
+            </section>
+
+
+            <!-- =============================================
+                 QUESTION ANALYSIS
+            ============================================== -->
+
+            <section
+                class="
+                    card
+                    analysis-card
+                "
+                id="questionAnalysis"
+            >
+
+
+                <div class="section-header">
+
+                    <div class="section-heading">
+
+                        <small>
+                            Detailed Review
+                        </small>
+
+                        <h2>
+                            Question-wise Analysis
+                        </h2>
+
+                        <p>
+                            Review every response and its awarded marks.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="analysis-summary">
+
+
+                    <div
+                        class="
+                            analysis-summary-left
+                        "
+                    >
+
+                        <span
+                            class="
+                                summary-pill
+                                olive
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-list
+                                "
+                            ></i>
+
+                            <?= $analysisTotal; ?>
+
+                            Questions
+
+                        </span>
+
+
+                        <span
+                            class="
+                                summary-pill
+                                green
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-check
+                                "
+                            ></i>
+
+                            <?= $analysisCorrect; ?>
+
+                            Correct
+
+                        </span>
+
+
+                        <span
+                            class="
+                                summary-pill
+                                red
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-xmark
+                                "
+                            ></i>
+
+                            <?= $analysisWrong; ?>
+
+                            Wrong
+
+                        </span>
+
+
+                        <span
+                            class="
+                                summary-pill
+                                gray
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-circle
+                                "
+                            ></i>
+
+                            <?= $analysisUnanswered; ?>
+
+                            Unanswered
+
+                        </span>
+
+                    </div>
+
+
+                    <span
+                        class="
+                            summary-pill
+                            olive
+                        "
+                    >
+
+                        <?= result_number(
+                            $obtainedMarks
+                        ); ?>
+
+                        /
+
+                        <?= result_number(
+                            $totalMarks
+                        ); ?>
+
+                        Marks
+
+                    </span>
+
+
+                </div>
+
+
+                <?php if (
+                    !empty(
+                        $analysis
+                    )
+                ): ?>
+
+
+                    <?php foreach (
+                        $analysis as $index => $question
+                    ): ?>
+
+
+                        <?php
+
+                        $selectedAnswer =
+                            strtoupper(
+                                trim(
+                                    (string) (
+                                        $question[
+                                            'selected_answer'
+                                        ] ?? ''
+                                    )
+                                )
+                            );
+
+
+                        $correctAnswer =
+                            strtoupper(
+                                trim(
+                                    (string) (
+                                        $question[
+                                            'correct_answer'
+                                        ] ?? ''
+                                    )
+                                )
+                            );
+
+
+                        $isAnswered =
+                            in_array(
+                                $selectedAnswer,
+                                [
+                                    'A',
+                                    'B',
+                                    'C',
+                                    'D'
+                                ],
+                                true
+                            );
+
+
+                        $isCorrect =
+                            (int) (
+                                $question[
+                                    'is_correct'
+                                ] ?? 0
+                            ) === 1;
+
+
+                        $questionClass =
+                            $isCorrect
+                                ? 'correct'
+                                : (
+                                    $isAnswered
+                                        ? 'wrong'
+                                        : 'unanswered'
+                                );
+
+
+                        $statusText =
+                            $isCorrect
+                                ? 'Correct'
+                                : (
+                                    $isAnswered
+                                        ? 'Wrong'
+                                        : 'Not Answered'
+                                );
+
+
+                        $statusIcon =
+                            $isCorrect
+                                ? 'fa-check'
+                                : (
+                                    $isAnswered
+                                        ? 'fa-xmark'
+                                        : 'fa-circle'
+                                );
+
+
+                        $yourAnswerText =
+                            $isAnswered
+                                ? result_option_text(
+                                    $question,
+                                    $selectedAnswer
+                                )
+                                : 'Not answered';
+
+
+                        $correctAnswerText =
+                            result_option_text(
+                                $question,
+                                $correctAnswer
+                            );
+
+
+                        $questionMarks =
+                            round(
+                                (float) (
+                                    $question[
+                                        'marks'
+                                    ] ?? 0
+                                ),
+                                2
+                            );
+
+
+                        $marksAwarded =
+                            round(
+                                (float) (
+                                    $question[
+                                        'marks_awarded'
+                                    ] ?? 0
+                                ),
+                                2
+                            );
+
+
+                        ?>
+
+
+                        <article
+                            class="
+                                analysis-item
+                                <?= $questionClass; ?>
+                            "
+                        >
+
+
+                            <div class="analysis-head">
+
+
+                                <div class="question-no">
+
+                                    <span>
+                                        <?= $index + 1; ?>
+                                    </span>
+
+                                    Question
+                                    <?= $index + 1; ?>
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        question-result-badge
+                                        <?= $questionClass; ?>
+                                    "
+                                >
+
+                                    <i
+                                        class="
+                                            fa-solid
+                                            <?= $statusIcon; ?>
+                                        "
+                                    ></i>
+
+                                    <?= result_escape(
+                                        $statusText
+                                    ); ?>
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="question-text">
+
+                                <?= nl2br(
+                                    result_escape(
+                                        $question[
+                                            'question_text'
+                                        ] ?? ''
+                                    )
+                                ); ?>
+
+                            </div>
+
+
+                            <?php if (
+                                !empty(
+                                    $question[
+                                        'question_image'
+                                    ]
+                                )
+                            ): ?>
+
+                                <img
+                                    src="<?= result_escape(
+                                        $question[
+                                            'question_image'
+                                        ]
+                                    ); ?>"
+                                    alt="Question"
+                                    class="question-image"
+                                    loading="lazy"
+                                >
+
+                            <?php endif; ?>
+
+
+                            <div class="answers-grid">
+
+
+                                <div
+                                    class="
+                                        answer-box
+                                        your-answer
+                                        <?= $isCorrect
+                                            ? 'correct-answer'
+                                            : (
+                                                $isAnswered
+                                                    ? 'wrong-answer'
+                                                    : ''
+                                            )
+                                        ?>
+                                    "
+                                >
+
+                                    <span>
+                                        Your Answer
+                                    </span>
+
+                                    <strong>
+
+                                        <?php if (
+                                            $isAnswered
+                                        ): ?>
+
+                                            <?= result_escape(
+                                                $selectedAnswer
+                                            ); ?>
+
+                                            <?php if (
+                                                $yourAnswerText !== ''
+                                            ): ?>
+
+                                                —
+                                                <?= result_escape(
+                                                    $yourAnswerText
+                                                ); ?>
+
+                                            <?php endif; ?>
+
+                                        <?php else: ?>
+
+                                            Not answered
+
+                                        <?php endif; ?>
+
+                                    </strong>
+
+                                </div>
+
+
+                                <div
+                                    class="
+                                        answer-box
+                                        correct-answer
+                                    "
+                                >
+
+                                    <span>
+                                        Correct Answer
+                                    </span>
+
+                                    <strong>
+
+                                        <?php if (
+                                            $correctAnswer !== ''
+                                        ): ?>
+
+                                            <?= result_escape(
+                                                $correctAnswer
+                                            ); ?>
+
+                                            <?php if (
+                                                $correctAnswerText !== ''
+                                            ): ?>
+
+                                                —
+                                                <?= result_escape(
+                                                    $correctAnswerText
+                                                ); ?>
+
+                                            <?php endif; ?>
+
+                                        <?php else: ?>
+
+                                            Not available
+
+                                        <?php endif; ?>
+
+                                    </strong>
+
+                                </div>
+
+
+                            </div>
+
+
+                            <?php if (
+                                !empty(
+                                    $question[
+                                        'explanation'
+                                    ]
+                                )
+                            ): ?>
+
+
+                                <div class="explanation">
+
+
+                                    <div
+                                        class="
+                                            explanation-title
+                                        "
+                                    >
+
+                                        <i
+                                            class="
+                                                fa-solid
+                                                fa-lightbulb
+                                                me-1
+                                            "
+                                        ></i>
+
+                                        Explanation
+
+                                    </div>
+
+
+                                    <div
+                                        class="
+                                            explanation-text
+                                        "
+                                    >
+
+                                        <?= nl2br(
+                                            result_escape(
+                                                $question[
+                                                    'explanation'
+                                                ]
+                                            )
+                                        ); ?>
+
+                                    </div>
+
+
+                                </div>
+
+
+                            <?php endif; ?>
+
+
+                            <div class="marks-line">
+
+
+                                <span>
+
+                                    Question marks:
+
+                                    <strong>
+
+                                        <?= result_number(
+                                            $questionMarks
+                                        ); ?>
+
+                                    </strong>
+
+                                </span>
+
+
+                                <span>
+
+                                    Marks awarded:
+
+                                    <strong>
+
+                                        <?= result_number(
+                                            $marksAwarded
+                                        ); ?>
+
+                                    </strong>
+
+                                </span>
+
+
+                            </div>
+
+
+                        </article>
+
+
+                    <?php endforeach; ?>
+
+
+                <?php else: ?>
+
+
+                    <div class="empty-state">
+
+                        <i
+                            class="
+                                fa-regular
+                                fa-folder-open
+                            "
+                        ></i>
+
+
+                        <h3>
+                            Analysis unavailable
+                        </h3>
+
+
+                        <p>
+                            Question-wise analysis is not available for this result.
+                        </p>
+
+                    </div>
+
+
+                <?php endif; ?>
+
+
+            </section>
+
+
+        </div>
+
+
+        <!-- =================================================
+             RIGHT SIDEBAR
+        ================================================== -->
+
+        <aside class="sticky-column">
+
+
+            <!-- SCORE SUMMARY -->
+
+            <section class="card sidebar-card">
+
+
+                <div class="score-big">
+
+                    <small>
+                        Final Score
+                    </small>
+
+
+                    <strong>
+
+                        <?= result_number(
+                            $obtainedMarks
+                        ); ?>
+
+                        /
+
+                        <?= result_number(
+                            $totalMarks
+                        ); ?>
+
+                    </strong>
+
+
+                    <span>
+
+                        <?= result_number(
+                            $percentage
+                        ); ?>%
+
+                        overall performance
+
+                    </span>
+
+                </div>
+
+
+                <div class="sidebar-section">
+
+
+                    <div class="sidebar-title">
+                        Result Summary
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Grade
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $grade
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Result
+                        </span>
+
+                        <strong>
+
+                            <?= result_escape(
+                                $resultStatus
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Total Marks
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $totalMarks
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Obtained Marks
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $obtainedMarks
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Passing Marks
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $passingMarks
+                            ); ?>
+
+                        </strong>
+
+                    </div>
+
+
+                </div>
+
+
+                <div class="sidebar-section">
+
+
+                    <div class="sidebar-title">
+                        Attempt Statistics
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Attempted
+                        </span>
+
+                        <strong>
+
+                            <?= $attemptedQuestions; ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Correct
+                        </span>
+
+                        <strong>
+
+                            <?= $correctAnswers; ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Wrong
+                        </span>
+
+                        <strong>
+
+                            <?= $wrongAnswers; ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Unanswered
+                        </span>
+
+                        <strong>
+
+                            <?= $unansweredQuestions; ?>
+
+                        </strong>
+
+                    </div>
+
+
+                    <div class="detail-row">
+
+                        <span>
+                            Accuracy
+                        </span>
+
+                        <strong>
+
+                            <?= result_number(
+                                $accuracy
+                            ); ?>%
+
+                        </strong>
+
+                    </div>
+
+
+                </div>
+
+
+                <div class="notice">
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-shield-halved
+                        "
+                    ></i>
+
+                    This result has been generated from the finalized
+                    server-side examination attempt.
+
+                </div>
+
+
+            </section>
+
+
+            <!-- DOWNLOAD -->
+
+            <section
+                class="
+                    card
+                    sidebar-card
+                    info-card
+                "
+            >
+
+
+                <div class="sidebar-title">
+                    Result Tools
+                </div>
 
 
                 <a
-                    href="dashboard.php"
+                    href="
+                        ajax/download_result_pdf.php?attempt_id=<?= (int) $result['attempt_id']; ?>
+                    "
                     class="
-                        result-btn
-                        result-btn-secondary
+                        action-btn
+                        primary
+                        w-100
+                        mb-2
                     "
                 >
 
                     <i
-                        class="fa-solid fa-house"
+                        class="
+                            fa-solid
+                            fa-file-pdf
+                        "
                     ></i>
 
-                    Dashboard
-
-                </a>
-
-
-                <a
-                    href="my_exams.php"
-                    class="
-                        result-btn
-                        result-btn-secondary
-                    "
-                >
-
-                    <i
-                        class="fa-solid fa-file-lines"
-                    ></i>
-
-                    My Exams
-
-                </a>
-
-
-                <a
-                    href="ajax/download_result_pdf.php?attempt_id=<?= (int) $result['attempt_id'] ?>"
-                    class="
-                        result-btn
-                        result-btn-primary
-                    "
-                >
-
-                    <i
-                        class="fa-solid fa-file-pdf"
-                    ></i>
-
-                    Download PDF
+                    Download Result PDF
 
                 </a>
 
 
                 <button
                     type="button"
-                    id="emailResult"
                     class="
-                        result-btn
-                        result-btn-secondary
+                        action-btn
+                        w-100
+                        mb-2
                     "
-                    data-attempt-id="<?= (int) $result['attempt_id'] ?>"
-                    data-csrf-token="<?= result_escape(
-                        $csrfToken
-                    ) ?>"
+                    id="sidebarEmailResult"
                 >
 
                     <i
-                        class="fa-solid fa-envelope"
+                        class="
+                            fa-solid
+                            fa-envelope
+                        "
                     ></i>
 
                     Email Result
@@ -2280,1173 +6836,699 @@ $csrfToken =
                 <button
                     type="button"
                     class="
-                        result-btn
-                        result-btn-secondary
-                        btn-print
+                        action-btn
+                        w-100
                     "
+                    id="sidebarPrintResult"
                 >
 
                     <i
-                        class="fa-solid fa-print"
+                        class="
+                            fa-solid
+                            fa-print
+                        "
                     ></i>
 
-                    Print
+                    Print Result
 
                 </button>
 
 
-            </div>
+            </section>
 
-        </div>
 
-    </section>
+        </aside>
+
+
+    </div>
 
 
     <!-- =====================================================
-         SCORE
+         FOOTER
     ====================================================== -->
 
-    <section class="score-card">
+    <footer class="result-footer">
 
-        <div class="row align-items-center">
+        <i
+            class="
+                fa-solid
+                fa-shield-halved
+                me-1
+            "
+        ></i>
 
-            <div class="col-lg-4 text-center">
+        Final marks and result status are calculated
+        by ExamSphere's server-side examination engine.
+
+        &nbsp;•&nbsp;
+
+        Result ID:
+
+        #<?= (int) $resultId; ?>
+
+    </footer>
+
+
+</div>
+
+
+<!-- =========================================================
+     EMAIL MODAL
+========================================================== -->
+
+<div
+    class="modal fade"
+    id="emailModal"
+    tabindex="-1"
+    aria-hidden="true"
+>
+
+    <div
+        class="
+            modal-dialog
+            modal-dialog-centered
+        "
+    >
+
+        <div class="modal-content">
+
+
+            <div class="modal-header">
+
+                <h5
+                    class="modal-title"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-envelope
+                            me-2
+                        "
+                    ></i>
+
+                    Email Result
+
+                </h5>
+
+
+                <button
+                    type="button"
+                    class="btn-close btn-close-white"
+                    data-bs-dismiss="modal"
+                ></button>
+
+            </div>
+
+
+            <div class="modal-body">
+
+
+                <p
+                    class="mb-3"
+                    style="
+                        color:#7C736C;
+                        font-size:11px;
+                        line-height:1.7;
+                    "
+                >
+
+                    Your finalized examination result
+                    will be sent to your registered email address.
+
+                </p>
+
 
                 <div
-                    class="score-circle"
-                    aria-label="
-                        Score
-                        <?= result_escape(
-                            number_format(
-                                $percentage,
-                                2
-                            )
-                        ) ?> percent
+                    style="
+                        padding:14px;
+                        border:1px solid #E4DED3;
+                        border-radius:14px;
+                        background:#FAF9F4;
                     "
                 >
 
                     <div
-                        class="score-circle-content"
+                        style="
+                            font-size:8px;
+                            color:#7C736C;
+                            text-transform:uppercase;
+                            letter-spacing:.7px;
+                        "
+                    >
+                        Examination
+                    </div>
+
+
+                    <div
+                        style="
+                            margin-top:4px;
+                            color:#3E2723;
+                            font-size:11px;
+                            font-weight:800;
+                        "
                     >
 
-                        <div class="score-percentage">
-
-                            <?= result_escape(
-                                number_format(
-                                    $percentage,
-                                    2
-                                )
-                            ) ?>%
-
-                        </div>
-
-
-                        <div class="score-label">
-
-                            Overall Score
-
-                        </div>
+                        <?= result_escape(
+                            $examTitle
+                        ); ?>
 
                     </div>
 
-                </div>
+
+                    <div
+                        style="
+                            margin-top:10px;
+                            font-size:8px;
+                            color:#7C736C;
+                        "
+                    >
+                        Score
+                    </div>
 
 
-                <div class="score-caption">
-
-                    You scored
-
-                    <strong>
+                    <div
+                        style="
+                            margin-top:4px;
+                            color:#556B2F;
+                            font-size:16px;
+                            font-weight:900;
+                        "
+                    >
 
                         <?= result_number(
                             $obtainedMarks
-                        ) ?>
+                        ); ?>
 
                         /
 
                         <?= result_number(
                             $totalMarks
-                        ) ?>
+                        ); ?>
 
-                    </strong>
+                        &nbsp;(
+                        <?= result_number(
+                            $percentage
+                        ); ?>%
+                        )
 
-                    marks.
+                    </div>
 
                 </div>
 
-            </div>
-
-
-            <div class="col-lg-8">
 
                 <div
-                    class="
-                        row
-                        g-3
-                        mt-3
-                        mt-lg-0
-                    "
+                    id="emailStatus"
+                    class="email-status"
+                ></div>
+
+
+            </div>
+
+
+            <div
+                class="
+                    modal-footer
+                    border-0
+                "
+            >
+
+                <button
+                    type="button"
+                    class="action-btn"
+                    data-bs-dismiss="modal"
                 >
 
+                    Cancel
 
-                    <div class="col-md-6">
+                </button>
 
-                        <div class="info-box">
 
-                            <h4>
-
-                                <i
-                                    class="
-                                        fa-solid
-                                        fa-trophy
-                                        me-2
-                                    "
-                                ></i>
-
-                                Final score
-
-                            </h4>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Obtained marks
-                                </span>
-
-                                <span>
-
-                                    <?= result_number(
-                                        $obtainedMarks
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Total marks
-                                </span>
-
-                                <span>
-
-                                    <?= result_number(
-                                        $totalMarks
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Grade
-                                </span>
-
-                                <span>
-
-                                    <?= result_escape(
-                                        $result['grade']
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Result
-                                </span>
-
-                                <span>
-
-                                    <?= $isPassed
-                                        ? 'Passed'
-                                        : 'Failed'
-                                    ?>
-
-                                </span>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="col-md-6">
-
-                        <div class="info-box">
-
-                            <h4>
-
-                                <i
-                                    class="
-                                        fa-solid
-                                        fa-chart-simple
-                                        me-2
-                                    "
-                                ></i>
-
-                                Performance
-
-                            </h4>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Passing marks
-                                </span>
-
-                                <span>
-
-                                    <?= result_number(
-                                        $result['passing_marks']
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Performance
-                                </span>
-
-                                <span>
-
-                                    <?= result_escape(
-                                        $performanceLabel
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Attempted
-                                </span>
-
-                                <span>
-
-                                    <?= $attemptedQuestions ?>
-
-                                    /
-
-                                    <?= $totalQuestions ?>
-
-                                </span>
-
-                            </div>
-
-
-                            <div class="info-row">
-
-                                <span>
-                                    Attempt status
-                                </span>
-
-                                <span>
-
-                                    <?= result_escape(
-                                        $result['attempt_status']
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-                </div>
-
-            </div>
-
-        </div>
-
-
-        <!-- =================================================
-             METRICS
-        ================================================== -->
-
-        <div class="metric-grid">
-
-
-            <div class="metric">
-
-                <i
-                    class="fa-solid fa-circle-check"
-                ></i>
-
-
-                <strong>
-                    <?= $correctAnswers ?>
-                </strong>
-
-
-                <span>
-                    Correct
-                </span>
-
-            </div>
-
-
-            <div class="metric">
-
-                <i
-                    class="fa-solid fa-circle-xmark"
-                ></i>
-
-
-                <strong>
-                    <?= $wrongAnswers ?>
-                </strong>
-
-
-                <span>
-                    Wrong
-                </span>
-
-            </div>
-
-
-            <div class="metric">
-
-                <i
-                    class="fa-solid fa-circle-question"
-                ></i>
-
-
-                <strong>
-                    <?= $unansweredQuestions ?>
-                </strong>
-
-
-                <span>
-                    Unanswered
-                </span>
-
-            </div>
-
-
-            <div class="metric">
-
-                <i
-                    class="fa-solid fa-pen"
-                ></i>
-
-
-                <strong>
-                    <?= $attemptedQuestions ?>
-                </strong>
-
-
-                <span>
-                    Attempted
-                </span>
-
-            </div>
-
-
-            <div class="metric">
-
-                <i
-                    class="fa-solid fa-bullseye"
-                ></i>
-
-
-                <strong>
-                    <?= number_format($accuracy, 2) ?>%
-                </strong>
-
-
-                <span>
-                    Accuracy
-                </span>
-
-            </div>
-
-
-        </div>
-
-    </section>
-
-
-    <!-- =====================================================
-         EXAM INFORMATION
-    ====================================================== -->
-
-    <section class="section-card">
-
-        <div class="section-heading">
-
-            <div>
-
-                <small>
-                    EXAMINATION DETAILS
-                </small>
-
-                <h3>
-                    Timing & performance
-                </h3>
-
-            </div>
-
-        </div>
-
-
-        <div class="row g-3">
-
-
-            <div class="col-lg-6">
-
-                <div class="info-box">
-
-                    <h4>
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-clock
-                                me-2
-                            "
-                        ></i>
-
-                        Timing
-
-                    </h4>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Duration
-                        </span>
-
-                        <span>
-
-                            <?= (int) (
-                                $result[
-                                    'duration_minutes'
-                                ]
-                                ?? 0
-                            ) ?>
-
-                            minutes
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Started
-                        </span>
-
-                        <span>
-
-                            <?= result_escape(
-                                result_date(
-                                    $result[
-                                        'started_at'
-                                    ]
-                                )
-                            ) ?>
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Submitted
-                        </span>
-
-                        <span>
-
-                            <?= result_escape(
-                                result_date(
-                                    $result[
-                                        'submitted_at'
-                                    ]
-                                )
-                            ) ?>
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Time used
-                        </span>
-
-                        <span>
-                            <?= result_escape($timeUsedLabel) ?>
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Accuracy
-                        </span>
-
-                        <span>
-                            <?= number_format($accuracy, 2) ?>%
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Completion
-                        </span>
-
-                        <span>
-
-                            <?= $result[
-                                'attempt_status'
-                            ] === 'Auto Submitted'
-                                ? 'Automatic submission'
-                                : 'Manual submission'
-                            ?>
-
-                        </span>
-
-                    </div>
-
-                </div>
-
-            </div>
-
-
-            <div class="col-lg-6">
-
-                <div class="info-box">
-
-                    <h4>
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-bullseye
-                                me-2
-                            "
-                        ></i>
-
-                        Performance
-
-                    </h4>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Passing marks
-                        </span>
-
-                        <span>
-
-                            <?= result_number(
-                                $result[
-                                    'passing_marks'
-                                ]
-                            ) ?>
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Your marks
-                        </span>
-
-                        <span>
-
-                            <?= result_number(
-                                $obtainedMarks
-                            ) ?>
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Percentage
-                        </span>
-
-                        <span>
-
-                            <?= result_number(
-                                $percentage
-                            ) ?>%
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="info-row">
-
-                        <span>
-                            Grade
-                        </span>
-
-                        <span>
-
-                            <?= result_escape(
-                                $result['grade']
-                            ) ?>
-
-                        </span>
-
-                    </div>
-
-                </div>
-
-            </div>
-
-
-        </div>
-
-    </section>
-
-
-    <!-- =====================================================
-         QUESTION ANALYSIS
-    ====================================================== -->
-
-    <section class="section-card">
-
-        <div class="section-heading">
-
-            <div>
-
-                <small>
-                    DETAILED REVIEW
-                </small>
-
-                <h3>
-                    Question analysis
-                </h3>
-
-            </div>
-
-
-            <span>
-
-                <?= count(
-                    $analysis
-                ) ?>
-
-                questions
-
-            </span>
-
-        </div>
-
-
-        <?php if (
-            empty($analysis)
-        ): ?>
-
-            <div class="empty-analysis">
-
-                <i
+                <button
+                    type="button"
                     class="
-                        fa-solid
-                        fa-chart-column
+                        action-btn
+                        primary
                     "
-                ></i>
+                    id="confirmEmailResult"
+                >
 
+                    <i
+                        class="
+                            fa-solid
+                            fa-paper-plane
+                        "
+                    ></i>
 
-                <div>
+                    Send Result
 
-                    No detailed question analysis
-                    is available for this result.
-
-                </div>
+                </button>
 
             </div>
 
-        <?php else: ?>
 
+        </div>
 
-            <?php foreach (
-                $analysis
-                as $index => $question
-            ): ?>
+    </div>
 
+</div>
 
-                <?php
 
-                $selectedAnswer =
-                    strtoupper(
-                        trim(
-                            (string) (
-                                $question[
-                                    'selected_answer'
-                                ]
-                                ??
-                                ''
-                            )
-                        )
-                    );
-
-
-                $correctAnswer =
-                    strtoupper(
-                        trim(
-                            (string) (
-                                $question[
-                                    'correct_answer'
-                                ]
-                                ??
-                                ''
-                            )
-                        )
-                    );
-
-
-                $validOptions = [
-                    'A',
-                    'B',
-                    'C',
-                    'D'
-                ];
-
-
-                $isAnswered =
-                    in_array(
-                        $selectedAnswer,
-                        $validOptions,
-                        true
-                    );
-
-
-                $isCorrect =
-                    (
-                        (int) (
-                            $question[
-                                'is_correct'
-                            ]
-                            ??
-                            0
-                        )
-                        === 1
-                    );
-
-
-                $marksAwarded =
-                    (float) (
-                        $question[
-                            'marks_awarded'
-                        ]
-                        ??
-                        0
-                    );
-
-
-                $selectedText =
-                    $isAnswered
-
-                        ? result_option_text(
-                            $question,
-                            $selectedAnswer
-                        )
-
-                        : 'Not answered';
-
-
-                $correctText =
-                    in_array(
-                        $correctAnswer,
-                        $validOptions,
-                        true
-                    )
-
-                        ? result_option_text(
-                            $question,
-                            $correctAnswer
-                        )
-
-                        : '';
-
-
-                ?>
-
-
-
-                <article class="question-analysis">
-
-
-                    <div class="question-analysis-top">
-
-
-                        <div class="question-analysis-left">
-
-                            <div class="question-number">
-
-                                <?= $index + 1 ?>
-
-                            </div>
-
-
-                            <div class="question-title">
-
-                                <?= nl2br(
-                                    result_escape(
-                                        $question[
-                                            'question_text'
-                                        ]
-                                    )
-                                ) ?>
-
-                            </div>
-
-                        </div>
-
-
-                        <div>
-
-                            <?php if (
-                                $isCorrect
-                            ): ?>
-
-                                <span
-                                    class="
-                                        question-result
-                                        correct-result
-                                    "
-                                >
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-check
-                                        "
-                                    ></i>
-
-                                    Correct
-
-                                </span>
-
-                            <?php elseif (
-                                $isAnswered
-                            ): ?>
-
-                                <span
-                                    class="
-                                        question-result
-                                        wrong-result
-                                    "
-                                >
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-xmark
-                                        "
-                                    ></i>
-
-                                    Wrong
-
-                                </span>
-
-                            <?php else: ?>
-
-                                <span
-                                    class="
-                                        question-result
-                                        unanswered-result
-                                    "
-                                >
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-minus
-                                        "
-                                    ></i>
-
-                                    Unanswered
-
-                                </span>
-
-                            <?php endif; ?>
-
-                        </div>
-
-                    </div>
-
-
-                    <div class="question-analysis-body">
-
-
-                        <div class="answer-line">
-
-                            <strong>
-                                Your answer:
-                            </strong>
-
-
-                            <?php if (
-                                $isAnswered
-                            ): ?>
-
-                                <span
-                                    class="<?= $isCorrect
-                                        ? 'answer-correct'
-                                        : 'answer-wrong'
-                                    ?>"
-                                >
-
-                                    <?= result_escape(
-                                        $selectedAnswer
-                                    ) ?>
-
-                                    —
-
-                                    <?= result_escape(
-                                        $selectedText
-                                    ) ?>
-
-                                </span>
-
-                            <?php else: ?>
-
-                                <span
-                                    class="answer-neutral"
-                                >
-                                    Not answered
-                                </span>
-
-                            <?php endif; ?>
-
-                        </div>
-
-
-                        <div class="answer-line">
-
-                            <strong>
-                                Correct answer:
-                            </strong>
-
-
-                            <?php if (
-                                $correctAnswer !== ''
-                            ): ?>
-
-                                <span
-                                    class="
-                                        answer-correct
-                                    "
-                                >
-
-                                    <?= result_escape(
-                                        $correctAnswer
-                                    ) ?>
-
-                                    —
-
-                                    <?= result_escape(
-                                        $correctText
-                                    ) ?>
-
-                                </span>
-
-                            <?php else: ?>
-
-                                <span
-                                    class="
-                                        answer-neutral
-                                    "
-                                >
-                                    Not available
-                                </span>
-
-                            <?php endif; ?>
-
-                        </div>
-
-
-                        <div class="answer-line">
-
-                            <strong>
-                                Marks:
-                            </strong>
-
-
-                            <span
-                                class="marks-earned"
-                            >
-
-                                <?= result_number(
-                                    $marksAwarded
-                                ) ?>
-
-                            </span>
-
-                        </div>
-
-
-                        <?php if (
-                            !empty(
-                                $question[
-                                    'question_status'
-                                ]
-                            )
-                        ): ?>
-
-                            <div class="answer-line">
-
-                                <strong>
-                                    Question status:
-                                </strong>
-
-
-                                <span
-                                    class="answer-neutral"
-                                >
-
-                                    <?= result_escape(
-                                        $question[
-                                            'question_status'
-                                        ]
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-                        <?php endif; ?>
-
-
-                        <?php if (
-                            trim(
-                                (string) (
-                                    $question[
-                                        'explanation'
-                                    ]
-                                    ??
-                                    ''
-                                )
-                            ) !== ''
-                        ): ?>
-
-                            <div class="explanation">
-
-                                <strong>
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-lightbulb
-                                            me-1
-                                        "
-                                    ></i>
-
-                                    Explanation
-
-                                </strong>
-
-
-                                <br>
-
-
-                                <?= nl2br(
-                                    result_escape(
-                                        $question[
-                                            'explanation'
-                                        ]
-                                    )
-                                ) ?>
-
-                            </div>
-
-                        <?php endif; ?>
-
-                    </div>
-
-                </article>
-
-
-            <?php endforeach; ?>
-
-        <?php endif; ?>
-
-
-        <p class="footer-note">
-
-            Your final marks and result status are calculated
-            by ExamSphere's server-side examination engine.
-
-        </p>
-
-    </section>
-
-
-</main>
+<script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"
+></script>
 
 
 <script
     src="assets/js/result.js"
 ></script>
 
+
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const emailButton = document.getElementById('emailResult');
 
-    if (emailButton) {
-        emailButton.addEventListener('click', function () {
-            const attemptId = this.dataset.attemptId || '';
-            const token = this.dataset.csrfToken || '';
-            const params = new URLSearchParams();
-            if (attemptId) params.set('attempt_id', attemptId);
-            if (token) params.set('csrf_token', token);
-            window.location.href = 'ajax/send_result_email.php?' + params.toString();
-        });
-    }
+document.addEventListener(
+    'DOMContentLoaded',
+    function () {
 
-    document.querySelectorAll('.btn-print').forEach(function (button) {
-        button.addEventListener('click', function () {
+        const emailButton =
+            document.getElementById(
+                'emailResult'
+            );
+
+
+        const sidebarEmailButton =
+            document.getElementById(
+                'sidebarEmailResult'
+            );
+
+
+        const confirmEmailButton =
+            document.getElementById(
+                'confirmEmailResult'
+            );
+
+
+        const emailStatus =
+            document.getElementById(
+                'emailStatus'
+            );
+
+
+        const printButton =
+            document.getElementById(
+                'printResult'
+            );
+
+
+        const sidebarPrintButton =
+            document.getElementById(
+                'sidebarPrintResult'
+            );
+
+
+        const modalElement =
+            document.getElementById(
+                'emailModal'
+            );
+
+
+        let emailModal = null;
+
+
+        if (
+            modalElement &&
+            typeof bootstrap !== 'undefined'
+        ) {
+
+            emailModal =
+                bootstrap.Modal.getOrCreateInstance(
+                    modalElement
+                );
+        }
+
+
+        function openEmailModal() {
+
+            if (
+                emailStatus
+            ) {
+
+                emailStatus.className =
+                    'email-status';
+
+                emailStatus.textContent =
+                    '';
+            }
+
+
+            if (
+                emailModal
+            ) {
+
+                emailModal.show();
+
+            } else {
+
+                sendResultEmail();
+            }
+        }
+
+
+        if (
+            emailButton
+        ) {
+
+            emailButton.addEventListener(
+                'click',
+                openEmailModal
+            );
+        }
+
+
+        if (
+            sidebarEmailButton
+        ) {
+
+            sidebarEmailButton.addEventListener(
+                'click',
+                openEmailModal
+            );
+        }
+
+
+        async function sendResultEmail() {
+
+            const attemptId =
+                emailButton
+                    ?.dataset
+                    ?.attemptId
+                ||
+                <?= (int) $result['attempt_id']; ?>;
+
+
+            const token =
+                emailButton
+                    ?.dataset
+                    ?.csrfToken
+                ||
+                <?= json_encode(
+                    $csrfToken
+                ); ?>;
+
+
+            if (
+                confirmEmailButton
+            ) {
+
+                confirmEmailButton.disabled =
+                    true;
+
+                confirmEmailButton.innerHTML =
+                    '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            }
+
+
+            if (
+                emailStatus
+            ) {
+
+                emailStatus.className =
+                    'email-status';
+
+                emailStatus.textContent =
+                    '';
+            }
+
+
+            try {
+
+                const params =
+                    new URLSearchParams();
+
+
+                params.set(
+                    'attempt_id',
+                    String(
+                        attemptId
+                    )
+                );
+
+
+                params.set(
+                    'csrf_token',
+                    String(
+                        token
+                    )
+                );
+
+
+                const response =
+                    await fetch(
+                        'ajax/send_result_email.php?' +
+                        params.toString(),
+                        {
+                            method:
+                                'GET',
+
+                            credentials:
+                                'same-origin',
+
+                            cache:
+                                'no-store',
+
+                            headers:
+                                {
+                                    'X-Requested-With':
+                                        'XMLHttpRequest'
+                                }
+                        }
+                    );
+
+
+                const text =
+                    await response.text();
+
+
+                let data = null;
+
+
+                try {
+
+                    data =
+                        JSON.parse(
+                            text
+                        );
+
+                } catch (
+                    parseError
+                ) {
+
+                    data = null;
+                }
+
+
+                if (
+                    !response.ok
+                ) {
+
+                    throw new Error(
+                        data?.message
+                        ||
+                        'Unable to send the result email.'
+                    );
+                }
+
+
+                if (
+                    data &&
+                    data.status === false
+                ) {
+
+                    throw new Error(
+                        data.message
+                        ||
+                        'Unable to send the result email.'
+                    );
+                }
+
+
+                if (
+                    emailStatus
+                ) {
+
+                    emailStatus.className =
+                        'email-status show success';
+
+
+                    emailStatus.textContent =
+                        data?.message
+                        ||
+                        'Result email sent successfully.';
+                }
+
+
+                if (
+                    confirmEmailButton
+                ) {
+
+                    confirmEmailButton.innerHTML =
+                        '<i class="fa-solid fa-check"></i> Sent';
+                }
+
+
+                setTimeout(
+                    function () {
+
+                        if (
+                            emailModal
+                        ) {
+
+                            emailModal.hide();
+                        }
+
+
+                        if (
+                            confirmEmailButton
+                        ) {
+
+                            confirmEmailButton.disabled =
+                                false;
+
+                            confirmEmailButton.innerHTML =
+                                '<i class="fa-solid fa-paper-plane"></i> Send Result';
+                        }
+
+                    },
+                    1200
+                );
+
+            } catch (
+                error
+            ) {
+
+                console.error(
+                    'Result email error:',
+                    error
+                );
+
+
+                if (
+                    emailStatus
+                ) {
+
+                    emailStatus.className =
+                        'email-status show error';
+
+
+                    emailStatus.textContent =
+                        error.message
+                        ||
+                        'Unable to send the result email.';
+                }
+
+
+                if (
+                    confirmEmailButton
+                ) {
+
+                    confirmEmailButton.disabled =
+                        false;
+
+                    confirmEmailButton.innerHTML =
+                        '<i class="fa-solid fa-paper-plane"></i> Send Result';
+                }
+            }
+        }
+
+
+        if (
+            confirmEmailButton
+        ) {
+
+            confirmEmailButton.addEventListener(
+                'click',
+                sendResultEmail
+            );
+        }
+
+
+        function printResult() {
+
             window.print();
-        });
-    });
-});
+        }
+
+
+        if (
+            printButton
+        ) {
+
+            printButton.addEventListener(
+                'click',
+                printResult
+            );
+        }
+
+
+        if (
+            sidebarPrintButton
+        ) {
+
+            sidebarPrintButton.addEventListener(
+                'click',
+                printResult
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | SMOOTH ANALYSIS NAVIGATION
+        |--------------------------------------------------------------------------
+        */
+
+        const analysis =
+            document.getElementById(
+                'questionAnalysis'
+            );
+
+
+        if (
+            analysis
+        ) {
+
+            const analysisLink =
+                document.querySelector(
+                    'a[href="#questionAnalysis"]'
+                );
+
+
+            if (
+                analysisLink
+            ) {
+
+                analysisLink.addEventListener(
+                    'click',
+                    function (event) {
+
+                        event.preventDefault();
+
+                        analysis.scrollIntoView(
+                            {
+                                behavior:
+                                    'smooth',
+
+                                block:
+                                    'start'
+                            }
+                        );
+                    }
+                );
+            }
+        }
+
+    }
+);
+
 </script>
 
 

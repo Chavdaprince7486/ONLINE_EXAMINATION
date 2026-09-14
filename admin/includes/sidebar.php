@@ -6,41 +6,14 @@ declare(strict_types=1);
 |--------------------------------------------------------------------------
 | ExamSphere Admin Sidebar
 |--------------------------------------------------------------------------
-|
-| Admin keeps all administrative modules.
-|
-| Student permissions:
-| - View
-| - Activate / Deactivate
-| - Delete
-| - No Add/Edit
-|
-| Teacher permissions:
-| - Add once
-| - View
-| - Activate / Deactivate
-| - Delete
-| - No Edit after creation
-|
-|--------------------------------------------------------------------------
 */
 
-$currentPage =
-    basename(
-        $_SERVER['PHP_SELF']
-    );
-
-$currentFolder =
-    basename(
-        dirname(
-            $_SERVER['PHP_SELF']
-        )
-    );
-
+$currentPage = basename($_SERVER['PHP_SELF']);
+$currentFolder = basename(dirname($_SERVER['PHP_SELF']));
 
 /*
 |--------------------------------------------------------------------------
-| ACTIVE HELPERS
+| ACTIVE HELPER
 |--------------------------------------------------------------------------
 */
 
@@ -49,9 +22,7 @@ function admin_menu_active(
     array $folders = []
 ): bool {
 
-    global
-        $currentPage,
-        $currentFolder;
+    global $currentPage, $currentFolder;
 
     if (
         in_array(
@@ -60,7 +31,6 @@ function admin_menu_active(
             true
         )
     ) {
-
         return true;
     }
 
@@ -71,7 +41,6 @@ function admin_menu_active(
             true
         )
     ) {
-
         return true;
     }
 
@@ -161,11 +130,7 @@ function admin_menu_active(
                  USER MANAGEMENT
                  ================================================= -->
 
-            <li
-                class="
-                    menu-section-title
-                "
-            >
+            <li class="menu-section-title">
 
                 USER MANAGEMENT
 
@@ -240,11 +205,7 @@ function admin_menu_active(
                  ACADEMIC MANAGEMENT
                  ================================================= -->
 
-            <li
-                class="
-                    menu-section-title
-                "
-            >
+            <li class="menu-section-title">
 
                 ACADEMIC MANAGEMENT
 
@@ -334,7 +295,7 @@ function admin_menu_active(
                     <i
                         class="
                             fa-solid
-                            fa-list-check
+                            fa-diagram-project
                         "
                     ></i>
 
@@ -347,11 +308,54 @@ function admin_menu_active(
             </li>
 
 
+            <!-- =================================================
+                 EXAM MANAGEMENT
+                 ================================================= -->
+
+            <li class="menu-section-title">
+
+                EXAM MANAGEMENT
+
+            </li>
+
+
+            <!-- EXAMS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    [],
+                    ['exams']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/exams/index.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-file-circle-check
+                        "
+                    ></i>
+
+                    <span>
+                        Exams
+                    </span>
+
+                </a>
+
+            </li>
+
+
             <!-- QUESTION BANK -->
 
             <li
                 class="<?= admin_menu_active(
-                    ['questions.php'],
+                    [],
                     ['question-bank']
                 )
                     ? 'active'
@@ -360,7 +364,7 @@ function admin_menu_active(
             >
 
                 <a
-                    href="/ONLINE_EXAMINATION/admin/questions.php"
+                    href="/ONLINE_EXAMINATION/admin/question-bank/index.php"
                 >
 
                     <i
@@ -372,38 +376,6 @@ function admin_menu_active(
 
                     <span>
                         Question Bank
-                    </span>
-
-                </a>
-
-            </li>
-
-
-            <!-- EXAMS -->
-
-            <li
-                class="<?= admin_menu_active(
-                    ['exams.php'],
-                    ['exams']
-                )
-                    ? 'active'
-                    : ''
-                ?>"
-            >
-
-                <a
-                    href="/ONLINE_EXAMINATION/admin/exams.php"
-                >
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-file-lines
-                        "
-                    ></i>
-
-                    <span>
-                        Exams
                     </span>
 
                 </a>
@@ -429,12 +401,12 @@ function admin_menu_active(
                     <i
                         class="
                             fa-solid
-                            fa-book-open
+                            fa-folder-open
                         "
                     ></i>
 
                     <span>
-                        Materials
+                        Study Materials
                     </span>
 
                 </a>
@@ -443,25 +415,54 @@ function admin_menu_active(
 
 
             <!-- =================================================
-                 FINANCE & ACCESS
+                 SUBSCRIPTION MANAGEMENT
                  ================================================= -->
 
-            <li
-                class="
-                    menu-section-title
-                "
-            >
+            <li class="menu-section-title">
 
-                FINANCE & ACCESS
+                SUBSCRIPTION MANAGEMENT
 
             </li>
 
 
-            <!-- SUBSCRIPTIONS + PAYMENTS -->
+            <!-- SUBSCRIPTION PLANS -->
 
             <li
                 class="<?= admin_menu_active(
-                    ['subscriptions.php']
+                    [],
+                    ['subscription-plans']
+                )
+                    ? 'active'
+                    : ''
+                ?>"
+            >
+
+                <a
+                    href="/ONLINE_EXAMINATION/admin/subscription-plans/index.php"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-gem
+                        "
+                    ></i>
+
+                    <span>
+                        Subscription Plans
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <!-- STUDENT SUBSCRIPTIONS -->
+
+            <li
+                class="<?= admin_menu_active(
+                    ['subscriptions.php'],
+                    ['subscriptions']
                 )
                     ? 'active'
                     : ''
@@ -475,12 +476,12 @@ function admin_menu_active(
                     <i
                         class="
                             fa-solid
-                            fa-credit-card
+                            fa-user-check
                         "
                     ></i>
 
                     <span>
-                        Subscriptions & Payments
+                        Subscription Management
                     </span>
 
                 </a>
@@ -492,11 +493,7 @@ function admin_menu_active(
                  RESULTS & REPORTING
                  ================================================= -->
 
-            <li
-                class="
-                    menu-section-title
-                "
-            >
+            <li class="menu-section-title">
 
                 RESULTS & REPORTING
 
@@ -569,11 +566,7 @@ function admin_menu_active(
                  SYSTEM
                  ================================================= -->
 
-            <li
-                class="
-                    menu-section-title
-                "
-            >
+            <li class="menu-section-title">
 
                 SYSTEM
 
@@ -646,11 +639,7 @@ function admin_menu_active(
                  LOGOUT
                  ================================================= -->
 
-            <li
-                class="
-                    menu-logout
-                "
-            >
+            <li class="menu-logout">
 
                 <a
                     href="/ONLINE_EXAMINATION/auth/logout.php"

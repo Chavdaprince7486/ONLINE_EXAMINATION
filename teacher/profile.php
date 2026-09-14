@@ -1101,6 +1101,8 @@ textarea.control{
     .identity p{font-size:.8rem !important;}
     .control{font-size:.84rem !important;}
 }
+
+
 </style>
 
 </head>
@@ -1561,6 +1563,55 @@ Save Profile
 </strong>
 
 </div>
+
+<section class="change-password-section">
+
+    <div class="change-password-card">
+
+        <div class="change-password-content">
+
+            <div class="change-password-icon">
+
+                <i class="fa-solid fa-key"></i>
+
+            </div>
+
+            <div>
+
+                <div class="change-password-kicker">
+                    ACCOUNT SECURITY
+                </div>
+
+                <h3>
+                    Change Password
+                </h3>
+
+                <p>
+                    Update your faculty account password
+                    and keep your ExamSphere account secure.
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <a
+            href="change_password.php"
+            class="change-password-button"
+        >
+
+            <i class="fa-solid fa-shield-halved"></i>
+
+            Change Password
+
+            <i class="fa-solid fa-arrow-right"></i>
+
+        </a>
+
+    </div>
+
+</section>
 
 
 <div class="info">

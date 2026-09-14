@@ -1,721 +1,754 @@
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
+
+    'use strict';
+
+
+    const csrfToken =
+        window.EXAMSPHERE_CSRF_TOKEN
+        ||
+        document
+            .querySelector(
+                'meta[name="csrf-token"]'
+            )
+            ?.getAttribute(
+                'content'
+            )
+        ||
+        '';
+
+
+    async function requestJson(
+        url,
+        options = {}
+    ){
+
+        const response =
+            await fetch(
+                url,
+                {
+
+                    ...options,
+
+                    credentials:
+                        'same-origin',
+
+                    headers:{
+                        Accept:
+                            'application/json',
+
+                        ...(options.headers || {})
+                    }
+
+                }
+            );
+
+
+        const data =
+            await response
+                .json()
+                .catch(
+                    () => ({})
+                );
+
+
+        if (
+            !response.ok ||
+            data.status !== 'success'
+        ){
+
+            const error =
+                new Error(
+                    data.message ||
+                    'Request failed.'
+                );
+
+
+            error.response =
+                data;
+
+
+            throw error;
+
+        }
+
+
+        return data;
+
+    }
+
+
+    async function notify(
+        icon,
+        title,
+        text
+    ){
+
+        if (
+            window.Swal
+        ){
+
+            return Swal.fire({
+
+                icon,
+                title,
+                text,
+
+                confirmButtonColor:
+                    '#556B2F',
+
+                background:
+                    '#FFFEFA',
+
+                color:
+                    '#3E2723'
+
+            });
+
+        }
+
+
+        window.alert(
+            `${title}: ${text}`
+        );
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PROFILE SAVE
+    |--------------------------------------------------------------------------
+    */
 
     const profileForm =
         document.getElementById(
             'profileForm'
         );
 
-    const profilePhoto =
-        document.getElementById(
-            'profilePhoto'
-        );
 
-    const profilePreview =
-        document.getElementById(
-            'profilePreview'
-        );
-
-    const editButton =
-        document.querySelector(
-            '.edit-profile-btn'
-        );
-
-    const changePasswordButton =
-        document.querySelector(
-            '.change-password-btn'
-        );
-
-    const csrfToken =
+    if (
         profileForm
-            ?.querySelector(
-                'input[name="csrf_token"]'
-            )
-            ?.value
-        ||
-        document
-            .querySelector(
-                'meta[name="csrf-token"]'
-            )
-            ?.content
-        ||
-        '';
+    ){
 
-    const showDialog = (data) => {
+        profileForm.addEventListener(
+            'submit',
+            async event => {
 
-        if (
-            typeof Swal ===
-            'undefined'
-        ) {
-            return;
-        }
+                event.preventDefault();
 
-        Swal.fire({
 
-            icon:
-                data.status ||
-                'info',
-
-            title:
-                data.title ||
-                'ExamSphere',
-
-            text:
-                data.message ||
-                '',
-
-            confirmButtonColor:
-                '#556B2F'
-
-        });
-
-    };
-
-    const toast = (
-        icon,
-        title
-    ) => {
-
-        if (
-            typeof Swal ===
-            'undefined'
-        ) {
-            return;
-        }
-
-        Swal.fire({
-
-            toast:true,
-
-            position:'top-end',
-
-            icon,
-
-            title,
-
-            showConfirmButton:false,
-
-            timer:2200,
-
-            timerProgressBar:true
-
-        });
-
-    };
-
-    editButton?.addEventListener(
-        'click',
-        () => {
-
-            const field =
-                document.getElementById(
-                    'profile_full_name'
-                );
-
-            field?.focus();
-
-            field?.scrollIntoView({
-
-                behavior:'smooth',
-
-                block:'center'
-
-            });
-
-        }
-    );
-
-    const validateImage =
-        (file) => {
-
-            if (!file) {
-                return false;
-            }
-
-            const allowedTypes = [
-                'image/jpeg',
-                'image/png'
-            ];
-
-            if (
-                !allowedTypes.includes(
-                    file.type
-                )
-            ) {
-
-                showDialog({
-
-                    status:'error',
-
-                    title:'Invalid Image',
-
-                    message:
-                        'Please choose a JPG, JPEG or PNG image.'
-
-                });
-
-                return false;
-            }
-
-            if (
-                file.size >
-                2 * 1024 * 1024
-            ) {
-
-                showDialog({
-
-                    status:'warning',
-
-                    title:'Image Too Large',
-
-                    message:
-                        'Maximum image size is 2 MB.'
-
-                });
-
-                return false;
-            }
-
-            return true;
-
-        };
-
-    profilePhoto?.addEventListener(
-        'change',
-        () => {
-
-            const file =
-                profilePhoto.files?.[0];
-
-            if (
-                !validateImage(file)
-            ) {
-
-                profilePhoto.value =
-                    '';
-
-                return;
-
-            }
-
-            const reader =
-                new FileReader();
-
-            reader.onload =
-                (event) => {
-
-                    if (
-                        profilePreview &&
-                        typeof event.target?.result ===
-                        'string'
-                    ) {
-
-                        profilePreview.src =
-                            event.target.result;
-
-                    }
-
-                };
-
-            reader.readAsDataURL(file);
-
-            const uploadData =
-                new FormData();
-
-            uploadData.append(
-                'profile_photo',
-                file
-            );
-
-            uploadData.append(
-                'csrf_token',
-                csrfToken
-            );
-
-            fetch(
-                'ajax/upload_profile_photo.php',
-                {
-
-                    method:'POST',
-
-                    body:uploadData,
-
-                    credentials:
-                        'same-origin',
-
-                    headers:{
-                        Accept:
-                            'application/json'
-                    }
-
-                }
-            )
-
-                .then(
-                    async response => {
-
-                        const data =
-                            await response.json();
-
-                        if (
-                            !response.ok
-                        ) {
-
-                            throw new Error(
-                                data.message ||
-                                'Photo upload failed.'
-                            );
-
-                        }
-
-                        return data;
-
-                    }
-                )
-
-                .then(
-                    data => {
-
-                        showDialog(data);
-
-                        if (
-                            data.status ===
-                            'success' &&
-                            data.photo &&
-                            profilePreview
-                        ) {
-
-                            profilePreview.src =
-                                `${data.photo}?t=${Date.now()}`;
-
-                        }
-
-                    }
-                )
-
-                .catch(
-                    error => {
-
-                        showDialog({
-
-                            status:'error',
-
-                            title:'Upload Failed',
-
-                            message:
-                                error.message ||
-                                'Unable to upload image.'
-
-                        });
-
-                    }
-                );
-
-        }
-    );
-
-    profileForm?.addEventListener(
-        'submit',
-        event => {
-
-            event.preventDefault();
-
-            const mobile =
-                profileForm.querySelector(
-                    'input[name="mobile"]'
-                );
-
-            if (mobile) {
-
-                mobile.value =
-                    mobile.value.replace(
-                        /\D/g,
-                        ''
+                const button =
+                    profileForm.querySelector(
+                        'button[type="submit"]'
                     );
 
-            }
 
-            if (
-                !profileForm.checkValidity()
-            ) {
+                if (
+                    !button
+                ){
 
-                profileForm.reportValidity();
+                    return;
 
-                return;
+                }
 
-            }
 
-            const button =
-                profileForm.querySelector(
-                    '.primary-btn[type="submit"]'
-                );
+                const old =
+                    button.innerHTML;
 
-            const original =
-                button?.innerHTML ||
-                '';
-
-            if (button) {
 
                 button.disabled =
                     true;
 
+
                 button.innerHTML =
-                    '<i class="fa-solid fa-spinner fa-spin"></i><span>Saving...</span>';
+                    '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
 
-            }
 
-            fetch(
-                'ajax/update_profile.php',
-                {
+                const formData =
+                    new FormData(
+                        profileForm
+                    );
 
-                    method:'POST',
 
-                    body:
-                        new FormData(
-                            profileForm
-                        ),
+                if (
+                    !formData.get(
+                        'csrf_token'
+                    )
+                ){
 
-                    credentials:
-                        'same-origin',
-
-                    headers:{
-                        Accept:
-                            'application/json'
-                    }
+                    formData.append(
+                        'csrf_token',
+                        csrfToken
+                    );
 
                 }
-            )
 
-                .then(
-                    async response => {
 
-                        const data =
-                            await response.json();
+                try{
 
-                        if (
-                            !response.ok
-                        ) {
+                    const data =
+                        await requestJson(
+                            'ajax/update_profile.php',
+                            {
 
-                            throw new Error(
-                                data.message ||
-                                'Profile request failed.'
-                            );
+                                method:
+                                    'POST',
 
-                        }
-
-                        return data;
-
-                    }
-                )
-
-                .then(
-                    data => {
-
-                        showDialog(data);
-
-                        if (
-                            data.status ===
-                            'success'
-                        ) {
-
-                            const displayName =
-                                document.querySelector(
-                                    '.identity-copy h1'
-                                );
-
-                            if (
-                                displayName
-                            ) {
-
-                                displayName.textContent =
-                                    profileForm.querySelector(
-                                        '[name="full_name"]'
-                                    )?.value ||
-                                    displayName.textContent;
+                                body:
+                                    formData
 
                             }
+                        );
 
-                        }
 
-                    }
-                )
+                    await notify(
+                        'success',
+                        data.title ||
+                            'Profile Updated',
+                        data.message ||
+                            'Your profile information has been updated.'
+                    );
 
-                .catch(
-                    error => {
 
-                        showDialog({
+                    window.location.reload();
 
-                            status:'error',
 
-                            title:'Update Failed',
+                }catch(
+                    error
+                ){
 
-                            message:
-                                error.message ||
-                                'Unable to save your profile.'
+                    await notify(
+                        'error',
+                        error.response?.title ||
+                            'Update Failed',
+                        error.message ||
+                            'Unable to update your profile.'
+                    );
 
-                        });
+                }finally{
 
-                    }
-                )
+                    button.disabled =
+                        false;
 
-                .finally(
-                    () => {
 
-                        if (button) {
+                    button.innerHTML =
+                        old;
 
-                            button.disabled =
-                                false;
+                }
 
-                            button.innerHTML =
-                                original;
-
-                        }
-
-                    }
-                );
-
-        }
-    );
-
-    changePasswordButton?.addEventListener(
-        'click',
-        async () => {
-
-            if (
-                typeof Swal ===
-                'undefined'
-            ) {
-                return;
             }
+        );
 
-            const result =
-                await Swal.fire({
+    }
 
-                    title:
-                        'Change Password',
 
-                    html:`
+    /*
+    |--------------------------------------------------------------------------
+    | PHOTO UPLOAD
+    |--------------------------------------------------------------------------
+    */
 
-                        <input
-                            id="profileCurrentPassword"
-                            class="swal2-input"
-                            type="password"
-                            autocomplete="current-password"
-                            placeholder="Current password"
-                        >
+    const photoInput =
+        document.getElementById(
+            'profilePhoto'
+        );
 
-                        <input
-                            id="profileNewPassword"
-                            class="swal2-input"
-                            type="password"
-                            autocomplete="new-password"
-                            placeholder="New password"
-                        >
 
-                        <input
-                            id="profileConfirmPassword"
-                            class="swal2-input"
-                            type="password"
-                            autocomplete="new-password"
-                            placeholder="Confirm new password"
-                        >
+    const photoPreview =
+        document.getElementById(
+            'profilePreview'
+        );
 
-                    `,
 
-                    showCancelButton:true,
+    if (
+        photoInput
+    ){
 
-                    confirmButtonText:
-                        'Update Password',
+        photoInput.addEventListener(
+            'change',
+            async () => {
 
-                    confirmButtonColor:
-                        '#556B2F',
+                const file =
+                    photoInput.files?.[0];
 
-                    preConfirm:() => {
 
-                        const current =
-                            document
-                                .getElementById(
-                                    'profileCurrentPassword'
-                                )
-                                ?.value ||
-                            '';
+                if (
+                    !file
+                ){
 
-                        const next =
-                            document
-                                .getElementById(
-                                    'profileNewPassword'
-                                )
-                                ?.value ||
-                            '';
+                    return;
 
-                        const confirm =
-                            document
-                                .getElementById(
-                                    'profileConfirmPassword'
-                                )
-                                ?.value ||
-                            '';
+                }
 
-                        if (
-                            !current ||
-                            !next ||
-                            !confirm
-                        ) {
 
-                            Swal.showValidationMessage(
-                                'All password fields are required.'
-                            );
+                const allowedTypes = [
 
-                            return false;
+                    'image/jpeg',
 
-                        }
+                    'image/png',
 
-                        if (
-                            next.length < 8 ||
-                            next.length > 72 ||
-                            !/[A-Za-z]/.test(
-                                next
-                            ) ||
-                            !/[0-9]/.test(
-                                next
-                            )
-                        ) {
+                    'image/webp'
 
-                            Swal.showValidationMessage(
-                                'Use 8–72 characters with at least one letter and one number.'
-                            );
+                ];
 
-                            return false;
 
-                        }
+                if (
+                    !allowedTypes.includes(
+                        file.type
+                    )
+                ){
 
-                        if (
-                            next !==
-                            confirm
-                        ) {
+                    await notify(
+                        'error',
+                        'Invalid Image',
+                        'Only JPG, PNG and WebP images are allowed.'
+                    );
 
-                            Swal.showValidationMessage(
-                                'Passwords do not match.'
-                            );
 
-                            return false;
+                    photoInput.value =
+                        '';
 
-                        }
+                    return;
 
-                        return {
+                }
 
-                            current_password:
-                                current,
 
-                            new_password:
-                                next,
+                if (
+                    file.size >
+                    2 * 1024 * 1024
+                ){
 
-                            confirm_password:
-                                confirm
+                    await notify(
+                        'error',
+                        'Image Too Large',
+                        'Maximum profile photo size is 2 MB.'
+                    );
+
+
+                    photoInput.value =
+                        '';
+
+                    return;
+
+                }
+
+
+                /*
+                |--------------------------------------------------------------------------
+                | SHOW LOCAL PREVIEW
+                |--------------------------------------------------------------------------
+                */
+
+                if (
+                    photoPreview
+                ){
+
+                    const reader =
+                        new FileReader();
+
+
+                    reader.onload =
+                        event => {
+
+                            photoPreview.src =
+                                String(
+                                    event.target?.result
+                                    ||
+                                    ''
+                                );
 
                         };
 
-                    }
 
-                });
-
-            if (
-                !result.isConfirmed
-            ) {
-                return;
-            }
-
-            fetch(
-                'ajax/change_password.php',
-                {
-
-                    method:'POST',
-
-                    credentials:
-                        'same-origin',
-
-                    headers:{
-                        'Content-Type':
-                            'application/json',
-
-                        Accept:
-                            'application/json'
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            ...result.value,
-
-                            csrf_token:
-                                csrfToken
-
-                        })
+                    reader.readAsDataURL(
+                        file
+                    );
 
                 }
-            )
 
-                .then(
-                    async response => {
 
-                        const data =
-                            await response.json();
+                const formData =
+                    new FormData();
 
-                        if (
-                            !response.ok
-                        ) {
 
-                            throw new Error(
-                                data.message ||
-                                'Password request failed.'
-                            );
-
-                        }
-
-                        return data;
-
-                    }
-                )
-
-                .then(
-                    showDialog
-                )
-
-                .catch(
-                    error => {
-
-                        showDialog({
-
-                            status:'error',
-
-                            title:'Password Update Failed',
-
-                            message:
-                                error.message ||
-                                'Unable to update password.'
-
-                        });
-
-                    }
+                formData.append(
+                    'profile_photo',
+                    file
                 );
+
+
+                formData.append(
+                    'csrf_token',
+                    csrfToken
+                );
+
+
+                photoInput.disabled =
+                    true;
+
+
+                try{
+
+                    const data =
+                        await requestJson(
+                            'ajax/upload_profile_photo.php',
+                            {
+
+                                method:
+                                    'POST',
+
+                                body:
+                                    formData
+
+                            }
+                        );
+
+
+                    if (
+                        photoPreview &&
+                        data.photo
+                    ){
+
+                        photoPreview.src =
+                            `${data.photo}?t=${Date.now()}`;
+
+                    }
+
+
+                    await notify(
+                        'success',
+                        data.title ||
+                            'Photo Updated',
+                        data.message ||
+                            'Your profile photo has been updated successfully.'
+                    );
+
+
+                }catch(
+                    error
+                ){
+
+                    await notify(
+                        'error',
+                        error.response?.title ||
+                            'Upload Failed',
+                        error.message ||
+                            'Unable to update your profile photo.'
+                    );
+
+                }finally{
+
+                    photoInput.disabled =
+                        false;
+
+                    photoInput.value =
+                        '';
+
+                }
+
+            }
+        );
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PASSWORD
+    |--------------------------------------------------------------------------
+    */
+
+    const modal =
+        document.getElementById(
+            'profilePasswordModal'
+        );
+
+
+    const passwordForm =
+        document.getElementById(
+            'passwordForm'
+        );
+
+
+    const closeButton =
+        document.getElementById(
+            'passwordModalClose'
+        );
+
+
+    const cancelButton =
+        document.getElementById(
+            'passwordCancel'
+        );
+
+
+    const currentPassword =
+        document.getElementById(
+            'currentPassword'
+        );
+
+
+    const newPassword =
+        document.getElementById(
+            'newPassword'
+        );
+
+
+    const confirmPassword =
+        document.getElementById(
+            'confirmPassword'
+        );
+
+
+    const submitButton =
+        document.getElementById(
+            'passwordSubmit'
+        );
+
+
+    const strengthBox =
+        document.getElementById(
+            'passwordStrength'
+        );
+
+
+    const strengthText =
+        document.getElementById(
+            'passwordStrengthText'
+        );
+
+
+    const strengthFill =
+        document.getElementById(
+            'passwordStrengthFill'
+        );
+
+
+    function openPasswordModal(){
+
+        if (
+            !modal
+        ){
+
+            return;
+
+        }
+
+
+        modal.classList.add(
+            'is-visible'
+        );
+
+
+        modal.setAttribute(
+            'aria-hidden',
+            'false'
+        );
+
+
+        document.body.style.overflow =
+            'hidden';
+
+
+        window.setTimeout(
+            () => {
+
+                currentPassword?.focus();
+
+            },
+            100
+        );
+
+    }
+
+
+    function resetPasswordForm(){
+
+        passwordForm?.reset();
+
+
+        if (
+            strengthBox
+        ){
+
+            strengthBox.style.display =
+                'none';
+
+        }
+
+
+        if (
+            strengthText
+        ){
+
+            strengthText.textContent =
+                '—';
+
+        }
+
+
+        if (
+            strengthFill
+        ){
+
+            strengthFill.style.width =
+                '0%';
+
+        }
+
+    }
+
+
+    function closePasswordModal(){
+
+        if (
+            !modal
+        ){
+
+            return;
+
+        }
+
+
+        modal.classList.remove(
+            'is-visible'
+        );
+
+
+        modal.setAttribute(
+            'aria-hidden',
+            'true'
+        );
+
+
+        document.body.style.overflow =
+            '';
+
+
+        resetPasswordForm();
+
+    }
+
+
+    closeButton?.addEventListener(
+        'click',
+        closePasswordModal
+    );
+
+
+    cancelButton?.addEventListener(
+        'click',
+        closePasswordModal
+    );
+
+
+    modal?.addEventListener(
+        'click',
+        event => {
+
+            if (
+                event.target ===
+                modal
+            ){
+
+                closePasswordModal();
+
+            }
 
         }
     );
 
+
+    document.addEventListener(
+        'keydown',
+        event => {
+
+            if (
+                event.key ===
+                'Escape'
+            ){
+
+                if (
+                    modal?.classList.contains(
+                        'is-visible'
+                    )
+                ){
+
+                    closePasswordModal();
+
+                }
+
+            }
+
+        }
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PASSWORD EYE
+    |--------------------------------------------------------------------------
+    */
+
     document
         .querySelectorAll(
-            '.shortcut-grid a'
+            '[data-password-target]'
         )
         .forEach(
-            link => {
+            button => {
 
-                link.addEventListener(
+                button.addEventListener(
                     'click',
                     () => {
 
-                        toast(
-                            'info',
-                            'Opening student portal...'
-                        );
+                        const id =
+                            button.getAttribute(
+                                'data-password-target'
+                            );
+
+
+                        const input =
+                            document.getElementById(
+                                id
+                            );
+
+
+                        const icon =
+                            button.querySelector(
+                                'i'
+                            );
+
+
+                        if (
+                            !input ||
+                            !icon
+                        ){
+
+                            return;
+
+                        }
+
+
+                        if (
+                            input.type ===
+                            'password'
+                        ){
+
+                            input.type =
+                                'text';
+
+                            icon.className =
+                                'fa-solid fa-eye-slash';
+
+                        }else{
+
+                            input.type =
+                                'password';
+
+                            icon.className =
+                                'fa-solid fa-eye';
+
+                        }
 
                     }
                 );
@@ -723,4 +756,438 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         );
 
-});
+
+    /*
+    |--------------------------------------------------------------------------
+    | STRENGTH
+    |--------------------------------------------------------------------------
+    */
+
+    function passwordStrength(
+        value
+    ){
+
+        let score =
+            0;
+
+
+        if (
+            value.length >= 8
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            value.length >= 12
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            /[a-z]/.test(value)
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            /[A-Z]/.test(value)
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            /[0-9]/.test(value)
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            /[^A-Za-z0-9]/.test(value)
+        ){
+
+            score++;
+
+        }
+
+
+        if (
+            score <= 2
+        ){
+
+            return {
+
+                label:'Weak',
+
+                width:30,
+
+                color:'#A64D45'
+
+            };
+
+        }
+
+
+        if (
+            score <= 4
+        ){
+
+            return {
+
+                label:'Good',
+
+                width:65,
+
+                color:'#A47B29'
+
+            };
+
+        }
+
+
+        return {
+
+            label:'Strong',
+
+            width:100,
+
+            color:'#556B2F'
+
+        };
+
+    }
+
+
+    newPassword?.addEventListener(
+        'input',
+        () => {
+
+            const value =
+                newPassword.value;
+
+
+            if (
+                value === ''
+            ){
+
+                if (
+                    strengthBox
+                ){
+
+                    strengthBox.style.display =
+                        'none';
+
+                }
+
+                return;
+
+            }
+
+
+            const result =
+                passwordStrength(
+                    value
+                );
+
+
+            if (
+                strengthBox
+            ){
+
+                strengthBox.style.display =
+                    'block';
+
+            }
+
+
+            if (
+                strengthText
+            ){
+
+                strengthText.textContent =
+                    result.label;
+
+                strengthText.style.color =
+                    result.color;
+
+            }
+
+
+            if (
+                strengthFill
+            ){
+
+                strengthFill.style.width =
+                    `${result.width}%`;
+
+                strengthFill.style.background =
+                    result.color;
+
+            }
+
+        }
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PASSWORD SUBMIT
+    |--------------------------------------------------------------------------
+    */
+
+    passwordForm?.addEventListener(
+        'submit',
+        async event => {
+
+            event.preventDefault();
+
+
+            const current =
+                currentPassword?.value
+                || '';
+
+
+            const next =
+                newPassword?.value
+                || '';
+
+
+            const confirm =
+                confirmPassword?.value
+                || '';
+
+
+            if (
+                current === ''
+            ){
+
+                await notify(
+                    'warning',
+                    'Current Password Required',
+                    'Please enter your current password.'
+                );
+
+                currentPassword?.focus();
+
+                return;
+
+            }
+
+
+            if (
+                next.length < 8 ||
+                next.length > 72
+            ){
+
+                await notify(
+                    'warning',
+                    'Invalid Password',
+                    'New password must be between 8 and 72 characters.'
+                );
+
+                newPassword?.focus();
+
+                return;
+
+            }
+
+
+            if (
+                !/[A-Za-z]/.test(next) ||
+                !/[0-9]/.test(next)
+            ){
+
+                await notify(
+                    'warning',
+                    'Stronger Password Required',
+                    'Use at least one letter and one number.'
+                );
+
+                newPassword?.focus();
+
+                return;
+
+            }
+
+
+            if (
+                next !== confirm
+            ){
+
+                await notify(
+                    'warning',
+                    'Password Mismatch',
+                    'New password and confirm password do not match.'
+                );
+
+                confirmPassword?.focus();
+
+                return;
+
+            }
+
+
+            if (
+                current === next
+            ){
+
+                await notify(
+                    'warning',
+                    'Same Password',
+                    'New password must be different from your current password.'
+                );
+
+                newPassword?.focus();
+
+                return;
+
+            }
+
+
+            const old =
+                submitButton?.innerHTML
+                ||
+                'Update Password';
+
+
+            if (
+                submitButton
+            ){
+
+                submitButton.disabled =
+                    true;
+
+                submitButton.innerHTML =
+                    '<i class="fa-solid fa-spinner fa-spin"></i> Updating...';
+
+            }
+
+
+            try{
+
+                const data =
+                    await requestJson(
+                        'ajax/change_password.php',
+                        {
+
+                            method:
+                                'POST',
+
+                            headers:{
+                                'Content-Type':
+                                    'application/json'
+                            },
+
+                            body:
+                                JSON.stringify({
+
+                                    current_password:
+                                        current,
+
+                                    new_password:
+                                        next,
+
+                                    confirm_password:
+                                        confirm,
+
+                                    csrf_token:
+                                        csrfToken
+
+                                })
+
+                        }
+                    );
+
+
+                closePasswordModal();
+
+
+                await notify(
+                    'success',
+                    data.title ||
+                        'Password Updated',
+                    data.message ||
+                        'Your password has been changed successfully.'
+                );
+
+
+            }catch(
+                error
+            ){
+
+                await notify(
+                    'error',
+                    error.response?.title ||
+                        'Password Update Failed',
+                    error.message ||
+                        'Unable to update your password.'
+                );
+
+            }finally{
+
+                if (
+                    submitButton
+                ){
+
+                    submitButton.disabled =
+                        false;
+
+                    submitButton.innerHTML =
+                        old;
+
+                }
+
+            }
+
+        }
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | NAVBAR CHANGE PASSWORD
+    |--------------------------------------------------------------------------
+    */
+
+    const params =
+        new URLSearchParams(
+            window.location.search
+        );
+
+
+    if (
+        params.get(
+            'change_password'
+        ) === '1'
+    ){
+
+        window.setTimeout(
+            openPasswordModal,
+            150
+        );
+
+
+        window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname
+        );
+
+    }
+
+
+})();

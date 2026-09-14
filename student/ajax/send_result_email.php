@@ -35,11 +35,11 @@ header(
 
 /*
 |--------------------------------------------------------------------------
-| JSON RESPONSE
+| RESPONSE
 |--------------------------------------------------------------------------
 */
 
-function email_result_response(
+function result_email_response(
     bool $success,
     string $message,
     array $data = [],
@@ -78,12 +78,27 @@ function email_result_response(
 |--------------------------------------------------------------------------
 */
 
-function email_result_number(
+function result_email_escape(
+    mixed $value
+): string {
+
+    return htmlspecialchars(
+        (string) $value,
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+}
+
+
+function result_email_number(
     mixed $value
 ): string {
 
     $number =
-        (float) $value;
+        round(
+            (float) $value,
+            2
+        );
 
 
     if (
@@ -114,15 +129,72 @@ function email_result_number(
 }
 
 
-function email_result_escape(
+function result_email_date(
     mixed $value
 ): string {
 
-    return htmlspecialchars(
-        (string) $value,
-        ENT_QUOTES | ENT_SUBSTITUTE,
-        'UTF-8'
-    );
+    if (
+        empty($value)
+    ) {
+
+        return '-';
+    }
+
+
+    try {
+
+        return (
+            new DateTimeImmutable(
+                (string) $value
+            )
+        )->format(
+            'd M Y, h:i A'
+        );
+
+    } catch (Throwable) {
+
+        return '-';
+    }
+}
+
+
+function result_email_status_class(
+    string $status
+): string {
+
+    return $status === 'Pass'
+        ? 'pass'
+        : 'fail';
+}
+
+
+function result_email_grade(
+    float $percentage
+): string {
+
+    return match (true) {
+
+        $percentage >= 90 =>
+            'A+',
+
+        $percentage >= 80 =>
+            'A',
+
+        $percentage >= 70 =>
+            'B+',
+
+        $percentage >= 60 =>
+            'B',
+
+        $percentage >= 50 =>
+            'C',
+
+        $percentage >= 40 =>
+            'D',
+
+        default =>
+            'F'
+    };
 }
 
 
@@ -130,13 +202,24 @@ function email_result_escape(
 |--------------------------------------------------------------------------
 | REQUEST METHOD
 |--------------------------------------------------------------------------
+|
+| Current result.php may use GET while older implementations may use POST.
+| Support both without weakening authentication or CSRF validation.
+|--------------------------------------------------------------------------
 */
 
 if (
-    $_SERVER['REQUEST_METHOD'] !== 'POST'
+    !in_array(
+        $_SERVER['REQUEST_METHOD'],
+        [
+            'GET',
+            'POST'
+        ],
+        true
+    )
 ) {
 
-    email_result_response(
+    result_email_response(
         false,
         'Invalid request method.',
         [],
@@ -154,13 +237,14 @@ if (
 if (
     empty(
         $_SESSION['user_id']
-    ) ||
+    )
+    ||
     (
         $_SESSION['user_role'] ?? ''
     ) !== 'student'
 ) {
 
-    email_result_response(
+    result_email_response(
         false,
         'Student login is required.',
         [],
@@ -177,13 +261,20 @@ $studentId =
 |--------------------------------------------------------------------------
 | CSRF
 |--------------------------------------------------------------------------
+|
+| GET requests from the upgraded result page still carry csrf_token in
+| the query string. POST requests use the same field in POST data.
+|--------------------------------------------------------------------------
 */
 
 $requestToken =
     trim(
         (string) (
             $_POST['csrf_token']
-            ?? ''
+            ??
+            $_GET['csrf_token']
+            ??
+            ''
         )
     );
 
@@ -192,7 +283,7 @@ if (
     $requestToken === ''
 ) {
 
-    email_result_response(
+    result_email_response(
         false,
         'Security verification failed.',
         [],
@@ -204,12 +295,6 @@ if (
 $csrfValid =
     false;
 
-
-/*
-|--------------------------------------------------------------------------
-| Global CSRF
-|--------------------------------------------------------------------------
-*/
 
 $globalToken =
     (string) (
@@ -229,12 +314,6 @@ if (
         );
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| Exam CSRF fallback
-|--------------------------------------------------------------------------
-*/
 
 if (
     !$csrfValid
@@ -264,7 +343,7 @@ if (
     !$csrfValid
 ) {
 
-    email_result_response(
+    result_email_response(
         false,
         'Security verification failed.',
         [],
@@ -282,18 +361,23 @@ if (
 $attemptId =
     filter_var(
         $_POST['attempt_id']
-        ?? null,
+        ??
+        $_GET['attempt_id']
+        ??
+        null,
         FILTER_VALIDATE_INT
     );
 
 
 if (
-    $attemptId === false ||
-    $attemptId === null ||
+    $attemptId === false
+    ||
+    $attemptId === null
+    ||
     $attemptId <= 0
 ) {
 
-    email_result_response(
+    result_email_response(
         false,
         'Invalid examination attempt.',
         [],
@@ -304,7 +388,7 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| TEMP PDF PATH
+| PDF PATH
 |--------------------------------------------------------------------------
 */
 
@@ -320,14 +404,16 @@ $pdfPath =
 
 try {
 
+
     /*
     |--------------------------------------------------------------------------
-    | LOAD RESULT
+    | LOAD FINAL RESULT
     |--------------------------------------------------------------------------
     */
 
     $resultStatement =
-        $conn->prepare("
+        $conn->prepare(
+            "
             SELECT
 
                 r.id AS result_id,
@@ -364,6 +450,9 @@ try {
 
                 e.exam_type,
                 e.duration_minutes,
+
+                e.required_question_count,
+
                 e.passing_marks,
                 e.negative_marking,
 
@@ -399,16 +488,19 @@ try {
                 AND r.student_id = ?
 
             LIMIT 1
-        ");
+            "
+        );
 
 
-    $resultStatement->execute([
+    $resultStatement->execute(
+        [
 
-        (int) $attemptId,
+            (int) $attemptId,
 
-        $studentId
+            $studentId
 
-    ]);
+        ]
+    );
 
 
     $result =
@@ -427,7 +519,7 @@ try {
         !$result
     ) {
 
-        email_result_response(
+        result_email_response(
             false,
             'Result not found.',
             [],
@@ -443,12 +535,14 @@ try {
     */
 
     if (
-        (int) $result['student_id']
+        (int) $result[
+            'student_id'
+        ]
         !==
         $studentId
     ) {
 
-        email_result_response(
+        result_email_response(
             false,
             'You are not authorized to access this result.',
             [],
@@ -459,13 +553,15 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | FINALIZED RESULT ONLY
+    | FINALIZED ONLY
     |--------------------------------------------------------------------------
     */
 
     if (
         !in_array(
-            (string) $result['attempt_status'],
+            (string) $result[
+                'attempt_status'
+            ],
             [
                 'Submitted',
                 'Auto Submitted'
@@ -474,7 +570,7 @@ try {
         )
     ) {
 
-        email_result_response(
+        result_email_response(
             false,
             'This result is not finalized yet.',
             [],
@@ -485,13 +581,17 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | VALID STUDENT EMAIL
+    | EMAIL
     |--------------------------------------------------------------------------
     */
 
     $studentEmail =
         trim(
-            (string) $result['email']
+            (string) (
+                $result[
+                    'email'
+                ] ?? ''
+            )
         );
 
 
@@ -502,7 +602,7 @@ try {
         )
     ) {
 
-        email_result_response(
+        result_email_response(
             false,
             'No valid email address is available for this student account.',
             [],
@@ -520,54 +620,107 @@ try {
     $totalQuestions =
         max(
             0,
-            (int) $result[
-                'total_questions'
-            ]
+            (int) (
+                $result[
+                    'total_questions'
+                ] ?? 0
+            )
         );
+
+
+    $requiredQuestionCount =
+        max(
+            0,
+            (int) (
+                $result[
+                    'required_question_count'
+                ] ?? 0
+            )
+        );
+
+
+    if (
+        $requiredQuestionCount > 0
+        &&
+        $totalQuestions !==
+        $requiredQuestionCount
+    ) {
+
+        result_email_response(
+            false,
+            'The final result question configuration is inconsistent.',
+            [],
+            409
+        );
+    }
 
 
     $attemptedQuestions =
         max(
             0,
-            (int) $result[
-                'attempted_questions'
-            ]
+            (int) (
+                $result[
+                    'attempted_questions'
+                ] ?? 0
+            )
         );
 
 
     $correctAnswers =
         max(
             0,
-            (int) $result[
-                'correct_answers'
-            ]
+            (int) (
+                $result[
+                    'correct_answers'
+                ] ?? 0
+            )
         );
 
 
     $wrongAnswers =
         max(
             0,
-            (int) $result[
-                'wrong_answers'
-            ]
+            (int) (
+                $result[
+                    'wrong_answers'
+                ] ?? 0
+            )
         );
 
 
     $unansweredQuestions =
         max(
             0,
-            (int) $result[
-                'unanswered_questions'
-            ]
+            (int) (
+                $result[
+                    'unanswered_questions'
+                ] ?? 0
+            )
         );
 
 
     $totalMarks =
         max(
             0,
-            (float) $result[
-                'total_marks'
-            ]
+            round(
+                (float) (
+                    $result[
+                        'total_marks'
+                    ] ?? 0
+                ),
+                2
+            )
+        );
+
+
+    $obtainedMarks =
+        round(
+            (float) (
+                $result[
+                    'obtained_marks'
+                ] ?? 0
+            ),
+            2
         );
 
 
@@ -576,10 +729,19 @@ try {
             0,
             min(
                 $totalMarks,
-                (float) $result[
-                    'obtained_marks'
-                ]
+                $obtainedMarks
             )
+        );
+
+
+    $percentage =
+        round(
+            (float) (
+                $result[
+                    'percentage'
+                ] ?? 0
+            ),
+            2
         );
 
 
@@ -588,38 +750,341 @@ try {
             0,
             min(
                 100,
-                (float) $result[
-                    'percentage'
-                ]
+                $percentage
             )
         );
-
-
-    $grade =
-        (string) $result[
-            'grade'
-        ];
-
-
-    $resultStatus =
-        (string) $result[
-            'result_status'
-        ];
 
 
     $passingMarks =
         max(
             0,
-            (float) $result[
-                'passing_marks'
-            ]
+            min(
+                $totalMarks,
+                round(
+                    (float) (
+                        $result[
+                            'passing_marks'
+                        ] ?? 0
+                    ),
+                    2
+                )
+            )
         );
 
 
-    $negativeMarking =
-        (int) $result[
-            'negative_marking'
-        ];
+    $resultStatus =
+        trim(
+            (string) (
+                $result[
+                    'result_status'
+                ] ?? ''
+            )
+        );
+
+
+    $grade =
+        trim(
+            (string) (
+                $result[
+                    'grade'
+                ] ?? ''
+            )
+        );
+
+
+    if (
+        $grade === ''
+    ) {
+
+        $grade =
+            result_email_grade(
+                $percentage
+            );
+    }
+
+
+    $isPassed =
+        $resultStatus === 'Pass';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFY QUESTION-LEVEL MARKS
+    |--------------------------------------------------------------------------
+    */
+
+    $questionStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                eq.position,
+
+                q.id AS question_id,
+
+                q.question_text,
+                q.question_image,
+
+                q.option_a,
+                q.option_b,
+                q.option_c,
+                q.option_d,
+
+                q.correct_answer,
+                q.explanation,
+
+                q.marks,
+                q.negative_marks,
+
+                a.selected_answer,
+                a.question_status,
+
+                a.is_correct,
+                a.marks_awarded
+
+            FROM exam_questions eq
+
+            INNER JOIN questions q
+                ON q.id = eq.question_id
+
+            LEFT JOIN answers a
+                ON a.attempt_id = ?
+                AND a.question_id = q.id
+
+            WHERE
+
+                eq.exam_id = ?
+
+                AND q.status = 'Active'
+
+            ORDER BY
+
+                eq.position ASC,
+                q.id ASC
+            "
+        );
+
+
+    $questionStatement->execute(
+        [
+
+            (int) $attemptId,
+
+            (int) $result[
+                'exam_id'
+            ]
+
+        ]
+    );
+
+
+    $questionRows =
+        $questionStatement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | REMOVE DUPLICATES
+    |--------------------------------------------------------------------------
+    */
+
+    $questions =
+        [];
+
+
+    $seenQuestionIds =
+        [];
+
+
+    foreach (
+        $questionRows as $question
+    ) {
+
+        $questionId =
+            (int) (
+                $question[
+                    'question_id'
+                ] ?? 0
+            );
+
+
+        if (
+            $questionId <= 0
+        ) {
+            continue;
+        }
+
+
+        if (
+            isset(
+                $seenQuestionIds[
+                    $questionId
+                ]
+            )
+        ) {
+            continue;
+        }
+
+
+        $seenQuestionIds[
+            $questionId
+        ] = true;
+
+
+        $questions[] =
+            $question;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | EXACT QUESTION COUNT
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        count($questions)
+        !==
+        $totalQuestions
+    ) {
+
+        result_email_response(
+            false,
+            'The final result question set is inconsistent.',
+            [],
+            409
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PER QUESTION MARKS
+    |--------------------------------------------------------------------------
+    */
+
+    $marksPerQuestion =
+        null;
+
+
+    $calculatedTotalMarks =
+        0.00;
+
+
+    foreach (
+        $questions as $question
+    ) {
+
+        $questionMarks =
+            round(
+                (float) (
+                    $question[
+                        'marks'
+                    ] ?? 0
+                ),
+                2
+            );
+
+
+        if (
+            $questionMarks <= 0
+        ) {
+
+            result_email_response(
+                false,
+                'The result contains a question with invalid marks.',
+                [],
+                409
+            );
+        }
+
+
+        if (
+            $marksPerQuestion === null
+        ) {
+
+            $marksPerQuestion =
+                $questionMarks;
+
+        } elseif (
+            abs(
+                $marksPerQuestion -
+                $questionMarks
+            ) > 0.00001
+        ) {
+
+            result_email_response(
+                false,
+                'The result contains inconsistent per-question marks.',
+                [],
+                409
+            );
+        }
+
+
+        $calculatedTotalMarks +=
+            $questionMarks;
+    }
+
+
+    $calculatedTotalMarks =
+        round(
+            $calculatedTotalMarks,
+            2
+        );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | TOTAL MARKS FORMULA
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        $totalQuestions > 0
+    ) {
+
+        $formulaTotal =
+            round(
+                $totalQuestions *
+                $marksPerQuestion,
+                2
+            );
+
+
+        if (
+            abs(
+                $formulaTotal -
+                $totalMarks
+            ) > 0.01
+        ) {
+
+            result_email_response(
+                false,
+                'The final result total marks do not match the configured question marks.',
+                [],
+                409
+            );
+        }
+
+
+        if (
+            abs(
+                $formulaTotal -
+                $calculatedTotalMarks
+            ) > 0.01
+        ) {
+
+            result_email_response(
+                false,
+                'The question-wise marks configuration is inconsistent.',
+                [],
+                409
+            );
+        }
+    }
 
 
     /*
@@ -634,11 +1099,15 @@ try {
 
     if (
         !empty(
-            $result['started_at']
+            $result[
+                'started_at'
+            ]
         )
         &&
         !empty(
-            $result['submitted_at']
+            $result[
+                'submitted_at'
+            ]
         )
     ) {
 
@@ -677,247 +1146,162 @@ try {
 
 
     $timeTakenMinutes =
-        (int) ceil(
-            $timeTakenSeconds / 60
-        );
+        $timeTakenSeconds > 0
+            ? (int) ceil(
+                $timeTakenSeconds /
+                60
+            )
+            : 0;
+
+
+    if (
+        $timeTakenMinutes >= 60
+    ) {
+
+        $hours =
+            intdiv(
+                $timeTakenMinutes,
+                60
+            );
+
+
+        $minutes =
+            $timeTakenMinutes %
+            60;
+
+
+        $timeTakenText =
+            $hours .
+            ' hr ' .
+            $minutes .
+            ' min';
+
+    } elseif (
+        $timeTakenMinutes > 0
+    ) {
+
+        $timeTakenText =
+            $timeTakenMinutes .
+            ' min';
+
+    } else {
+
+        $timeTakenText =
+            'Not available';
+    }
 
 
     /*
     |--------------------------------------------------------------------------
-    | DERIVED PERCENTAGES
+    | PERFORMANCE
     |--------------------------------------------------------------------------
     */
-
-    $attemptedPercent =
-        $totalQuestions > 0
-
-            ? min(
-                100,
-                round(
-                    (
-                        $attemptedQuestions
-                        /
-                        $totalQuestions
-                    )
-                    *
-                    100
-                )
-            )
-
-            : 0;
-
-
-    $correctPercent =
-        $totalQuestions > 0
-
-            ? min(
-                100,
-                round(
-                    (
-                        $correctAnswers
-                        /
-                        $totalQuestions
-                    )
-                    *
-                    100
-                )
-            )
-
-            : 0;
-
-
-    $wrongPercent =
-        $totalQuestions > 0
-
-            ? min(
-                100,
-                round(
-                    (
-                        $wrongAnswers
-                        /
-                        $totalQuestions
-                    )
-                    *
-                    100
-                )
-            )
-
-            : 0;
-
-
-    $unansweredPercent =
-        $totalQuestions > 0
-
-            ? min(
-                100,
-                round(
-                    (
-                        $unansweredQuestions
-                        /
-                        $totalQuestions
-                    )
-                    *
-                    100
-                )
-            )
-
-            : 0;
-
 
     $accuracy =
         $attemptedQuestions > 0
 
             ? round(
                 (
-                    $correctAnswers
-                    /
+                    $correctAnswers /
                     $attemptedQuestions
-                )
-                *
-                100,
+                ) * 100,
                 2
             )
 
             : 0;
 
 
-    $isPassed =
-        $resultStatus === 'Pass';
+    $completion =
+        $totalQuestions > 0
 
-
-    $remark =
-        $isPassed
-
-            ? 'Congratulations! You passed the examination.'
-
-            : 'Keep practicing and improve your preparation.';
-
-
-    $remarkText =
-        $remark;
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | LOAD QUESTION ANALYSIS
-    |--------------------------------------------------------------------------
-    */
-
-    $questionStatement =
-        $conn->prepare("
-            SELECT
-
-                eq.position,
-
-                q.id AS question_id,
-
-                q.question_text,
-
-                q.question_image,
-
-                q.option_a,
-                q.option_b,
-                q.option_c,
-                q.option_d,
-
-                q.correct_answer,
-
-                q.explanation,
-
-                q.marks,
-                q.negative_marks,
-
-                a.selected_answer,
-                a.question_status,
-
-                a.is_correct,
-                a.marks_awarded
-
-            FROM exam_questions eq
-
-            INNER JOIN questions q
-                ON q.id = eq.question_id
-
-            LEFT JOIN answers a
-                ON a.attempt_id = ?
-                AND a.question_id = q.id
-
-            WHERE
-
-                eq.exam_id = ?
-
-            ORDER BY
-
-                eq.position ASC,
-                q.id ASC
-        ");
-
-
-    $questionStatement->execute([
-
-        (int) $attemptId,
-
-        (int) $result[
-            'exam_id'
-        ]
-
-    ]);
-
-
-    $questions =
-        $questionStatement->fetchAll(
-            PDO::FETCH_ASSOC
-        );
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | REMOVE DUPLICATE QUESTIONS
-    |--------------------------------------------------------------------------
-    */
-
-    $uniqueQuestions =
-        [];
-
-
-    foreach (
-        $questions as $question
-    ) {
-
-        $questionId =
-            (int) $question[
-                'question_id'
-            ];
-
-
-        if (
-            isset(
-                $uniqueQuestions[
-                    $questionId
-                ]
+            ? round(
+                (
+                    $attemptedQuestions /
+                    $totalQuestions
+                ) * 100,
+                2
             )
-        ) {
 
-            continue;
-        }
+            : 0;
 
 
-        $uniqueQuestions[
-            $questionId
-        ] =
-            $question;
-    }
+    $correctPercentage =
+        $totalQuestions > 0
+
+            ? round(
+                (
+                    $correctAnswers /
+                    $totalQuestions
+                ) * 100,
+                2
+            )
+
+            : 0;
 
 
-    $questions =
-        array_values(
-            $uniqueQuestions
-        );
+    $wrongPercentage =
+        $totalQuestions > 0
+
+            ? round(
+                (
+                    $wrongAnswers /
+                    $totalQuestions
+                ) * 100,
+                2
+            )
+
+            : 0;
+
+
+    $unansweredPercentage =
+        $totalQuestions > 0
+
+            ? round(
+                (
+                    $unansweredQuestions /
+                    $totalQuestions
+                ) * 100,
+                2
+            )
+
+            : 0;
 
 
     /*
     |--------------------------------------------------------------------------
-    | PDF TEMP DIRECTORY
+    | PERFORMANCE LABEL
+    |--------------------------------------------------------------------------
+    */
+
+    $performanceLabel =
+        match (true) {
+
+            $percentage >= 90 =>
+                'Outstanding',
+
+            $percentage >= 80 =>
+                'Excellent',
+
+            $percentage >= 70 =>
+                'Very Good',
+
+            $percentage >= 60 =>
+                'Good',
+
+            $percentage >= 50 =>
+                'Fair',
+
+            $percentage >= 40 =>
+                'Needs Improvement',
+
+            default =>
+                'Needs More Practice'
+        };
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | TEMP DIRECTORY
     |--------------------------------------------------------------------------
     */
 
@@ -995,7 +1379,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | VERIFY mPDF
+    | mPDF
     |--------------------------------------------------------------------------
     */
 
@@ -1013,7 +1397,7 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | RESULT PDF TEMPLATE
+    | PDF TEMPLATE
     |--------------------------------------------------------------------------
     */
 
@@ -1039,7 +1423,182 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | RENDER TEMPLATE
+    | TEMPLATE DATA
+    |--------------------------------------------------------------------------
+    |
+    | Variables below are deliberately provided because the existing
+    | result PDF template uses them directly.
+    |--------------------------------------------------------------------------
+    */
+
+    $templateResult = [
+
+        'result_id' =>
+            (int) $result[
+                'result_id'
+            ],
+
+        'attempt_id' =>
+            (int) $result[
+                'attempt_id'
+            ],
+
+        'student_id' =>
+            (int) $result[
+                'student_id'
+            ],
+
+        'exam_id' =>
+            (int) $result[
+                'exam_id'
+            ],
+
+        'full_name' =>
+            (string) $result[
+                'full_name'
+            ],
+
+        'student_code' =>
+            (string) $result[
+                'student_code'
+            ],
+
+        'email' =>
+            (string) $result[
+                'email'
+            ],
+
+        'exam_title' =>
+            (string) $result[
+                'exam_title'
+            ],
+
+        'exam_type' =>
+            (string) $result[
+                'exam_type'
+            ],
+
+        'subject_name' =>
+            (string) (
+                $result[
+                    'subject_name'
+                ] ?? ''
+            ),
+
+        'subject_code' =>
+            (string) (
+                $result[
+                    'subject_code'
+                ] ?? ''
+            ),
+
+        'exam_description' =>
+            (string) (
+                $result[
+                    'exam_description'
+                ] ?? ''
+            ),
+
+        'total_questions' =>
+            $totalQuestions,
+
+        'attempted_questions' =>
+            $attemptedQuestions,
+
+        'correct_answers' =>
+            $correctAnswers,
+
+        'wrong_answers' =>
+            $wrongAnswers,
+
+        'unanswered_questions' =>
+            $unansweredQuestions,
+
+        'marks_per_question' =>
+            $marksPerQuestion,
+
+        'total_marks' =>
+            $totalMarks,
+
+        'obtained_marks' =>
+            $obtainedMarks,
+
+        'percentage' =>
+            $percentage,
+
+        'passing_marks' =>
+            $passingMarks,
+
+        'grade' =>
+            $grade,
+
+        'result_status' =>
+            $resultStatus,
+
+        'negative_marking' =>
+            (int) (
+                $result[
+                    'negative_marking'
+                ] ?? 0
+            ),
+
+        'duration_minutes' =>
+            (int) (
+                $result[
+                    'duration_minutes'
+                ] ?? 0
+            ),
+
+        'started_at' =>
+            $result[
+                'started_at'
+            ] ?? null,
+
+        'submitted_at' =>
+            $result[
+                'submitted_at'
+            ] ?? null,
+
+        'result_created_at' =>
+            $result[
+                'result_created_at'
+            ] ?? null,
+
+        'attempt_status' =>
+            (string) $result[
+                'attempt_status'
+            ]
+
+    ];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | REQUIRED TEMPLATE VARIABLES
+    |--------------------------------------------------------------------------
+    */
+
+    $templateData =
+        $templateResult;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | MAKE VARIABLES AVAILABLE TO TEMPLATE
+    |--------------------------------------------------------------------------
+    */
+
+    $result =
+        $templateData;
+
+
+    $questions =
+        $questions;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | RENDER HTML
     |--------------------------------------------------------------------------
     */
 
@@ -1062,7 +1621,9 @@ try {
 
 
     if (
-        trim($pdfHtml) === ''
+        trim(
+            $pdfHtml
+        ) === ''
     ) {
 
         throw new RuntimeException(
@@ -1073,55 +1634,58 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | CREATE mPDF
+    | GENERATE PDF
     |--------------------------------------------------------------------------
     */
 
     $mpdf =
-        new \Mpdf\Mpdf([
+        new \Mpdf\Mpdf(
+            [
 
-            'mode' =>
-                'utf-8',
+                'mode' =>
+                    'utf-8',
 
-            'format' =>
-                'A4',
+                'format' =>
+                    'A4',
 
-            'orientation' =>
-                'P',
+                'orientation' =>
+                    'P',
 
-            'margin_left' =>
-                15,
+                'margin_left' =>
+                    15,
 
-            'margin_right' =>
-                15,
+                'margin_right' =>
+                    15,
 
-            'margin_top' =>
-                20,
+                'margin_top' =>
+                    20,
 
-            'margin_bottom' =>
-                20,
+                'margin_bottom' =>
+                    20,
 
-            'margin_header' =>
-                8,
+                'margin_header' =>
+                    8,
 
-            'margin_footer' =>
-                8,
+                'margin_footer' =>
+                    8,
 
-            'tempDir' =>
-                $tempDirectory,
+                'tempDir' =>
+                    $tempDirectory,
 
-            'default_font' =>
-                'dejavusans',
+                'default_font' =>
+                    'dejavusans',
 
-            'default_font_size' =>
-                8,
+                'default_font_size' =>
+                    8,
 
-            'autoScriptToLang' =>
-                true,
+                'autoScriptToLang' =>
+                    true,
 
-            'autoLangToFont' =>
-                true
-        ]);
+                'autoLangToFont' =>
+                    true
+
+            ]
+        );
 
 
     $examTitle =
@@ -1142,7 +1706,7 @@ try {
 
 
     $mpdf->SetCreator(
-        'ExamSphere'
+        'ExamSphere Online Examination System'
     );
 
 
@@ -1156,30 +1720,55 @@ try {
     );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | PDF CSS
-    |--------------------------------------------------------------------------
-    */
+    $mpdf->SetHTMLHeader(
+        '
+        <div
+            style="
+                text-align:right;
+                font-size:7px;
+                color:#777777;
+            "
+        >
+            ExamSphere
+        </div>
+        '
+    );
 
-    $css = <<<CSS
 
-body {
-    font-family: dejavusans;
-    color: #333333;
-    font-size: 8px;
-    line-height: 1.45;
-}
-
-table {
-    border-collapse: collapse;
-}
-
-CSS;
+    $mpdf->SetHTMLFooter(
+        '
+        <div
+            style="
+                text-align:center;
+                font-size:7px;
+                color:#777777;
+            "
+        >
+            ExamSphere Online Examination System
+            &nbsp;|&nbsp;
+            Page {PAGENO} of {nbpg}
+        </div>
+        '
+    );
 
 
     $mpdf->WriteHTML(
-        $css,
+        '
+        <style>
+
+            body {
+                font-family: dejavusans;
+                color: #333333;
+                font-size: 8px;
+                line-height: 1.45;
+            }
+
+            table {
+                border-collapse: collapse;
+            }
+
+        </style>
+        ',
         \Mpdf\HTMLParserMode::HEADER_CSS
     );
 
@@ -1192,7 +1781,7 @@ CSS;
 
     /*
     |--------------------------------------------------------------------------
-    | SAFE TEMP FILE NAME
+    | SAFE FILE NAME
     |--------------------------------------------------------------------------
     */
 
@@ -1252,6 +1841,10 @@ CSS;
         !is_file(
             $pdfPath
         )
+        ||
+        filesize(
+            $pdfPath
+        ) <= 0
     ) {
 
         throw new RuntimeException(
@@ -1272,7 +1865,7 @@ CSS;
 
     /*
     |--------------------------------------------------------------------------
-    | ADDRESS
+    | RECIPIENT
     |--------------------------------------------------------------------------
     */
 
@@ -1283,8 +1876,7 @@ CSS;
         (string) (
             $result[
                 'full_name'
-            ]
-            ?? ''
+            ] ?? ''
         )
 
     );
@@ -1297,67 +1889,168 @@ CSS;
     */
 
     $mail->Subject =
-        'ExamSphere Result — '
-        .
+        'ExamSphere Result — ' .
         $examTitle;
 
 
     /*
     |--------------------------------------------------------------------------
-    | SAFE EMAIL VALUES
+    | EMAIL DATA
     |--------------------------------------------------------------------------
     */
 
     $safeName =
-        email_result_escape(
+        result_email_escape(
             $result[
                 'full_name'
-            ]
-            ?? 'Student'
+            ] ?? 'Student'
         );
 
 
     $safeExam =
-        email_result_escape(
+        result_email_escape(
             $examTitle
         );
 
 
-    $safePercentage =
-        email_result_escape(
-            number_format(
-                $percentage,
-                2
+    $safeSubject =
+        result_email_escape(
+            $result[
+                'subject_name'
+            ] ?? ''
+        );
+
+
+    $safeType =
+        result_email_escape(
+            $result[
+                'exam_type'
+            ] ?? 'Examination'
+        );
+
+
+    $safeDate =
+        result_email_escape(
+            result_email_date(
+                $result[
+                    'submitted_at'
+                ]
+                ??
+                $result[
+                    'result_created_at'
+                ]
             )
         );
 
 
-    $safeResult =
-        email_result_escape(
-            $resultStatus
+    $safePercentage =
+        result_email_escape(
+            result_email_number(
+                $percentage
+            )
         );
 
 
-    $safeGrade =
-        email_result_escape(
-            $grade
-        );
-
-
-    $safeObtainedMarks =
-        email_result_escape(
-            email_result_number(
+    $safeObtained =
+        result_email_escape(
+            result_email_number(
                 $obtainedMarks
             )
         );
 
 
-    $safeTotalMarks =
-        email_result_escape(
-            email_result_number(
+    $safeTotal =
+        result_email_escape(
+            result_email_number(
                 $totalMarks
             )
         );
+
+
+    $safePassing =
+        result_email_escape(
+            result_email_number(
+                $passingMarks
+            )
+        );
+
+
+    $safeGrade =
+        result_email_escape(
+            $grade
+        );
+
+
+    $safeStatus =
+        result_email_escape(
+            $resultStatus
+        );
+
+
+    $safeAccuracy =
+        result_email_escape(
+            result_email_number(
+                $accuracy
+            )
+        );
+
+
+    $safeTimeTaken =
+        result_email_escape(
+            $timeTakenText
+        );
+
+
+    $safeMarksPerQuestion =
+        result_email_escape(
+            result_email_number(
+                $marksPerQuestion
+            )
+        );
+
+
+    $safeTotalQuestions =
+        (int) $totalQuestions;
+
+
+    $safeAttempted =
+        (int) $attemptedQuestions;
+
+
+    $safeCorrect =
+        (int) $correctAnswers;
+
+
+    $safeWrong =
+        (int) $wrongAnswers;
+
+
+    $safeUnanswered =
+        (int) $unansweredQuestions;
+
+
+    $statusBg =
+        $isPassed
+            ? '#EAF4E4'
+            : '#FBEAE7';
+
+
+    $statusText =
+        $isPassed
+            ? '#556B2F'
+            : '#B84A42';
+
+
+    $statusMessage =
+        $isPassed
+            ? 'Congratulations! You passed the examination.'
+            : 'Keep practising and continue improving your preparation.';
+
+
+    $statusSubMessage =
+        $isPassed
+            ? 'Your score met or exceeded the configured passing marks.'
+            : 'Use the detailed result analysis to improve your next attempt.';
 
 
     /*
@@ -1371,229 +2064,828 @@ CSS;
     );
 
 
-    $mail->Body = '
+    $mail->Body =
 
-<!DOCTYPE html>
+        '<!DOCTYPE html>
 
-<html>
+        <html lang="en">
 
-<head>
+        <head>
 
-<meta charset="UTF-8">
+            <meta charset="UTF-8">
 
-<title>
-ExamSphere Result
-</title>
+            <meta
+                name="viewport"
+                content="width=device-width,initial-scale=1.0"
+            >
 
-</head>
+            <title>
+                ExamSphere Result
+            </title>
 
-
-<body style="
-    margin:0;
-    padding:30px;
-    background:#f7f4ef;
-    font-family:Arial,Helvetica,sans-serif;
-">
-
-    <div style="
-        max-width:620px;
-        margin:0 auto;
-        background:#ffffff;
-        border-radius:20px;
-        overflow:hidden;
-        border:1px solid #e8e1d8;
-        box-shadow:0 18px 50px rgba(0,0,0,.08);
-    ">
+        </head>
 
 
-        <div style="
-            padding:30px;
-            background:#5D4037;
-            color:#ffffff;
-            text-align:center;
-        ">
+        <body
+            style="
+                margin:0;
+                padding:0;
+                background:#F5F5DC;
+                font-family:
+                    Arial,
+                    Helvetica,
+                    sans-serif;
+                color:#332D29;
+            "
+        >
 
-            <div style="
-                font-size:28px;
-                font-weight:800;
-            ">
 
-                ExamSphere
+            <div
+                style="
+                    width:100%;
+                    padding:32px 14px;
+                    box-sizing:border-box;
+                "
+            >
+
+
+                <div
+                    style="
+                        max-width:680px;
+                        margin:0 auto;
+                        background:#FFFFFF;
+                        border:1px solid #E4DED3;
+                        border-radius:24px;
+                        overflow:hidden;
+                    "
+                >
+
+
+                    <div
+                        style="
+                            padding:28px;
+                            background:
+                                linear-gradient(
+                                    135deg,
+                                    #5D4037,
+                                    #3E2723
+                                );
+                            color:#FFFFFF;
+                            text-align:center;
+                        "
+                    >
+
+                        <div
+                            style="
+                                font-size:28px;
+                                line-height:1;
+                                font-weight:800;
+                            "
+                        >
+                            ExamSphere
+                        </div>
+
+
+                        <div
+                            style="
+                                margin-top:7px;
+                                color:#E9E1D8;
+                                font-size:12px;
+                            "
+                        >
+                            Online Examination Result
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            padding:30px;
+                        "
+                    >
+
+
+                        <div
+                            style="
+                                color:#6F6760;
+                                font-size:12px;
+                                margin-bottom:7px;
+                            "
+                        >
+                            RESULT NOTIFICATION
+                        </div>
+
+
+                        <div
+                            style="
+                                color:#3E2723;
+                                font-size:21px;
+                                line-height:1.35;
+                                font-weight:800;
+                            "
+                        >
+
+                            Hello
+                            ' .
+                            $safeName .
+                            '
+
+                        </div>
+
+
+                        <p
+                            style="
+                                margin:12px 0 0;
+                                color:#6F6760;
+                                font-size:13px;
+                                line-height:1.8;
+                            "
+                        >
+
+                            Your finalized ExamSphere examination
+                            result is ready. Your complete result
+                            report is attached to this email as a PDF.
+
+                        </p>
+
+
+                        <div
+                            style="
+                                margin-top:24px;
+                                padding:22px;
+                                border-radius:18px;
+                                background:#FAF9F4;
+                                border:1px solid #E5DED3;
+                            "
+                        >
+
+
+                            <div
+                                style="
+                                    color:#7C736C;
+                                    font-size:10px;
+                                    text-transform:uppercase;
+                                    letter-spacing:1px;
+                                "
+                            >
+                                Examination
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:6px;
+                                    color:#5D4037;
+                                    font-size:19px;
+                                    line-height:1.4;
+                                    font-weight:800;
+                                "
+                            >
+
+                                ' .
+                                $safeExam .
+                                '
+
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:8px;
+                                    color:#7C736C;
+                                    font-size:11px;
+                                "
+                            >
+
+                                ' .
+                                $safeSubject .
+                                '
+
+                                &nbsp; • &nbsp;
+
+                                ' .
+                                $safeType .
+                                '
+
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:24px;
+                                    padding:18px;
+                                    border-radius:16px;
+                                    background:
+                                        ' .
+                                        $statusBg .
+                                        ';
+                                    text-align:center;
+                                "
+                            >
+
+                                <div
+                                    style="
+                                        color:' .
+                                        $statusText .
+                                        ';
+                                        font-size:11px;
+                                        text-transform:uppercase;
+                                        letter-spacing:1px;
+                                        font-weight:800;
+                                    "
+                                >
+                                    Result Status
+                                </div>
+
+
+                                <div
+                                    style="
+                                        margin-top:4px;
+                                        color:' .
+                                        $statusText .
+                                        ';
+                                        font-size:28px;
+                                        font-weight:900;
+                                    "
+                                >
+
+                                    ' .
+                                    $safeStatus .
+                                    '
+
+                                </div>
+
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:20px;
+                                    text-align:center;
+                                "
+                            >
+
+                                <div
+                                    style="
+                                        color:#7C736C;
+                                        font-size:10px;
+                                        text-transform:uppercase;
+                                        letter-spacing:1px;
+                                    "
+                                >
+                                    Overall Score
+                                </div>
+
+
+                                <div
+                                    style="
+                                        margin-top:6px;
+                                        color:#5D4037;
+                                        font-size:36px;
+                                        font-weight:900;
+                                    "
+                                >
+
+                                    ' .
+                                    $safePercentage .
+                                    '%
+
+                                </div>
+
+
+                                <div
+                                    style="
+                                        margin-top:5px;
+                                        color:#6E655E;
+                                        font-size:13px;
+                                    "
+                                >
+
+                                    ' .
+                                    $safeObtained .
+                                    '
+                                    /
+                                    ' .
+                                    $safeTotal .
+                                    '
+                                    Marks
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+
+                        <div
+                            style="
+                                margin-top:20px;
+                            "
+                        >
+
+                            <table
+                                width="100%"
+                                cellpadding="0"
+                                cellspacing="0"
+                                style="
+                                    border-collapse:separate;
+                                    border-spacing:8px;
+                                    margin-left:-8px;
+                                    width:calc(100% + 16px);
+                                "
+                            >
+
+                                <tr>
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Total Questions
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#3E2723;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeTotalQuestions .
+                                            '
+
+                                        </div>
+
+                                    </td>
+
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Marks / Question
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#3E2723;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeMarksPerQuestion .
+                                            '
+
+                                        </div>
+
+                                    </td>
+
+                                </tr>
+
+
+                                <tr>
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Correct
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#556B2F;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeCorrect .
+                                            '
+
+                                        </div>
+
+                                    </td>
+
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Wrong
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#B84A42;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeWrong .
+                                            '
+
+                                        </div>
+
+                                    </td>
+
+                                </tr>
+
+
+                                <tr>
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Unanswered
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#6F6861;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeUnanswered .
+                                            '
+
+                                        </div>
+
+                                    </td>
+
+
+                                    <td
+                                        width="50%"
+                                        style="
+                                            background:#F7F4ED;
+                                            border:1px solid #E5DED3;
+                                            border-radius:14px;
+                                            padding:14px;
+                                        "
+                                    >
+
+                                        <div
+                                            style="
+                                                color:#7C736C;
+                                                font-size:9px;
+                                                text-transform:uppercase;
+                                            "
+                                        >
+                                            Accuracy
+                                        </div>
+
+
+                                        <div
+                                            style="
+                                                margin-top:4px;
+                                                color:#5D4037;
+                                                font-size:18px;
+                                                font-weight:800;
+                                            "
+                                        >
+
+                                            ' .
+                                            $safeAccuracy .
+                                            '%
+
+                                        </div>
+
+                                    </td>
+
+                                </tr>
+
+                            </table>
+
+                        </div>
+
+
+                        <div
+                            style="
+                                margin-top:20px;
+                                padding:15px 16px;
+                                border-radius:14px;
+                                background:#F5F5DC;
+                                border:1px solid #DED7C9;
+                                text-align:center;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    color:#5D4037;
+                                    font-size:14px;
+                                    font-weight:800;
+                                "
+                            >
+
+                                ' .
+                                $safeTotalQuestions .
+                                '
+
+                                Questions
+
+                                ×
+
+                                ' .
+                                $safeMarksPerQuestion .
+                                '
+
+                                Mark/Question
+
+                                =
+
+                                ' .
+                                $safeTotal .
+                                '
+
+                                Total Marks
+
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:5px;
+                                    color:#756D67;
+                                    font-size:10px;
+                                "
+                            >
+
+                                Dynamic total marks based on the
+                                finalized examination configuration.
+
+                            </div>
+
+                        </div>
+
+
+                        <div
+                            style="
+                                margin-top:22px;
+                                padding:17px;
+                                border-left:4px solid ' .
+                                $statusText .
+                                ';
+                                border-radius:10px;
+                                background:#FAF9F4;
+                            "
+                        >
+
+                            <div
+                                style="
+                                    color:#3E2723;
+                                    font-size:13px;
+                                    font-weight:800;
+                                "
+                            >
+
+                                ' .
+                                result_email_escape(
+                                    $statusMessage
+                                ) .
+                                '
+
+                            </div>
+
+
+                            <div
+                                style="
+                                    margin-top:5px;
+                                    color:#756D67;
+                                    font-size:11px;
+                                    line-height:1.7;
+                                "
+                            >
+
+                                ' .
+                                result_email_escape(
+                                    $statusSubMessage
+                                ) .
+                                '
+
+                            </div>
+
+                        </div>
+
+
+                        <div
+                            style="
+                                margin-top:24px;
+                                color:#6E665F;
+                                font-size:11px;
+                                line-height:1.8;
+                            "
+                        >
+
+                            <strong
+                                style="
+                                    color:#3E2723;
+                                "
+                            >
+                                Exam Date:
+                            </strong>
+
+                            ' .
+                            $safeDate .
+                            '
+
+                            <br>
+
+                            <strong
+                                style="
+                                    color:#3E2723;
+                                "
+                            >
+                                Grade:
+                            </strong>
+
+                            ' .
+                            $safeGrade .
+                            '
+
+                            &nbsp;&nbsp;•&nbsp;&nbsp;
+
+                            <strong
+                                style="
+                                    color:#3E2723;
+                                "
+                            >
+                                Passing Marks:
+                            </strong>
+
+                            ' .
+                            $safePassing .
+                            '
+
+                            <br>
+
+                            <strong
+                                style="
+                                    color:#3E2723;
+                                "
+                            >
+                                Time Taken:
+                            </strong>
+
+                            ' .
+                            $safeTimeTaken .
+                            '
+
+                            &nbsp;&nbsp;•&nbsp;&nbsp;
+
+                            <strong
+                                style="
+                                    color:#3E2723;
+                                "
+                            >
+                                Result ID:
+                            </strong>
+
+                            #'
+                            .
+                            (int) $result[
+                                'result_id'
+                            ]
+                            .
+                            '
+
+                        </div>
+
+
+                        <p
+                            style="
+                                margin:24px 0 0;
+                                color:#777069;
+                                font-size:11px;
+                                line-height:1.8;
+                            "
+                        >
+
+                            Your complete ExamSphere result
+                            report is attached as a PDF.
+                            Please keep it for your records
+                            and future preparation review.
+
+                        </p>
+
+                    </div>
+
+
+                    <div
+                        style="
+                            padding:18px 24px;
+                            background:#FAFAF8;
+                            border-top:1px solid #ECE7DE;
+                            text-align:center;
+                            color:#948B83;
+                            font-size:10px;
+                            line-height:1.6;
+                        "
+                    >
+
+                        ExamSphere Online Examination System
+
+                        <br>
+
+                        Secure • Structured • Student Focused
+
+                    </div>
+
+
+                </div>
 
             </div>
 
+        </body>
 
-            <div style="
-                margin-top:7px;
-                font-size:13px;
-                opacity:.90;
-            ">
-
-                Examination Result
-
-            </div>
-
-        </div>
-
-
-        <div style="
-            padding:34px;
-        ">
-
-
-            <p style="
-                color:#333333;
-                font-size:16px;
-                margin-top:0;
-            ">
-
-                Hello
-
-                <strong>
-                    ' . $safeName . '
-                </strong>,
-
-            </p>
-
-
-            <p style="
-                color:#666666;
-                line-height:1.7;
-                font-size:14px;
-            ">
-
-                Your ExamSphere examination result
-                is ready. Your complete result PDF
-                is attached to this email.
-
-            </p>
-
-
-            <div style="
-                margin:25px 0;
-                background:#f5f5dc;
-                border-radius:16px;
-                padding:24px;
-            ">
-
-
-                <div style="
-                    color:#777777;
-                    font-size:11px;
-                    text-transform:uppercase;
-                    letter-spacing:1px;
-                ">
-
-                    Examination
-
-                </div>
-
-
-                <div style="
-                    margin-top:6px;
-                    color:#5D4037;
-                    font-size:20px;
-                    font-weight:700;
-                ">
-
-                    ' . $safeExam . '
-
-                </div>
-
-
-                <div style="
-                    margin-top:23px;
-                    color:#777777;
-                    font-size:11px;
-                    text-transform:uppercase;
-                    letter-spacing:1px;
-                ">
-
-                    Score
-
-                </div>
-
-
-                <div style="
-                    margin-top:5px;
-                    color:#5D4037;
-                    font-size:34px;
-                    font-weight:800;
-                ">
-
-                    ' . $safePercentage . '%
-
-                </div>
-
-
-                <div style="
-                    margin-top:12px;
-                    color:#555555;
-                    font-size:14px;
-                ">
-
-                    Marks:
-
-                    <strong>
-                        ' . $safeObtainedMarks . '
-                        /
-                        ' . $safeTotalMarks . '
-                    </strong>
-
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-
-                    Result:
-
-                    <strong>
-                        ' . $safeResult . '
-                    </strong>
-
-                    &nbsp;&nbsp;|&nbsp;&nbsp;
-
-                    Grade:
-
-                    <strong>
-                        ' . $safeGrade . '
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <p style="
-                color:#666666;
-                font-size:14px;
-                line-height:1.7;
-            ">
-
-                Please keep the attached PDF for
-                your records and preparation review.
-
-            </p>
-
-        </div>
-
-
-        <div style="
-            padding:18px;
-            text-align:center;
-            background:#fafafa;
-            border-top:1px solid #eeeeee;
-            color:#888888;
-            font-size:11px;
-        ">
-
-            © ExamSphere — Secure Online Examination Platform
-
-        </div>
-
-    </div>
-
-</body>
-
-</html>
-';
+        </html>';
 
 
     /*
@@ -1604,57 +2896,123 @@ ExamSphere Result
 
     $mail->AltBody =
 
-        "ExamSphere Examination Result"
+        'ExamSphere Examination Result'
         . PHP_EOL
         . PHP_EOL
 
-        . "Student: "
-        . (string) (
+        . 'Hello '
+        . (
+            string
+        ) (
             $result[
                 'full_name'
             ]
-            ?? ''
+            ?? 'Student'
         )
-
+        . ','
+        . PHP_EOL
         . PHP_EOL
 
-        . "Exam: "
+        . 'Your finalized ExamSphere examination result is ready.'
+        . PHP_EOL
+        . PHP_EOL
+
+        . 'Examination: '
         . $examTitle
-
         . PHP_EOL
 
-        . "Score: "
-        . number_format(
-            $percentage,
-            2
+        . 'Subject: '
+        . (
+            string
+        ) (
+            $result[
+                'subject_name'
+            ] ?? ''
         )
-        . "%"
-
         . PHP_EOL
 
-        . "Marks: "
-        . email_result_number(
-            $obtainedMarks
+        . 'Exam Type: '
+        . (
+            string
+        ) (
+            $result[
+                'exam_type'
+            ] ?? ''
         )
-        . " / "
-        . email_result_number(
+        . PHP_EOL
+        . PHP_EOL
+
+        . 'Total Questions: '
+        . $totalQuestions
+        . PHP_EOL
+
+        . 'Marks Per Question: '
+        . result_email_number(
+            $marksPerQuestion
+        )
+        . PHP_EOL
+
+        . 'Total Marks: '
+        . result_email_number(
             $totalMarks
         )
-
         . PHP_EOL
 
-        . "Result: "
-        . $resultStatus
-
+        . 'Obtained Marks: '
+        . result_email_number(
+            $obtainedMarks
+        )
         . PHP_EOL
 
-        . "Grade: "
+        . 'Percentage: '
+        . result_email_number(
+            $percentage
+        )
+        . '%'
+        . PHP_EOL
+
+        . 'Correct Answers: '
+        . $correctAnswers
+        . PHP_EOL
+
+        . 'Wrong Answers: '
+        . $wrongAnswers
+        . PHP_EOL
+
+        . 'Unanswered Questions: '
+        . $unansweredQuestions
+        . PHP_EOL
+
+        . 'Accuracy: '
+        . result_email_number(
+            $accuracy
+        )
+        . '%'
+        . PHP_EOL
+
+        . 'Grade: '
         . $grade
+        . PHP_EOL
 
+        . 'Result: '
+        . $resultStatus
+        . PHP_EOL
+
+        . 'Passing Marks: '
+        . result_email_number(
+            $passingMarks
+        )
+        . PHP_EOL
+
+        . 'Time Taken: '
+        . $timeTakenText
         . PHP_EOL
         . PHP_EOL
 
-        . "Your complete ExamSphere result PDF is attached.";
+        . $statusMessage
+        . PHP_EOL
+
+        . 'Your complete ExamSphere result PDF is attached.';
 
 
     /*
@@ -1691,7 +3049,7 @@ ExamSphere Result
 
     /*
     |--------------------------------------------------------------------------
-    | CLEAN PDF
+    | CLEAN TEMP PDF
     |--------------------------------------------------------------------------
     */
 
@@ -1705,6 +3063,7 @@ ExamSphere Result
             $pdfPath
         );
 
+
         $pdfPath =
             null;
     }
@@ -1716,22 +3075,44 @@ ExamSphere Result
     |--------------------------------------------------------------------------
     */
 
-    email_result_response(
-
+    result_email_response(
         true,
-
         'Result PDF sent successfully to your registered email.',
-
         [
 
             'attempt_id' =>
                 (int) $attemptId,
 
+            'result_id' =>
+                (int) $result[
+                    'result_id'
+                ],
+
             'email' =>
-                $studentEmail
+                $studentEmail,
+
+            'total_questions' =>
+                $totalQuestions,
+
+            'marks_per_question' =>
+                $marksPerQuestion,
+
+            'total_marks' =>
+                $totalMarks,
+
+            'obtained_marks' =>
+                $obtainedMarks,
+
+            'percentage' =>
+                $percentage,
+
+            'result_status' =>
+                $resultStatus,
+
+            'grade' =>
+                $grade
 
         ]
-
     );
 
 
@@ -1741,13 +3122,15 @@ ExamSphere Result
 
     /*
     |--------------------------------------------------------------------------
-    | CLEANUP ON FAILURE
+    | TEMP FILE CLEANUP
     |--------------------------------------------------------------------------
     */
 
     if (
-        is_string($pdfPath) &&
-        $pdfPath !== '' &&
+        is_string($pdfPath)
+        &&
+        $pdfPath !== ''
+        &&
         is_file($pdfPath)
     ) {
 
@@ -1759,12 +3142,13 @@ ExamSphere Result
 
     /*
     |--------------------------------------------------------------------------
-    | INTERNAL LOG
+    | ERROR LOG
     |--------------------------------------------------------------------------
     */
 
     error_log(
-        'ExamSphere result email failed: ' .
+        'ExamSphere result email failed: '
+        .
         $exception->getMessage()
     );
 
@@ -1775,15 +3159,10 @@ ExamSphere Result
     |--------------------------------------------------------------------------
     */
 
-    email_result_response(
-
+    result_email_response(
         false,
-
         'Unable to send the result email right now. Please try again later.',
-
         [],
-
         500
-
     );
 }

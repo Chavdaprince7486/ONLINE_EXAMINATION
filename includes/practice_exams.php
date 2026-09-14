@@ -1,202 +1,232 @@
 <?php
 
+declare(strict_types=1);
+
 $homepagePracticeExams = [];
+
+
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+function homepage_practice_escape(
+    mixed $value
+): string {
+
+    return htmlspecialchars(
+        (string)($value ?? ''),
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
+}
+
+
+function homepage_practice_number(
+    mixed $value
+): string {
+
+    $number =
+        round(
+            (float)$value,
+            2
+        );
+
+    if (
+        floor($number) === $number
+    ) {
+
+        return number_format(
+            $number,
+            0,
+            '.',
+            ''
+        );
+    }
+
+    return rtrim(
+        rtrim(
+            number_format(
+                $number,
+                2,
+                '.',
+                ''
+            ),
+            '0'
+        ),
+        '.'
+    );
+}
+
 
 try {
 
     /*
-     * The category relationship is supplied by the Phase 0.3 migration.
-     * We check for it so the homepage remains compatible with a database
-     * that has not yet received that migration.
-     */
-    $columnCheck = $conn->query("
-        SHOW COLUMNS
-        FROM subjects
-        LIKE 'category_id'
-    ");
+    |--------------------------------------------------------------------------
+    | DYNAMIC PRACTICE EXAMS
+    |--------------------------------------------------------------------------
+    |
+    | An exam appears automatically when:
+    |
+    | 1. exam_type = Practice
+    | 2. status = Active
+    | 3. required_question_count > 0
+    | 4. active assigned question count matches required count
+    | 5. every assigned question has valid marks
+    | 6. total marks = question count × marks per question
+    |
+    |--------------------------------------------------------------------------
+    */
 
-    $hasCategoryRelation = (bool) $columnCheck->fetch(
-        PDO::FETCH_ASSOC
-    );
+    $sql = "
+        SELECT
 
+            e.id,
+            e.title,
+            e.description,
+            e.exam_type,
 
-    /*
-     * Load only complete, active Practice exams.
-     *
-     * An exam is considered homepage-ready only when:
-     *
-     * required_question_count > 0
-     * AND
-     * active assigned questions == required_question_count
-     */
-    if ($hasCategoryRelation) {
+            e.duration_minutes,
 
-        $practiceSql = "
-            SELECT
-                e.id,
-                e.title,
-                e.description,
-                e.exam_type,
-                e.duration_minutes,
-                e.required_question_count,
-                e.total_marks,
-                e.passing_marks,
-                e.subscription_required,
+            e.required_question_count,
 
-                s.id AS subject_id,
-                s.name AS subject_name,
+            e.passing_marks,
 
-                c.id AS category_id,
-                c.category_name,
+            e.subscription_required,
 
-                COUNT(
-                    CASE
-                        WHEN q.status = 'Active'
-                        THEN eq.question_id
-                    END
-                ) AS question_count
+            e.exam_fee,
 
-            FROM exams e
+            e.created_at,
+            e.updated_at,
 
-            INNER JOIN subjects s
-                ON s.id = e.subject_id
-                AND s.status = 'Active'
+            s.id AS subject_id,
+            s.name AS subject_name,
+            s.code AS subject_code,
 
-            LEFT JOIN categories c
-                ON c.id = s.category_id
-                AND c.status = 'Active'
-
-            LEFT JOIN exam_questions eq
-                ON eq.exam_id = e.id
-
-            LEFT JOIN questions q
-                ON q.id = eq.question_id
-
-            WHERE e.exam_type = 'Practice'
-                AND e.status = 'Active'
-                AND e.required_question_count > 0
-
-            GROUP BY
-                e.id,
-                e.title,
-                e.description,
-                e.exam_type,
-                e.duration_minutes,
-                e.required_question_count,
-                e.total_marks,
-                e.passing_marks,
-                e.subscription_required,
-                s.id,
-                s.name,
-                c.id,
-                c.category_name
-
-            HAVING COUNT(
+            COUNT(
+                DISTINCT
                 CASE
                     WHEN q.status = 'Active'
-                    THEN eq.question_id
+                    THEN q.id
                 END
-            ) = e.required_question_count
+            ) AS question_count,
 
-            ORDER BY
-                e.created_at DESC,
-                e.id DESC
-
-            LIMIT 6
-        ";
-
-    } else {
-
-        $practiceSql = "
-            SELECT
-                e.id,
-                e.title,
-                e.description,
-                e.exam_type,
-                e.duration_minutes,
-                e.required_question_count,
-                e.total_marks,
-                e.passing_marks,
-                e.subscription_required,
-
-                s.id AS subject_id,
-                s.name AS subject_name,
-
-                NULL AS category_id,
-                NULL AS category_name,
-
-                COUNT(
-                    CASE
-                        WHEN q.status = 'Active'
-                        THEN eq.question_id
-                    END
-                ) AS question_count
-
-            FROM exams e
-
-            INNER JOIN subjects s
-                ON s.id = e.subject_id
-                AND s.status = 'Active'
-
-            LEFT JOIN exam_questions eq
-                ON eq.exam_id = e.id
-
-            LEFT JOIN questions q
-                ON q.id = eq.question_id
-
-            WHERE e.exam_type = 'Practice'
-                AND e.status = 'Active'
-                AND e.required_question_count > 0
-
-            GROUP BY
-                e.id,
-                e.title,
-                e.description,
-                e.exam_type,
-                e.duration_minutes,
-                e.required_question_count,
-                e.total_marks,
-                e.passing_marks,
-                e.subscription_required,
-                s.id,
-                s.name
-
-            HAVING COUNT(
+            MIN(
                 CASE
                     WHEN q.status = 'Active'
-                    THEN eq.question_id
+                    THEN q.marks
                 END
-            ) = e.required_question_count
+            ) AS marks_per_question,
 
-            ORDER BY
-                e.created_at DESC,
-                e.id DESC
+            MAX(
+                CASE
+                    WHEN q.status = 'Active'
+                    THEN q.marks
+                END
+            ) AS max_question_marks,
 
-            LIMIT 6
-        ";
-    }
+            SUM(
+                CASE
+                    WHEN q.status = 'Active'
+                    THEN q.marks
+                    ELSE 0
+                END
+            ) AS calculated_total_marks
+
+        FROM exams e
 
 
-    $practiceStatement = $conn->prepare(
-        $practiceSql
-    );
+        INNER JOIN subjects s
+            ON s.id = e.subject_id
+            AND s.status = 'Active'
 
-    $practiceStatement->execute();
+
+        INNER JOIN exam_questions eq
+            ON eq.exam_id = e.id
+
+
+        INNER JOIN questions q
+            ON q.id = eq.question_id
+            AND q.status = 'Active'
+
+
+        WHERE
+
+            e.exam_type = 'Practice'
+
+            AND e.status = 'Active'
+
+            AND e.required_question_count > 0
+
+
+        GROUP BY
+
+            e.id,
+            e.title,
+            e.description,
+            e.exam_type,
+            e.duration_minutes,
+            e.required_question_count,
+            e.passing_marks,
+            e.subscription_required,
+            e.exam_fee,
+            e.created_at,
+            e.updated_at,
+            s.id,
+            s.name,
+            s.code
+
+
+        HAVING
+
+            question_count =
+                e.required_question_count
+
+            AND marks_per_question IS NOT NULL
+
+            AND max_question_marks =
+                marks_per_question
+
+            AND calculated_total_marks > 0
+
+
+        ORDER BY
+
+            e.created_at DESC,
+            e.id DESC
+
+
+        LIMIT 6
+    ";
+
+
+    $statement =
+        $conn->prepare(
+            $sql
+        );
+
+
+    $statement->execute();
+
 
     $homepagePracticeExams =
-        $practiceStatement->fetchAll(
+        $statement->fetchAll(
             PDO::FETCH_ASSOC
         );
 
 
-} catch (Throwable $exception) {
+} catch (
+    Throwable $exception
+) {
 
     error_log(
-        'ExamSphere homepage practice exam query failed: ' .
+        'Homepage practice exams failed: ' .
         $exception->getMessage()
     );
 
     $homepagePracticeExams = [];
+
 }
 
 ?>
@@ -209,13 +239,26 @@ try {
 
     <div class="container">
 
-        <div class="homepage-practice-heading reveal">
+
+        <!-- =========================================================
+             HEADER
+             ========================================================= -->
+
+
+        <div
+            class="homepage-practice-heading reveal"
+        >
+
 
             <div>
 
-                <span class="homepage-practice-kicker">
+                <span
+                    class="homepage-practice-kicker"
+                >
 
-                    <i class="fa-solid fa-pen-to-square"></i>
+                    <i
+                        class="fa-solid fa-pen-to-square"
+                    ></i>
 
                     FREE TO START
 
@@ -223,14 +266,22 @@ try {
 
 
                 <h2>
+
                     Practice with exams
-                    <em>that are ready to take.</em>
+                    <em>
+                        that are ready to take.
+                    </em>
+
                 </h2>
 
 
                 <p>
-                    Build confidence with active ExamSphere practice exams.
-                    Only exams with their complete question set are shown here.
+
+                    Build confidence with free
+                    ExamSphere practice exams.
+                    Every published Practice Exam
+                    appears here automatically.
+
                 </p>
 
             </div>
@@ -245,115 +296,172 @@ try {
 
                     View all practice exams
 
-                    <i class="fa-solid fa-arrow-right"></i>
+                    <i
+                        class="fa-solid fa-arrow-right"
+                    ></i>
 
                 </a>
 
             </div>
 
+
         </div>
 
 
-        <?php if (!empty($homepagePracticeExams)): ?>
+        <!-- =========================================================
+             EXAMS
+             ========================================================= -->
 
-            <div class="homepage-practice-grid">
+
+        <?php if (
+            !empty(
+                $homepagePracticeExams
+            )
+        ): ?>
+
+
+            <div
+                class="homepage-practice-grid"
+            >
+
 
                 <?php foreach (
                     $homepagePracticeExams
                     as $index => $exam
                 ): ?>
 
+
                     <?php
 
                     $examId =
-                        (int) $exam['id'];
+                        (int)$exam['id'];
+
 
                     $title =
                         trim(
-                            (string) $exam['title']
+                            (string)(
+                                $exam['title']
+                                ?? ''
+                            )
                         );
+
 
                     $description =
                         trim(
-                            (string) (
-                                $exam['description'] ?? ''
+                            (string)(
+                                $exam['description']
+                                ?? ''
                             )
                         );
+
 
                     $subjectName =
                         trim(
-                            (string) (
-                                $exam['subject_name'] ?? ''
+                            (string)(
+                                $exam['subject_name']
+                                ?? ''
                             )
                         );
 
-                    $categoryName =
+
+                    $subjectCode =
                         trim(
-                            (string) (
-                                $exam['category_name'] ?? ''
+                            (string)(
+                                $exam['subject_code']
+                                ?? ''
                             )
                         );
+
 
                     $duration =
-                        (int) (
-                            $exam['duration_minutes'] ?? 0
+                        (int)(
+                            $exam[
+                                'duration_minutes'
+                            ] ?? 0
                         );
+
 
                     $questionCount =
-                        (int) (
-                            $exam['question_count'] ?? 0
+                        (int)(
+                            $exam[
+                                'question_count'
+                            ] ?? 0
                         );
 
-                    $requiredCount =
-                        (int) (
-                            $exam['required_question_count'] ?? 0
+
+                    $marksPerQuestion =
+                        (float)(
+                            $exam[
+                                'marks_per_question'
+                            ] ?? 0
                         );
+
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | TOTAL MARKS = QUESTIONS × MARKS PER QUESTION
+                    |--------------------------------------------------------------------------
+                    */
 
                     $totalMarks =
-                        (float) (
-                            $exam['total_marks'] ?? 0
+                        round(
+                            $questionCount *
+                            $marksPerQuestion,
+                            2
                         );
+
 
                     $passingMarks =
-                        (float) (
-                            $exam['passing_marks'] ?? 0
+                        (float)(
+                            $exam[
+                                'passing_marks'
+                            ] ?? 0
                         );
-
-                    $isSubscriptionRequired =
-                        (int) (
-                            $exam['subscription_required'] ?? 0
-                        ) === 1;
-
-
-                    if ($description === '') {
-
-                        $description =
-                            'Test your preparation with this active practice examination.';
-                    }
 
 
                     $number =
                         str_pad(
-                            (string) ($index + 1),
+                            (string)(
+                                $index + 1
+                            ),
                             2,
                             '0',
                             STR_PAD_LEFT
                         );
 
+
+                    if (
+                        $description === ''
+                    ) {
+
+                        $description =
+                            'Test your preparation with this free practice examination.';
+                    }
+
                     ?>
+
 
                     <article
                         class="homepage-practice-card reveal"
                     >
 
+
+                        <!-- TOP -->
+
+
                         <div
                             class="homepage-practice-card-top"
                         >
 
+
                             <span
                                 class="homepage-practice-number"
                             >
-                                <?= $number ?>
+
+                                <?= homepage_practice_escape(
+                                    $number
+                                ) ?>
+
                             </span>
 
 
@@ -369,7 +477,11 @@ try {
 
                             </span>
 
+
                         </div>
+
+
+                        <!-- ICON -->
 
 
                         <div
@@ -383,39 +495,36 @@ try {
                         </div>
 
 
+                        <!-- CONTENT -->
+
+
                         <div
                             class="homepage-practice-content"
                         >
 
-                            <?php if ($categoryName !== ''): ?>
 
-                                <span
-                                    class="homepage-practice-category"
-                                >
+                            <span
+                                class="homepage-practice-category"
+                            >
 
-                                    <?= htmlspecialchars(
-                                        $categoryName,
-                                        ENT_QUOTES,
-                                        'UTF-8'
-                                    ) ?>
+                                FREE PRACTICE
 
-                                </span>
-
-                            <?php endif; ?>
+                            </span>
 
 
                             <h3>
 
-                                <?= htmlspecialchars(
-                                    $title,
-                                    ENT_QUOTES,
-                                    'UTF-8'
+                                <?= homepage_practice_escape(
+                                    $title
                                 ) ?>
 
                             </h3>
 
 
-                            <?php if ($subjectName !== ''): ?>
+                            <?php if (
+                                $subjectName !== ''
+                            ): ?>
+
 
                                 <p
                                     class="homepage-practice-subject"
@@ -425,13 +534,35 @@ try {
                                         class="fa-solid fa-book-open"
                                     ></i>
 
-                                    <?= htmlspecialchars(
-                                        $subjectName,
-                                        ENT_QUOTES,
-                                        'UTF-8'
+                                    <?= homepage_practice_escape(
+                                        $subjectName
                                     ) ?>
 
+
+                                    <?php if (
+                                        $subjectCode !== ''
+                                    ): ?>
+
+                                        <span
+                                            style="
+                                                opacity:.65;
+                                                margin-left:4px;
+                                            "
+                                        >
+
+                                            (
+                                            <?= homepage_practice_escape(
+                                                $subjectCode
+                                            ) ?>
+                                            )
+
+                                        </span>
+
+                                    <?php endif; ?>
+
+
                                 </p>
+
 
                             <?php endif; ?>
 
@@ -440,20 +571,23 @@ try {
                                 class="homepage-practice-description"
                             >
 
-                                <?= htmlspecialchars(
-                                    $description,
-                                    ENT_QUOTES,
-                                    'UTF-8'
+                                <?= homepage_practice_escape(
+                                    $description
                                 ) ?>
 
                             </p>
 
+
                         </div>
+
+
+                        <!-- META -->
 
 
                         <div
                             class="homepage-practice-meta"
                         >
+
 
                             <span>
 
@@ -487,29 +621,25 @@ try {
                                     class="fa-solid fa-star"
                                 ></i>
 
-                                <?= rtrim(
-                                    rtrim(
-                                        number_format(
-                                            $totalMarks,
-                                            2,
-                                            '.',
-                                            ''
-                                        ),
-                                        '0'
-                                    ),
-                                    '.'
+                                <?= homepage_practice_number(
+                                    $totalMarks
                                 ) ?>
 
                                 Marks
 
                             </span>
 
+
                         </div>
+
+
+                        <!-- FOOTER -->
 
 
                         <div
                             class="homepage-practice-footer"
                         >
+
 
                             <div>
 
@@ -517,19 +647,11 @@ try {
                                     Passing marks
                                 </small>
 
+
                                 <strong>
 
-                                    <?= rtrim(
-                                        rtrim(
-                                            number_format(
-                                                $passingMarks,
-                                                2,
-                                                '.',
-                                                ''
-                                            ),
-                                            '0'
-                                        ),
-                                        '.'
+                                    <?= homepage_practice_number(
+                                        $passingMarks
                                     ) ?>
 
                                 </strong>
@@ -537,39 +659,23 @@ try {
                             </div>
 
 
-                            <?php if (
-                                $isSubscriptionRequired
-                            ): ?>
+                            <span
+                                class="homepage-practice-access"
+                            >
 
-                                <span
-                                    class="homepage-practice-access premium"
-                                >
+                                <i
+                                    class="fa-solid fa-unlock"
+                                ></i>
 
-                                    <i
-                                        class="fa-solid fa-crown"
-                                    ></i>
+                                Free practice
 
-                                    Subscription
+                            </span>
 
-                                </span>
-
-                            <?php else: ?>
-
-                                <span
-                                    class="homepage-practice-access"
-                                >
-
-                                    <i
-                                        class="fa-solid fa-unlock"
-                                    ></i>
-
-                                    Free practice
-
-                                </span>
-
-                            <?php endif; ?>
 
                         </div>
+
+
+                        <!-- ACTION -->
 
 
                         <a
@@ -585,26 +691,44 @@ try {
 
                         </a>
 
+
                     </article>
+
 
                 <?php endforeach; ?>
 
+
             </div>
+
+
+            <!-- =====================================================
+                 BOTTOM
+                 ===================================================== -->
 
 
             <div
                 class="homepage-practice-bottom reveal"
             >
 
+
                 <div>
 
                     <span>
-                        <i class="fa-solid fa-bolt"></i>
+
+                        <i
+                            class="fa-solid fa-bolt"
+                        ></i>
+
                         INSTANT START
+
                     </span>
 
+
                     <strong>
-                        More active exams are available after student login.
+
+                        New published Practice Exams
+                        automatically appear here.
+
                     </strong>
 
                 </div>
@@ -623,14 +747,22 @@ try {
 
                 </a>
 
+
             </div>
 
 
         <?php else: ?>
 
+
+            <!-- =====================================================
+                 EMPTY
+                 ===================================================== -->
+
+
             <div
                 class="homepage-practice-empty reveal"
             >
+
 
                 <div
                     class="homepage-practice-empty-icon"
@@ -644,19 +776,26 @@ try {
 
 
                 <h3>
-                    No complete practice exams are available yet.
+
+                    No practice exams are available yet.
+
                 </h3>
 
 
                 <p>
-                    Practice exams will appear here automatically
-                    after an administrator publishes an exam with
-                    the required number of active questions.
+
+                    Published Practice Exams will
+                    automatically appear here as soon as
+                    their configured questions are ready.
+
                 </p>
+
 
             </div>
 
+
         <?php endif; ?>
+
 
     </div>
 

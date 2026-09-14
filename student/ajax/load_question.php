@@ -5,20 +5,6 @@ declare(strict_types=1);
 require_once '../../config/session.php';
 require_once '../../config/config.php';
 require_once '../../config/functions.php';
-require_once '../../config/exam_validation.php';
-
-
-header(
-    'Content-Type: application/json; charset=UTF-8'
-);
-
-header(
-    'Cache-Control: no-store, no-cache, must-revalidate, max-age=0'
-);
-
-header(
-    'Pragma: no-cache'
-);
 
 
 /*
@@ -33,6 +19,18 @@ function load_question_response(
     array $data = [],
     int $httpCode = 200
 ): never {
+
+    header(
+        'Content-Type: application/json; charset=UTF-8'
+    );
+
+    header(
+        'Cache-Control: no-store, no-cache, must-revalidate, max-age=0'
+    );
+
+    header(
+        'Pragma: no-cache'
+    );
 
     http_response_code(
         $httpCode
@@ -130,15 +128,58 @@ $examToken =
     );
 
 
+$csrfValid =
+    false;
+
+
 if (
-    $requestToken === ''
-    ||
-    $examToken === ''
-    ||
-    !hash_equals(
-        $examToken,
-        $requestToken
-    )
+    $requestToken !== ''
+    &&
+    $examToken !== ''
+) {
+
+    $csrfValid =
+        hash_equals(
+            $examToken,
+            $requestToken
+        );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| GLOBAL CSRF FALLBACK
+|--------------------------------------------------------------------------
+*/
+
+if (
+    !$csrfValid
+    &&
+    $requestToken !== ''
+) {
+
+    $globalToken =
+        (string) (
+            $_SESSION['csrf_token']
+            ?? ''
+        );
+
+
+    if (
+        $globalToken !== ''
+    ) {
+
+        $csrfValid =
+            hash_equals(
+                $globalToken,
+                $requestToken
+            );
+    }
+}
+
+
+if (
+    !$csrfValid
 ) {
 
     load_question_response(
@@ -173,8 +214,10 @@ $questionNumber =
 
 
 if (
-    $attemptId === false ||
-    $attemptId === null ||
+    $attemptId === false
+    ||
+    $attemptId === null
+    ||
     $attemptId <= 0
 ) {
 
@@ -188,8 +231,10 @@ if (
 
 
 if (
-    $questionNumber === false ||
-    $questionNumber === null ||
+    $questionNumber === false
+    ||
+    $questionNumber === null
+    ||
     $questionNumber <= 0
 ) {
 
@@ -223,7 +268,7 @@ try {
                 ea.server_deadline,
                 ea.last_activity_at,
 
-                ea.status,
+                ea.status AS attempt_status,
 
                 e.title AS exam_title,
                 e.exam_type,
@@ -237,7 +282,12 @@ try {
                 e.total_marks,
                 e.passing_marks,
 
-                e.negative_marking
+                e.negative_marking,
+
+                e.subscription_required,
+
+                e.starts_at,
+                e.ends_at
 
             FROM exam_attempts ea
 
@@ -258,7 +308,6 @@ try {
     $attemptStatement->execute(
         [
             (int) $attemptId,
-
             $studentId
         ]
     );
@@ -308,17 +357,21 @@ if (
 */
 
 if (
-    (string) $attempt['status']
-    !==
-    'Started'
+    (string) $attempt[
+        'attempt_status'
+    ] !== 'Started'
 ) {
 
     load_question_response(
         false,
         'This examination is no longer active.',
         [
+
             'attempt_status' =>
-                (string) $attempt['status']
+                (string) $attempt[
+                    'attempt_status'
+                ]
+
         ],
         409
     );
@@ -333,7 +386,9 @@ if (
 
 if (
     !in_array(
-        (string) $attempt['exam_status'],
+        (string) $attempt[
+            'exam_status'
+        ],
         [
             'Active',
             'Live'
@@ -353,16 +408,99 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| CENTRAL EXAM VALIDATION
+| REQUIRED QUESTION COUNT
+|--------------------------------------------------------------------------
+*/
+
+$requiredQuestionCount =
+    (int) (
+        $attempt[
+            'required_question_count'
+        ] ?? 0
+    );
+
+
+if (
+    $requiredQuestionCount <= 0
+) {
+
+    load_question_response(
+        false,
+        'The examination has an invalid question configuration.',
+        [],
+        409
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LOAD ACTIVE QUESTIONS
+|--------------------------------------------------------------------------
+|
+| We load the complete active question set first.
+| This guarantees that the question number corresponds to the same
+| ordered question set used by the exam.
 |--------------------------------------------------------------------------
 */
 
 try {
 
-    $examValidation =
-        validate_exam_from_database(
-            $conn,
+    $questionListStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                eq.question_id,
+                eq.position,
+
+                q.id,
+
+                q.question_type,
+
+                q.question_text,
+
+                q.question_image,
+
+                q.option_a,
+                q.option_b,
+                q.option_c,
+                q.option_d,
+
+                q.difficulty,
+
+                q.marks
+
+            FROM exam_questions eq
+
+            INNER JOIN questions q
+                ON q.id = eq.question_id
+
+            WHERE
+
+                eq.exam_id = ?
+
+                AND q.status = 'Active'
+
+            ORDER BY
+
+                eq.position ASC,
+
+                eq.question_id ASC
+            "
+        );
+
+
+    $questionListStatement->execute(
+        [
             (int) $attempt['exam_id']
+        ]
+    );
+
+
+    $questions =
+        $questionListStatement->fetchAll(
+            PDO::FETCH_ASSOC
         );
 
 } catch (
@@ -370,83 +508,18 @@ try {
 ) {
 
     error_log(
-        'Load question exam validation failed: ' .
+        'Load question list failed: ' .
         $exception->getMessage()
     );
 
 
     load_question_response(
         false,
-        'Unable to verify the examination configuration.',
+        'Unable to load examination questions.',
         [],
         500
     );
 }
-
-
-if (
-    !$examValidation['valid']
-) {
-
-    load_question_response(
-        false,
-        'The examination question configuration is no longer valid.',
-        [
-
-            'validation_message' =>
-                $examValidation[
-                    'validation'
-                ]['message']
-                ?? ''
-
-        ],
-        409
-    );
-}
-
-
-$validation =
-    $examValidation[
-        'validation'
-    ];
-
-
-$requiredQuestionCount =
-    (int) (
-        $validation[
-            'required_question_count'
-        ] ?? 0
-    );
-
-
-$totalQuestions =
-    (int) (
-        $validation[
-            'question_count'
-        ] ?? 0
-    );
-
-
-$actualTotalMarks =
-    round(
-        (float) (
-            $validation[
-                'actual_marks'
-            ] ?? 0
-        ),
-        2
-    );
-
-
-$examTotalMarks =
-    round(
-        (float) (
-            $attempt[
-                'total_marks'
-            ] ?? 0
-        ),
-        2
-    );
 
 
 /*
@@ -455,9 +528,14 @@ $examTotalMarks =
 |--------------------------------------------------------------------------
 */
 
+$totalQuestions =
+    count(
+        $questions
+    );
+
+
 if (
-    $totalQuestions
-    !==
+    $totalQuestions !==
     $requiredQuestionCount
 ) {
 
@@ -480,30 +558,113 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| EXACT TOTAL MARKS
+| CALCULATE MARKS DYNAMICALLY
+|--------------------------------------------------------------------------
+|
+| Total Marks =
+|
+|     Total Questions × Marks Per Question
+|
+| The stored exams.total_marks value is deliberately not trusted.
 |--------------------------------------------------------------------------
 */
 
+$marksPerQuestion =
+    null;
+
+
+foreach (
+    $questions as $question
+) {
+
+    $currentQuestionMarks =
+        round(
+            (float) (
+                $question['marks'] ?? 0
+            ),
+            2
+        );
+
+
+    if (
+        $currentQuestionMarks <= 0
+    ) {
+
+        load_question_response(
+            false,
+            'This examination contains a question with invalid marks.',
+            [
+                'question_id' =>
+                    (int) $question[
+                        'id'
+                    ]
+            ],
+            409
+        );
+    }
+
+
+    if (
+        $marksPerQuestion === null
+    ) {
+
+        $marksPerQuestion =
+            $currentQuestionMarks;
+
+    } else {
+
+        if (
+            abs(
+                $marksPerQuestion -
+                $currentQuestionMarks
+            ) > 0.00001
+        ) {
+
+            load_question_response(
+                false,
+                'The examination must use the same marks value for every question.',
+                [
+                    'question_id' =>
+                        (int) $question[
+                            'id'
+                        ]
+                ],
+                409
+            );
+        }
+    }
+}
+
+
 if (
-    abs(
-        $actualTotalMarks -
-        $examTotalMarks
-    ) >
-    0.000001
+    $marksPerQuestion === null
 ) {
 
     load_question_response(
         false,
-        'The examination question marks no longer match the configured total marks.',
-        [
+        'The examination has no valid question marks.',
+        [],
+        409
+    );
+}
 
-            'configured_total_marks' =>
-                $examTotalMarks,
 
-            'actual_question_marks' =>
-                $actualTotalMarks
+$actualTotalMarks =
+    round(
+        $totalQuestions *
+        $marksPerQuestion,
+        2
+    );
 
-        ],
+
+if (
+    $actualTotalMarks <= 0
+) {
+
+    load_question_response(
+        false,
+        'The examination total marks configuration is invalid.',
+        [],
         409
     );
 }
@@ -511,12 +672,12 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| QUESTION NUMBER
+| QUESTION NUMBER RANGE
 |--------------------------------------------------------------------------
 */
 
 if (
-    $questionNumber >
+    (int) $questionNumber >
     $totalQuestions
 ) {
 
@@ -546,7 +707,9 @@ $deadline =
 
 if (
     !empty(
-        $attempt['server_deadline']
+        $attempt[
+            'server_deadline'
+        ]
     )
 ) {
 
@@ -569,6 +732,12 @@ if (
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| FALLBACK DEADLINE
+|--------------------------------------------------------------------------
+*/
+
 if (
     $deadline === null
 ) {
@@ -583,12 +752,31 @@ if (
             );
 
 
+        $durationMinutes =
+            (int) (
+                $attempt[
+                    'duration_minutes'
+                ] ?? 0
+            );
+
+
+        if (
+            $durationMinutes <= 0
+        ) {
+
+            load_question_response(
+                false,
+                'Unable to verify examination duration.',
+                [],
+                500
+            );
+        }
+
+
         $deadline =
             $startedAt->modify(
                 '+' .
-                (int) $attempt[
-                    'duration_minutes'
-                ] .
+                $durationMinutes .
                 ' minutes'
             );
 
@@ -614,7 +802,7 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| CURRENT TIME
+| SERVER CURRENT TIME
 |--------------------------------------------------------------------------
 */
 
@@ -624,127 +812,17 @@ $now =
 
 /*
 |--------------------------------------------------------------------------
-| EXPIRED
+| EXPIRATION
+|--------------------------------------------------------------------------
+|
+| Do not mark the attempt Auto Submitted here.
+| Canonical final submission/grading is handled by submit_exam.php.
 |--------------------------------------------------------------------------
 */
 
 if (
     $now >= $deadline
 ) {
-
-    try {
-
-        $conn->beginTransaction();
-
-
-        $lockAttempt =
-            $conn->prepare(
-                "
-                SELECT
-
-                    id,
-                    status
-
-                FROM exam_attempts
-
-                WHERE
-
-                    id = ?
-
-                    AND student_id = ?
-
-                LIMIT 1
-
-                FOR UPDATE
-                "
-            );
-
-
-        $lockAttempt->execute(
-            [
-
-                (int) $attemptId,
-
-                $studentId
-
-            ]
-        );
-
-
-        $locked =
-            $lockAttempt->fetch(
-                PDO::FETCH_ASSOC
-            );
-
-
-        if (
-            $locked &&
-            (string) $locked['status']
-            ===
-            'Started'
-        ) {
-
-            $expire =
-                $conn->prepare(
-                    "
-                    UPDATE exam_attempts
-
-                    SET
-
-                        status = 'Auto Submitted',
-
-                        submitted_at =
-                            COALESCE(
-                                submitted_at,
-                                NOW()
-                            ),
-
-                        last_activity_at =
-                            NOW()
-
-                    WHERE
-
-                        id = ?
-
-                        AND student_id = ?
-
-                        AND status = 'Started'
-                    "
-                );
-
-
-            $expire->execute(
-                [
-
-                    (int) $attemptId,
-
-                    $studentId
-
-                ]
-            );
-        }
-
-
-        $conn->commit();
-
-    } catch (
-        Throwable $exception
-    ) {
-
-        if (
-            $conn->inTransaction()
-        ) {
-
-            $conn->rollBack();
-        }
-
-
-        error_log(
-            'Load question expiry update failed: ' .
-            $exception->getMessage()
-        );
-    }
-
 
     load_question_response(
         false,
@@ -774,7 +852,7 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| UPDATE ACTIVITY
+| UPDATE LAST ACTIVITY
 |--------------------------------------------------------------------------
 */
 
@@ -787,8 +865,7 @@ try {
 
             SET
 
-                last_activity_at =
-                    NOW()
+                last_activity_at = NOW()
 
             WHERE
 
@@ -803,11 +880,8 @@ try {
 
     $activityStatement->execute(
         [
-
             (int) $attemptId,
-
             $studentId
-
         ]
     );
 
@@ -824,133 +898,51 @@ try {
 
 /*
 |--------------------------------------------------------------------------
-| ZERO BASED OFFSET
+| SELECT CURRENT QUESTION
 |--------------------------------------------------------------------------
 */
 
-$offset =
+$questionIndex =
     (int) $questionNumber - 1;
 
 
-/*
-|--------------------------------------------------------------------------
-| LOAD QUESTION
-|--------------------------------------------------------------------------
-*/
-
-try {
-
-    $questionSql =
-        "
-        SELECT
-
-            q.id,
-
-            q.question_type,
-
-            q.question_text,
-
-            q.question_image,
-
-            q.option_a,
-            q.option_b,
-            q.option_c,
-            q.option_d,
-
-            q.difficulty,
-
-            q.marks
-
-        FROM exam_questions eq
-
-        INNER JOIN questions q
-            ON q.id = eq.question_id
-
-        WHERE
-
-            eq.exam_id = ?
-
-            AND q.status = 'Active'
-
-        ORDER BY
-
-            eq.position ASC,
-
-            q.id ASC
-
-        LIMIT 1
-        OFFSET {$offset}
-        ";
-
-
-    $questionStatement =
-        $conn->prepare(
-            $questionSql
-        );
-
-
-    $questionStatement->execute(
-        [
-            (int) $attempt['exam_id']
-        ]
-    );
-
-
-    $question =
-        $questionStatement->fetch(
-            PDO::FETCH_ASSOC
-        );
-
-} catch (
-    Throwable $exception
-) {
-
-    error_log(
-        'Load question query failed: ' .
-        $exception->getMessage()
-    );
-
-
-    load_question_response(
-        false,
-        'Unable to load this question.',
-        [],
-        500
-    );
-}
-
-
-if (
-    !$question
-) {
-
-    load_question_response(
-        false,
-        'Question not found.',
-        [],
-        404
-    );
-}
+$currentQuestion =
+    $questions[
+        $questionIndex
+    ];
 
 
 /*
 |--------------------------------------------------------------------------
-| VALIDATE QUESTION MARK
+| CURRENT QUESTION ID
 |--------------------------------------------------------------------------
 */
 
-$questionMarks =
+$currentQuestionId =
+    (int) $currentQuestion[
+        'id'
+    ];
+
+
+/*
+|--------------------------------------------------------------------------
+| CURRENT QUESTION MARKS
+|--------------------------------------------------------------------------
+*/
+
+$currentQuestionMarks =
     round(
         (float) (
-            $question['marks']
-            ?? 0
+            $currentQuestion[
+                'marks'
+            ] ?? 0
         ),
         2
     );
 
 
 if (
-    $questionMarks <= 0
+    $currentQuestionMarks <= 0
 ) {
 
     load_question_response(
@@ -980,7 +972,6 @@ try {
             SELECT
 
                 selected_answer,
-
                 question_status
 
             FROM answers
@@ -990,6 +981,8 @@ try {
                 attempt_id = ?
 
                 AND question_id = ?
+
+            ORDER BY id DESC
 
             LIMIT 1
             "
@@ -1001,7 +994,7 @@ try {
 
             (int) $attemptId,
 
-            (int) $question['id']
+            $currentQuestionId
 
         ]
     );
@@ -1025,7 +1018,7 @@ try {
 
 /*
 |--------------------------------------------------------------------------
-| NORMALIZE ANSWER
+| NORMALIZE SAVED ANSWER
 |--------------------------------------------------------------------------
 */
 
@@ -1146,25 +1139,37 @@ $nextQuestion =
 |--------------------------------------------------------------------------
 */
 
-$options = [];
+$options =
+    [];
+
+
+$optionData = [
+
+    'A' =>
+        $currentQuestion[
+            'option_a'
+        ],
+
+    'B' =>
+        $currentQuestion[
+            'option_b'
+        ],
+
+    'C' =>
+        $currentQuestion[
+            'option_c'
+        ],
+
+    'D' =>
+        $currentQuestion[
+            'option_d'
+        ]
+
+];
 
 
 foreach (
-    [
-        'A' =>
-            $question['option_a'],
-
-        'B' =>
-            $question['option_b'],
-
-        'C' =>
-            $question['option_c'],
-
-        'D' =>
-            $question['option_d']
-
-    ]
-    as $label => $text
+    $optionData as $label => $text
 ) {
 
     $text =
@@ -1208,7 +1213,12 @@ if (
     load_question_response(
         false,
         'This question does not contain a valid option configuration.',
-        [],
+        [
+
+            'question_id' =>
+                $currentQuestionId
+
+        ],
         409
     );
 }
@@ -1224,30 +1234,88 @@ $serverTimestamp =
     $now->getTimestamp();
 
 
+$deadlineTimestamp =
+    $deadline->getTimestamp();
+
+
 $remainingSeconds =
     max(
         0,
-        $deadline->getTimestamp()
-        -
+        $deadlineTimestamp -
         $serverTimestamp
     );
 
 
 /*
 |--------------------------------------------------------------------------
-| SUCCESS
+| RESPONSE QUESTION
 |--------------------------------------------------------------------------
 |
-| IMPORTANT:
-|
-| Never return:
+| NEVER expose:
 |
 | correct_answer
-| explanation
 | answer_key
 | is_correct
 | marks_awarded
+| explanation
 |
+|--------------------------------------------------------------------------
+*/
+
+$questionPayload = [
+
+    'id' =>
+        $currentQuestionId,
+
+    'question_number' =>
+        (int) $questionNumber,
+
+    'question_type' =>
+        (string) (
+            $currentQuestion[
+                'question_type'
+            ] ?? 'MCQ'
+        ),
+
+    'question_text' =>
+        (string) (
+            $currentQuestion[
+                'question_text'
+            ] ?? ''
+        ),
+
+    'question_image' =>
+        (string) (
+            $currentQuestion[
+                'question_image'
+            ] ?? ''
+        ),
+
+    'difficulty' =>
+        (string) (
+            $currentQuestion[
+                'difficulty'
+            ] ?? ''
+        ),
+
+    'marks' =>
+        $currentQuestionMarks,
+
+    'options' =>
+        $options,
+
+    'selected_answer' =>
+        $selectedAnswer,
+
+    'question_status' =>
+        $questionStatus
+
+];
+
+
+/*
+|--------------------------------------------------------------------------
+| SUCCESS
 |--------------------------------------------------------------------------
 */
 
@@ -1260,7 +1328,14 @@ load_question_response(
             (int) $attemptId,
 
         'exam_id' =>
-            (int) $attempt['exam_id'],
+            (int) $attempt[
+                'exam_id'
+            ],
+
+        'exam_type' =>
+            (string) $attempt[
+                'exam_type'
+            ],
 
         'question_number' =>
             (int) $questionNumber,
@@ -1271,10 +1346,10 @@ load_question_response(
         'required_question_count' =>
             $requiredQuestionCount,
 
-        'total_marks' =>
-            $examTotalMarks,
+        'marks_per_question' =>
+            $marksPerQuestion,
 
-        'actual_question_marks' =>
+        'total_marks' =>
             $actualTotalMarks,
 
         'previous_question' =>
@@ -1284,7 +1359,7 @@ load_question_response(
             $nextQuestion,
 
         'deadline' =>
-            $deadline->getTimestamp(),
+            $deadlineTimestamp,
 
         'server_time' =>
             $serverTimestamp,
@@ -1292,58 +1367,8 @@ load_question_response(
         'remaining_seconds' =>
             $remainingSeconds,
 
-        'question' => [
-
-            'id' =>
-                (int) $question['id'],
-
-            'question_type' =>
-                (string) (
-                    $question[
-                        'question_type'
-                    ] ?? ''
-                ),
-
-            'question_text' =>
-                (string) (
-                    $question[
-                        'question_text'
-                    ] ?? ''
-                ),
-
-            'question_image' =>
-                (string) (
-                    $question[
-                        'question_image'
-                    ] ?? ''
-                ),
-
-            'difficulty' =>
-                (string) (
-                    $question[
-                        'difficulty'
-                    ] ?? ''
-                ),
-
-            'marks' =>
-                $questionMarks,
-
-            'options' =>
-                $options,
-
-            'selected_answer' =>
-                $selectedAnswer,
-
-            'answer' =>
-                $selectedAnswer,
-
-            'question_status' =>
-                $questionStatus,
-
-            'status' =>
-                $questionStatus
-
-        ]
+        'question' =>
+            $questionPayload
 
     ]
 );

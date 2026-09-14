@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 require_once "../../config/session.php";
@@ -18,7 +19,11 @@ $id = filter_input(
     FILTER_VALIDATE_INT
 );
 
-if ($id === false || $id === null || $id <= 0) {
+if (
+    $id === false ||
+    $id === null ||
+    $id <= 0
+) {
     $_SESSION['error'] = 'Invalid teacher.';
     header('Location: index.php');
     exit;
@@ -48,17 +53,30 @@ try {
         LIMIT 1
     ");
 
-    $stmt->execute([$id]);
+    $stmt->execute([
+        $id
+    ]);
 
-    $teacher = $stmt->fetch(PDO::FETCH_ASSOC);
+    $teacher = $stmt->fetch(
+        PDO::FETCH_ASSOC
+    );
 
-    if (!$teacher) {
-        $_SESSION['error'] = 'Teacher not found.';
-        header('Location: index.php');
+    if (
+        !$teacher
+    ) {
+        $_SESSION['error'] =
+            'Teacher not found.';
+
+        header(
+            'Location: index.php'
+        );
+
         exit;
     }
 
-} catch (Throwable $exception) {
+} catch (
+    Throwable $exception
+) {
 
     error_log(
         'Teacher view failed: ' .
@@ -68,66 +86,149 @@ try {
     $_SESSION['error'] =
         'Unable to load teacher details.';
 
-    header('Location: index.php');
+    header(
+        'Location: index.php'
+    );
+
     exit;
 }
 
-function teacher_view_e(mixed $value): string
-{
+
+/*
+|--------------------------------------------------------------------------
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+function teacher_view_e(
+    mixed $value
+): string {
+
     return htmlspecialchars(
         (string)$value,
-        ENT_QUOTES | ENT_SUBSTITUTE,
+        ENT_QUOTES |
+        ENT_SUBSTITUTE,
         'UTF-8'
     );
 }
 
-function teacher_view_date(?string $value): string
-{
-    if (!$value) {
+
+function teacher_view_date(
+    ?string $value
+): string {
+
+    if (
+        !$value
+    ) {
         return 'Not provided';
     }
 
-    $timestamp = strtotime($value);
+    $timestamp =
+        strtotime(
+            $value
+        );
 
-    return $timestamp !== false
-        ? date('d M Y', $timestamp)
-        : 'Not provided';
+    if (
+        $timestamp === false
+    ) {
+        return 'Not provided';
+    }
+
+    return date(
+        'd M Y',
+        $timestamp
+    );
 }
 
-function teacher_view_datetime(?string $value): string
-{
-    if (!$value) {
+
+function teacher_view_datetime(
+    ?string $value
+): string {
+
+    if (
+        !$value
+    ) {
         return 'Never';
     }
 
-    $timestamp = strtotime($value);
+    $timestamp =
+        strtotime(
+            $value
+        );
 
-    return $timestamp !== false
-        ? date('d M Y, h:i A', $timestamp)
-        : 'Never';
+    if (
+        $timestamp === false
+    ) {
+        return 'Never';
+    }
+
+    return date(
+        'd M Y, h:i A',
+        $timestamp
+    );
 }
 
-$name = trim((string)$teacher['full_name']);
 
-$initial = function_exists('mb_substr')
-    ? mb_substr($name, 0, 1, 'UTF-8')
-    : substr($name, 0, 1);
+/*
+|--------------------------------------------------------------------------
+| PROFILE DATA
+|--------------------------------------------------------------------------
+*/
 
-$profilePhoto = trim(
-    (string)($teacher['profile_photo'] ?? '')
-);
+$name =
+    trim(
+        (string)(
+            $teacher['full_name']
+            ?? ''
+        )
+    );
+
+$initial =
+    function_exists(
+        'mb_substr'
+    )
+    ? mb_substr(
+        $name,
+        0,
+        1,
+        'UTF-8'
+    )
+    : substr(
+        $name,
+        0,
+        1
+    );
+
+$profilePhoto =
+    trim(
+        (string)(
+            $teacher['profile_photo']
+            ?? ''
+        )
+    );
 
 $profilePhotoUrl = '';
 
-if ($profilePhoto !== '') {
+if (
+    $profilePhoto !== ''
+) {
+
     $profilePhotoUrl =
         '../../uploads/teachers/' .
-        rawurlencode(basename($profilePhoto));
+        rawurlencode(
+            basename(
+                $profilePhoto
+            )
+        );
 }
 
-$page_title = 'View Teacher';
+
+$page_title =
+    'View Teacher';
+
 
 include "../includes/header.php";
+
 ?>
 
 <style>
@@ -296,8 +397,8 @@ include "../includes/header.php";
         margin-top: 22px;
     }
 
-    .teacher-profile-actions a {
-        flex: 1;
+    .teacher-delete-btn {
+        width: 100%;
         min-height: 42px;
         display: inline-flex;
         align-items: center;
@@ -308,20 +409,6 @@ include "../includes/header.php";
         font-size: .82rem;
         font-weight: 800;
         transition: .2s ease;
-    }
-
-    .teacher-edit-btn {
-        background: #556b2f;
-        color: #fff;
-    }
-
-    .teacher-edit-btn:hover {
-        background: #465b27;
-        color: #fff;
-        transform: translateY(-2px);
-    }
-
-    .teacher-delete-btn {
         color: #9b3831;
         background: rgba(163,58,50,.08);
     }
@@ -437,26 +524,47 @@ include "../includes/header.php";
 
 </style>
 
+
 <div class="dashboard-wrapper">
+
 
     <?php include "../includes/sidebar.php"; ?>
 
+
     <div class="main-content">
+
 
         <?php include "../includes/navbar.php"; ?>
 
-        <main class="dashboard-content teacher-view-page">
 
-            <section class="teacher-view-heading">
+        <main
+            class="dashboard-content teacher-view-page"
+        >
+
+
+            <section
+                class="teacher-view-heading"
+            >
 
                 <div>
 
-                    <span class="eyebrow">
-                        <i class="fa-solid fa-chalkboard-user"></i>
+                    <span
+                        class="eyebrow"
+                    >
+
+                        <i
+                            class="fa-solid fa-chalkboard-user"
+                        ></i>
+
                         TEACHER MANAGEMENT
+
                     </span>
 
-                    <h1>Teacher Details</h1>
+
+                    <h1>
+                        Teacher Details
+                    </h1>
+
 
                     <p>
                         Complete teacher profile and account information.
@@ -464,52 +572,98 @@ include "../includes/header.php";
 
                 </div>
 
+
                 <a
                     href="index.php"
                     class="teacher-back"
                 >
-                    <i class="fa-solid fa-arrow-left"></i>
+
+                    <i
+                        class="fa-solid fa-arrow-left"
+                    ></i>
+
                     Back to Teachers
+
                 </a>
 
             </section>
 
-            <div class="teacher-view-layout">
 
-                <aside class="teacher-profile-card">
+            <div
+                class="teacher-view-layout"
+            >
 
-                    <?php if ($profilePhotoUrl !== ''): ?>
 
-                        <div class="teacher-profile-photo">
+                <aside
+                    class="teacher-profile-card"
+                >
+
+
+                    <?php if (
+                        $profilePhotoUrl !== ''
+                    ): ?>
+
+
+                        <div
+                            class="teacher-profile-photo"
+                        >
 
                             <img
-                                src="<?= teacher_view_e($profilePhotoUrl) ?>"
-                                alt="<?= teacher_view_e($name) ?>"
+                                src="<?= teacher_view_e(
+                                    $profilePhotoUrl
+                                ) ?>"
+                                alt="<?= teacher_view_e(
+                                    $name
+                                ) ?>"
                             >
 
                         </div>
 
+
                     <?php else: ?>
 
-                        <div class="teacher-profile-initial">
-                            <?= teacher_view_e($initial) ?>
+
+                        <div
+                            class="teacher-profile-initial"
+                        >
+
+                            <?= teacher_view_e(
+                                $initial
+                            ) ?>
+
                         </div>
+
 
                     <?php endif; ?>
 
+
                     <h2>
-                        <?= teacher_view_e($name) ?>
+
+                        <?= teacher_view_e(
+                            $name
+                        ) ?>
+
                     </h2>
 
-                    <div class="teacher-code">
+
+                    <div
+                        class="teacher-code"
+                    >
+
                         <?= teacher_view_e(
                             $teacher['teacher_code']
                         ) ?>
+
                     </div>
 
-                    <div class="teacher-profile-email">
 
-                        <i class="fa-regular fa-envelope me-1"></i>
+                    <div
+                        class="teacher-profile-email"
+                    >
+
+                        <i
+                            class="fa-regular fa-envelope me-1"
+                        ></i>
 
                         <?= teacher_view_e(
                             $teacher['email']
@@ -517,60 +671,94 @@ include "../includes/header.php";
 
                     </div>
 
-                    <div class="teacher-profile-status">
 
-                        <?php if ($teacher['status'] === 'Active'): ?>
+                    <div
+                        class="teacher-profile-status"
+                    >
 
-                            <span class="teacher-status active">
 
-                                <i class="fa-solid fa-circle-check"></i>
+                        <?php if (
+                            $teacher['status']
+                            ===
+                            'Active'
+                        ): ?>
+
+
+                            <span
+                                class="teacher-status active"
+                            >
+
+                                <i
+                                    class="fa-solid fa-circle-check"
+                                ></i>
 
                                 Active
 
                             </span>
 
+
                         <?php else: ?>
 
-                            <span class="teacher-status inactive">
 
-                                <i class="fa-solid fa-circle-xmark"></i>
+                            <span
+                                class="teacher-status inactive"
+                            >
+
+                                <i
+                                    class="fa-solid fa-circle-xmark"
+                                ></i>
 
                                 Inactive
 
                             </span>
 
+
                         <?php endif; ?>
+
 
                     </div>
 
-                    <div class="teacher-profile-actions">
 
-                        <a
-                            href="edit.php?id=<?= (int)$teacher['id'] ?>"
-                            class="teacher-edit-btn"
-                        >
-                            <i class="fa-solid fa-pen"></i>
-                            Edit
-                        </a>
+                    <div
+                        class="teacher-profile-actions"
+                    >
 
                         <a
                             href="delete.php?id=<?= (int)$teacher['id'] ?>"
                             class="teacher-delete-btn"
-                            onclick="return confirm('Are you sure you want to delete this teacher? This action cannot be undone.');"
+                            title="Delete Teacher"
+                            onclick="return confirm(
+                                'Are you sure you want to delete this teacher? This action cannot be undone.'
+                            );"
                         >
-                            <i class="fa-solid fa-trash"></i>
+
+                            <i
+                                class="fa-solid fa-trash"
+                            ></i>
+
                             Delete
+
                         </a>
 
                     </div>
 
+
                 </aside>
 
-                <section class="teacher-details-card">
 
-                    <header class="teacher-details-head">
+                <section
+                    class="teacher-details-card"
+                >
 
-                        <span>PROFILE INFORMATION</span>
+
+                    <header
+                        class="teacher-details-head"
+                    >
+
+                        <span>
+                            PROFILE INFORMATION
+                        </span>
+
 
                         <h3>
                             Teacher Account & Professional Details
@@ -578,200 +766,352 @@ include "../includes/header.php";
 
                     </header>
 
-                    <div class="teacher-details-grid">
 
-                        <div class="teacher-detail-item">
+                    <div
+                        class="teacher-details-grid"
+                    >
 
-                            <small>Teacher Code</small>
+
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Teacher Code
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['teacher_code']
+                                    $teacher[
+                                        'teacher_code'
+                                    ]
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Full Name</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Full Name
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['full_name']
+                                    $teacher[
+                                        'full_name'
+                                    ]
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Email</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Email
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['email']
+                                    $teacher[
+                                        'email'
+                                    ]
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Phone</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Phone
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['phone'] ?: 'Not provided'
+                                    $teacher[
+                                        'phone'
+                                    ]
+                                    ?:
+                                    'Not provided'
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Mobile</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Mobile
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['mobile'] ?: 'Not provided'
+                                    $teacher[
+                                        'mobile'
+                                    ]
+                                    ?:
+                                    'Not provided'
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Gender</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Gender
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['gender']
-                                    ?: 'Not provided'
+                                    $teacher[
+                                        'gender'
+                                    ]
+                                    ?:
+                                    'Not provided'
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Date of Birth</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Date of Birth
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
                                     teacher_view_date(
-                                        $teacher['dob']
+                                        $teacher[
+                                            'dob'
+                                        ]
                                     )
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Qualification</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Qualification
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['qualification']
-                                    ?: 'Not provided'
+                                    $teacher[
+                                        'qualification'
+                                    ]
+                                    ?:
+                                    'Not provided'
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Experience</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Experience
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['experience']
-                                    ?: 'Not provided'
+                                    $teacher[
+                                        'experience'
+                                    ]
+                                    ?:
+                                    'Not provided'
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Account Status</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Account Status
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
-                                    $teacher['status']
+                                    $teacher[
+                                        'status'
+                                    ]
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Last Login</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Last Login
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
                                     teacher_view_datetime(
-                                        $teacher['last_login']
+                                        $teacher[
+                                            'last_login'
+                                        ]
                                     )
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item">
 
-                            <small>Registered On</small>
+                        <div
+                            class="teacher-detail-item"
+                        >
+
+                            <small>
+                                Registered On
+                            </small>
 
                             <strong>
+
                                 <?= teacher_view_e(
                                     teacher_view_datetime(
-                                        $teacher['created_at']
+                                        $teacher[
+                                            'created_at'
+                                        ]
                                     )
                                 ) ?>
+
                             </strong>
 
                         </div>
 
-                        <div class="teacher-detail-item"
-                             style="grid-column: 1 / -1; border-right: 0;">
 
-                            <small>Address</small>
+                        <div
+                            class="teacher-detail-item"
+                            style="
+                                grid-column: 1 / -1;
+                                border-right: 0;
+                            "
+                        >
 
-                            <strong class="teacher-address">
+                            <small>
+                                Address
+                            </small>
+
+
+                            <strong
+                                class="teacher-address"
+                            >
+
 
                                 <?php if (
                                     trim(
-                                        (string)$teacher['address']
+                                        (string)(
+                                            $teacher[
+                                                'address'
+                                            ]
+                                        )
                                     ) !== ''
                                 ): ?>
 
+
                                     <?= nl2br(
                                         teacher_view_e(
-                                            $teacher['address']
+                                            $teacher[
+                                                'address'
+                                            ]
                                         )
                                     ) ?>
 
+
                                 <?php else: ?>
+
 
                                     Not provided
 
+
                                 <?php endif; ?>
+
 
                             </strong>
 
                         </div>
 
+
                     </div>
+
 
                 </section>
 
+
             </div>
+
 
         </main>
 
+
     </div>
+
 
 </div>
 
-<?php include "../includes/footer.php"; ?>
+
+<?php
+
+include "../includes/footer.php";
+
+?>

@@ -24,11 +24,17 @@ if (
     empty($_SESSION['user_id']) ||
     ($_SESSION['user_role'] ?? '') !== 'student'
 ) {
+
     http_response_code(403);
-    exit('Unauthorized access.');
+
+    exit(
+        'Unauthorized access.'
+    );
 }
 
-$studentId = (int) $_SESSION['user_id'];
+
+$studentId =
+    (int) $_SESSION['user_id'];
 
 
 /*
@@ -37,19 +43,25 @@ $studentId = (int) $_SESSION['user_id'];
 |--------------------------------------------------------------------------
 */
 
-$attemptId = filter_input(
-    INPUT_GET,
-    'attempt_id',
-    FILTER_VALIDATE_INT
-);
+$attemptId =
+    filter_input(
+        INPUT_GET,
+        'attempt_id',
+        FILTER_VALIDATE_INT
+    );
+
 
 if (
     $attemptId === false ||
     $attemptId === null ||
     $attemptId <= 0
 ) {
+
     http_response_code(400);
-    exit('Invalid examination attempt.');
+
+    exit(
+        'Invalid examination attempt.'
+    );
 }
 
 
@@ -66,21 +78,35 @@ $autoloadPath =
     . DIRECTORY_SEPARATOR
     . 'autoload.php';
 
+
 if (
-    !is_file($autoloadPath)
+    !is_file(
+        $autoloadPath
+    )
 ) {
+
     http_response_code(500);
-    exit('PDF library is not available.');
+
+    exit(
+        'PDF library is not available.'
+    );
 }
+
 
 require_once $autoloadPath;
 
 
 if (
-    !class_exists('\Mpdf\Mpdf')
+    !class_exists(
+        '\Mpdf\Mpdf'
+    )
 ) {
+
     http_response_code(500);
-    exit('PDF library is not available.');
+
+    exit(
+        'PDF library is not available.'
+    );
 }
 
 
@@ -93,9 +119,11 @@ if (
 function result_pdf_escape(
     mixed $value
 ): string {
+
     return htmlspecialchars(
         (string) $value,
-        ENT_QUOTES | ENT_SUBSTITUTE,
+        ENT_QUOTES |
+        ENT_SUBSTITUTE,
         'UTF-8'
     );
 }
@@ -104,9 +132,19 @@ function result_pdf_escape(
 function result_pdf_number(
     mixed $value
 ): string {
-    $number = (float) $value;
 
-    if (floor($number) === $number) {
+    $number =
+        round(
+            (float) $value,
+            2
+        );
+
+
+    if (
+        floor($number) ===
+        $number
+    ) {
+
         return number_format(
             $number,
             0,
@@ -114,6 +152,7 @@ function result_pdf_number(
             ''
         );
     }
+
 
     return rtrim(
         rtrim(
@@ -133,11 +172,17 @@ function result_pdf_number(
 function result_pdf_date(
     mixed $value
 ): string {
-    if (empty($value)) {
+
+    if (
+        empty($value)
+    ) {
+
         return '-';
     }
 
+
     try {
+
         return (
             new DateTimeImmutable(
                 (string) $value
@@ -145,7 +190,11 @@ function result_pdf_date(
         )->format(
             'd M Y, h:i A'
         );
-    } catch (Throwable) {
+
+    } catch (
+        Throwable
+    ) {
+
         return '-';
     }
 }
@@ -153,108 +202,145 @@ function result_pdf_date(
 
 /*
 |--------------------------------------------------------------------------
-| LOAD RESULT + ATTEMPT + STUDENT + EXAM
+| LOAD FINAL RESULT
+|--------------------------------------------------------------------------
+|
+| The results row is the authoritative source for the final score.
 |--------------------------------------------------------------------------
 */
 
 try {
 
-    $resultStatement = $conn->prepare("
-        SELECT
+    $resultStatement =
+        $conn->prepare(
+            "
+            SELECT
 
-            r.id AS result_id,
+                r.id AS result_id,
 
-            r.attempt_id,
-            r.student_id,
-            r.exam_id,
+                r.attempt_id,
+                r.student_id,
+                r.exam_id,
 
-            r.total_questions,
-            r.attempted_questions,
+                r.total_questions,
+                r.attempted_questions,
 
-            r.correct_answers,
-            r.wrong_answers,
-            r.unanswered_questions,
+                r.correct_answers,
+                r.wrong_answers,
+                r.unanswered_questions,
 
-            r.total_marks,
-            r.obtained_marks,
+                r.total_marks,
+                r.obtained_marks,
 
-            r.percentage,
+                r.percentage,
 
-            r.grade,
-            r.result_status,
+                r.grade,
+                r.result_status,
 
-            r.created_at AS result_created_at,
+                r.created_at AS result_created_at,
 
-            ea.started_at,
-            ea.server_deadline,
-            ea.submitted_at,
-            ea.status AS attempt_status,
+                ea.started_at,
+                ea.server_deadline,
+                ea.submitted_at,
 
-            e.title AS exam_title,
-            e.description AS exam_description,
+                ea.status AS attempt_status,
 
-            e.exam_type,
-            e.duration_minutes,
-            e.passing_marks,
-            e.negative_marking,
+                e.title AS exam_title,
+                e.description AS exam_description,
 
-            s.full_name,
-            s.student_code,
-            s.email,
+                e.exam_type,
+                e.duration_minutes,
 
-            sub.name AS subject_name,
-            sub.code AS subject_code
+                e.required_question_count,
+                e.total_marks AS exam_configured_total_marks,
 
-        FROM results r
+                e.passing_marks,
 
-        INNER JOIN exam_attempts ea
-            ON ea.id = r.attempt_id
-            AND ea.student_id = r.student_id
-            AND ea.exam_id = r.exam_id
+                e.negative_marking,
 
-        INNER JOIN exams e
-            ON e.id = r.exam_id
+                e.exam_fee,
+                e.subscription_required,
 
-        INNER JOIN students s
-            ON s.id = r.student_id
+                e.starts_at,
+                e.ends_at,
 
-        LEFT JOIN subjects sub
-            ON sub.id = e.subject_id
+                s.full_name,
+                s.student_code,
+                s.email,
 
-        WHERE
+                sub.name AS subject_name,
+                sub.code AS subject_code
 
-            r.attempt_id = ?
-            AND r.student_id = ?
+            FROM results r
 
-        LIMIT 1
-    ");
+            INNER JOIN exam_attempts ea
+                ON ea.id = r.attempt_id
+                AND ea.student_id = r.student_id
+                AND ea.exam_id = r.exam_id
 
-    $resultStatement->execute([
-        $attemptId,
-        $studentId
-    ]);
+            INNER JOIN exams e
+                ON e.id = r.exam_id
 
-    $result = $resultStatement->fetch(
-        PDO::FETCH_ASSOC
+            INNER JOIN students s
+                ON s.id = r.student_id
+
+            LEFT JOIN subjects sub
+                ON sub.id = e.subject_id
+
+            WHERE
+
+                r.attempt_id = ?
+
+                AND r.student_id = ?
+
+            LIMIT 1
+            "
+        );
+
+
+    $resultStatement->execute(
+        [
+
+            (int) $attemptId,
+
+            $studentId
+
+        ]
     );
 
-} catch (Throwable $exception) {
+
+    $result =
+        $resultStatement->fetch(
+            PDO::FETCH_ASSOC
+        );
+
+} catch (
+    Throwable $exception
+) {
 
     error_log(
         'ExamSphere PDF result lookup failed: ' .
         $exception->getMessage()
     );
 
+
     http_response_code(500);
-    exit('Unable to prepare the result PDF.');
+
+    exit(
+        'Unable to prepare the result PDF.'
+    );
 }
 
 
 if (
     !$result
 ) {
+
     http_response_code(404);
-    exit('Result not found.');
+
+    exit(
+        'Result not found.'
+    );
 }
 
 
@@ -266,7 +352,9 @@ if (
 
 if (
     !in_array(
-        (string) $result['attempt_status'],
+        (string) $result[
+            'attempt_status'
+        ],
         [
             'Submitted',
             'Auto Submitted'
@@ -274,8 +362,12 @@ if (
         true
     )
 ) {
+
     http_response_code(409);
-    exit('This result is not finalized yet.');
+
+    exit(
+        'This result is not finalized yet.'
+    );
 }
 
 
@@ -286,11 +378,18 @@ if (
 */
 
 if (
-    (int) $result['student_id'] !==
+    (int) $result[
+        'student_id'
+    ]
+    !==
     $studentId
 ) {
+
     http_response_code(403);
-    exit('Unauthorized result access.');
+
+    exit(
+        'Unauthorized result access.'
+    );
 }
 
 
@@ -301,116 +400,222 @@ if (
 */
 
 if (
-    (int) $result['attempt_id'] !==
+    (int) $result[
+        'attempt_id'
+    ]
+    !==
     (int) $attemptId
 ) {
+
     http_response_code(409);
-    exit('Invalid result relationship.');
+
+    exit(
+        'Invalid result relationship.'
+    );
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| NORMALIZE RESULT VALUES
+| RESULT VALUES
 |--------------------------------------------------------------------------
 */
 
-$totalQuestions = max(
-    0,
-    (int) $result['total_questions']
-);
+$totalQuestions =
+    max(
+        0,
+        (int) $result[
+            'total_questions'
+        ]
+    );
 
-$attemptedQuestions = max(
-    0,
-    (int) $result['attempted_questions']
-);
 
-$correctAnswers = max(
-    0,
-    (int) $result['correct_answers']
-);
+$attemptedQuestions =
+    max(
+        0,
+        (int) $result[
+            'attempted_questions'
+        ]
+    );
 
-$wrongAnswers = max(
-    0,
-    (int) $result['wrong_answers']
-);
 
-$unansweredQuestions = max(
-    0,
-    (int) $result['unanswered_questions']
-);
+$correctAnswers =
+    max(
+        0,
+        (int) $result[
+            'correct_answers'
+        ]
+    );
 
-$totalMarks = max(
-    0,
-    (float) $result['total_marks']
-);
 
-$obtainedMarks = max(
-    0,
-    min(
-        $totalMarks,
-        (float) $result['obtained_marks']
-    )
-);
+$wrongAnswers =
+    max(
+        0,
+        (int) $result[
+            'wrong_answers'
+        ]
+    );
 
-$percentage = max(
-    0,
-    min(
-        100,
-        (float) $result['percentage']
-    )
-);
 
-$passingMarks = max(
-    0,
-    min(
-        $totalMarks,
-        (float) $result['passing_marks']
-    )
-);
+$unansweredQuestions =
+    max(
+        0,
+        (int) $result[
+            'unanswered_questions'
+        ]
+    );
 
-$grade = trim(
-    (string) $result['grade']
-);
 
-$resultStatus = trim(
-    (string) $result['result_status']
-);
+$totalMarks =
+    max(
+        0,
+        round(
+            (float) $result[
+                'total_marks'
+            ],
+            2
+        )
+    );
 
-$examTitle = trim(
-    (string) $result['exam_title']
-);
 
-$examType = trim(
-    (string) $result['exam_type']
-);
+$obtainedMarks =
+    round(
+        (float) $result[
+            'obtained_marks'
+        ],
+        2
+    );
 
-$subjectName = trim(
-    (string) (
-        $result['subject_name'] ?? ''
-    )
-);
 
-$studentName = trim(
-    (string) $result['full_name']
-);
+/*
+|--------------------------------------------------------------------------
+| FINAL SCORE BOUNDS
+|--------------------------------------------------------------------------
+*/
 
-$studentCode = trim(
-    (string) $result['student_code']
-);
+$obtainedMarks =
+    max(
+        0,
+        min(
+            $totalMarks,
+            $obtainedMarks
+        )
+    );
 
-$studentEmail = trim(
-    (string) $result['email']
-);
 
-$negativeMarking = (int) (
-    $result['negative_marking'] ?? 0
-);
+$percentage =
+    round(
+        (float) $result[
+            'percentage'
+        ],
+        2
+    );
 
-$durationMinutes = max(
-    0,
-    (int) $result['duration_minutes']
-);
+
+$percentage =
+    max(
+        0,
+        min(
+            100,
+            $percentage
+        )
+    );
+
+
+$passingMarks =
+    max(
+        0,
+        min(
+            $totalMarks,
+            (float) $result[
+                'passing_marks'
+            ]
+        )
+    );
+
+
+$grade =
+    trim(
+        (string) $result[
+            'grade'
+        ]
+    );
+
+
+$resultStatus =
+    trim(
+        (string) $result[
+            'result_status'
+        ]
+    );
+
+
+$examTitle =
+    trim(
+        (string) $result[
+            'exam_title'
+        ]
+    );
+
+
+$examType =
+    trim(
+        (string) $result[
+            'exam_type'
+        ]
+    );
+
+
+$subjectName =
+    trim(
+        (string) (
+            $result[
+                'subject_name'
+            ] ?? ''
+        )
+    );
+
+
+$studentName =
+    trim(
+        (string) $result[
+            'full_name'
+        ]
+    );
+
+
+$studentCode =
+    trim(
+        (string) $result[
+            'student_code'
+        ]
+    );
+
+
+$studentEmail =
+    trim(
+        (string) $result[
+            'email'
+        ]
+    );
+
+
+$negativeMarking =
+    (int) (
+        $result[
+            'negative_marking'
+        ] ?? 0
+    );
+
+
+$durationMinutes =
+    max(
+        0,
+        (int) $result[
+            'duration_minutes'
+        ]
+    );
+
 
 $isPassed =
     $resultStatus === 'Pass';
@@ -418,7 +623,329 @@ $isPassed =
 
 /*
 |--------------------------------------------------------------------------
-| DERIVED VALUES FOR TEMPLATE
+| VERIFY RESULT QUESTION TOTAL
+|--------------------------------------------------------------------------
+|
+| The final result should contain exactly the configured question count.
+|--------------------------------------------------------------------------
+*/
+
+$configuredQuestionCount =
+    (int) (
+        $result[
+            'required_question_count'
+        ] ?? 0
+    );
+
+
+if (
+    $configuredQuestionCount > 0 &&
+    $totalQuestions !==
+    $configuredQuestionCount
+) {
+
+    http_response_code(409);
+
+    exit(
+        'The final result question count is inconsistent.'
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| VERIFY QUESTION-LEVEL MARKS
+|--------------------------------------------------------------------------
+|
+| Dynamic formula:
+|
+|     Total Questions × Per Question Marks
+|
+| Question data is used only for verification.
+| Final result total remains the authoritative stored result value.
+|--------------------------------------------------------------------------
+*/
+
+$questionRows = [];
+
+
+try {
+
+    $questionStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                eq.position,
+
+                q.id AS question_id,
+
+                q.question_text,
+                q.question_image,
+
+                q.option_a,
+                q.option_b,
+                q.option_c,
+                q.option_d,
+
+                q.correct_answer,
+                q.explanation,
+
+                q.marks,
+                q.negative_marks,
+
+                a.selected_answer,
+                a.question_status,
+
+                a.is_correct,
+                a.marks_awarded
+
+            FROM exam_questions eq
+
+            INNER JOIN questions q
+                ON q.id = eq.question_id
+
+            LEFT JOIN answers a
+                ON a.attempt_id = ?
+                AND a.question_id = q.id
+
+            WHERE
+
+                eq.exam_id = ?
+
+                AND q.status = 'Active'
+
+            ORDER BY
+
+                eq.position ASC,
+                q.id ASC
+            "
+        );
+
+
+    $questionStatement->execute(
+        [
+
+            (int) $attemptId,
+
+            (int) $result[
+                'exam_id'
+            ]
+
+        ]
+    );
+
+
+    $questionRows =
+        $questionStatement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+} catch (
+    Throwable $exception
+) {
+
+    error_log(
+        'ExamSphere PDF question lookup failed: ' .
+        $exception->getMessage()
+    );
+
+
+    http_response_code(500);
+
+    exit(
+        'Unable to prepare the question analysis.'
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| UNIQUE ACTIVE QUESTION LIST
+|--------------------------------------------------------------------------
+*/
+
+$questions = [];
+
+$seenQuestionIds = [];
+
+
+foreach (
+    $questionRows as $question
+) {
+
+    $questionId =
+        (int) $question[
+            'question_id'
+        ];
+
+
+    if (
+        $questionId <= 0
+    ) {
+
+        continue;
+    }
+
+
+    if (
+        isset(
+            $seenQuestionIds[
+                $questionId
+            ]
+        )
+    ) {
+
+        continue;
+    }
+
+
+    $seenQuestionIds[
+        $questionId
+    ] = true;
+
+
+    $questions[] =
+        $question;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| EXACT QUESTION COUNT
+|--------------------------------------------------------------------------
+*/
+
+if (
+    count($questions) !==
+    $totalQuestions
+) {
+
+    http_response_code(409);
+
+    exit(
+        'The final result question set is inconsistent.'
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| CALCULATE QUESTION-LEVEL TOTAL
+|--------------------------------------------------------------------------
+*/
+
+$marksPerQuestion =
+    null;
+
+
+$questionCalculatedTotal =
+    0.00;
+
+
+foreach (
+    $questions as $question
+) {
+
+    $questionMarks =
+        round(
+            (float) (
+                $question[
+                    'marks'
+                ] ?? 0
+            ),
+            2
+        );
+
+
+    if (
+        $questionMarks <= 0
+    ) {
+
+        http_response_code(409);
+
+        exit(
+            'The result contains a question with invalid marks.'
+        );
+    }
+
+
+    if (
+        $marksPerQuestion === null
+    ) {
+
+        $marksPerQuestion =
+            $questionMarks;
+
+    } else {
+
+        if (
+            abs(
+                $marksPerQuestion -
+                $questionMarks
+            ) > 0.00001
+        ) {
+
+            http_response_code(409);
+
+            exit(
+                'The result contains inconsistent per-question marks.'
+            );
+        }
+    }
+
+
+    $questionCalculatedTotal +=
+        $questionMarks;
+}
+
+
+$questionCalculatedTotal =
+    round(
+        $questionCalculatedTotal,
+        2
+    );
+
+
+/*
+|--------------------------------------------------------------------------
+| DYNAMIC TOTAL MARKS VERIFICATION
+|--------------------------------------------------------------------------
+*/
+
+if (
+    abs(
+        $questionCalculatedTotal -
+        $totalMarks
+    ) > 0.01
+) {
+
+    http_response_code(409);
+
+    exit(
+        'The result total marks do not match the configured question marks.'
+    );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FALLBACK MARKS PER QUESTION
+|--------------------------------------------------------------------------
+*/
+
+if (
+    $marksPerQuestion === null
+) {
+
+    $marksPerQuestion =
+        0.00;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| DERIVED VALUES
 |--------------------------------------------------------------------------
 */
 
@@ -431,82 +958,62 @@ $accuracy =
             ) * 100,
             2
         )
-        : 0;
+        : 0.00;
 
 
-$attemptedPercent =
+$completionPercentage =
     $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $attemptedQuestions /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
+        ? round(
+            (
+                $attemptedQuestions /
+                $totalQuestions
+            ) * 100,
+            2
         )
-        : 0;
+        : 0.00;
 
 
-$correctPercent =
+$correctPercentage =
     $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $correctAnswers /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
+        ? round(
+            (
+                $correctAnswers /
+                $totalQuestions
+            ) * 100,
+            2
         )
-        : 0;
+        : 0.00;
 
 
-$wrongPercent =
+$wrongPercentage =
     $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $wrongAnswers /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
+        ? round(
+            (
+                $wrongAnswers /
+                $totalQuestions
+            ) * 100,
+            2
         )
-        : 0;
+        : 0.00;
 
 
-$unansweredPercent =
+$unansweredPercentage =
     $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $unansweredQuestions /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
+        ? round(
+            (
+                $unansweredQuestions /
+                $totalQuestions
+            ) * 100,
+            2
         )
-        : 0;
+        : 0.00;
 
 
 $scorePosition =
-    min(
-        100,
-        max(
-            0,
+    max(
+        0,
+        min(
+            100,
             $percentage
         )
     );
@@ -520,15 +1027,19 @@ $remark =
 
 $remarkText =
     $isPassed
-        ? 'Your final score has met or exceeded the configured passing marks.'
+        ? 'Your final score met or exceeded the configured passing marks.'
         : 'Review the detailed analysis and use the weak areas to guide your next practice sessions.';
 
 
 $formattedDate =
     result_pdf_date(
-        $result['submitted_at']
+        $result[
+            'submitted_at'
+        ]
         ??
-        $result['result_created_at']
+        $result[
+            'result_created_at'
+        ]
     );
 
 
@@ -538,25 +1049,41 @@ $formattedDate =
 |--------------------------------------------------------------------------
 */
 
-$timeTakenSeconds = 0;
+$timeTakenSeconds =
+    0;
 
 
 if (
-    !empty($result['started_at']) &&
-    !empty($result['submitted_at'])
+    !empty(
+        $result[
+            'started_at'
+        ]
+    )
+    &&
+    !empty(
+        $result[
+            'submitted_at'
+        ]
+    )
 ) {
 
     try {
 
         $startedAt =
             new DateTimeImmutable(
-                (string) $result['started_at']
+                (string) $result[
+                    'started_at'
+                ]
             );
+
 
         $submittedAt =
             new DateTimeImmutable(
-                (string) $result['submitted_at']
+                (string) $result[
+                    'submitted_at'
+                ]
             );
+
 
         $timeTakenSeconds =
             max(
@@ -566,9 +1093,12 @@ if (
                 $startedAt->getTimestamp()
             );
 
-    } catch (Throwable) {
+    } catch (
+        Throwable
+    ) {
 
-        $timeTakenSeconds = 0;
+        $timeTakenSeconds =
+            0;
     }
 }
 
@@ -591,8 +1121,10 @@ if (
             60
         );
 
+
     $minutes =
         $timeTakenMinutes % 60;
+
 
     $timeTakenText =
         $hours .
@@ -617,125 +1149,131 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| QUESTION-WISE ANALYSIS
+| RESULT DATA FOR TEMPLATE
 |--------------------------------------------------------------------------
 */
 
-$questions = [];
+$pdfData = [
 
+    'result_id' =>
+        (int) $result[
+            'result_id'
+        ],
 
-try {
+    'attempt_id' =>
+        (int) $result[
+            'attempt_id'
+        ],
 
-    $questionStatement = $conn->prepare("
-        SELECT
+    'student_id' =>
+        (int) $result[
+            'student_id'
+        ],
 
-            eq.position,
+    'exam_id' =>
+        (int) $result[
+            'exam_id'
+        ],
 
-            q.id AS question_id,
+    'student_name' =>
+        $studentName,
 
-            q.question_text,
-            q.question_image,
+    'student_code' =>
+        $studentCode,
 
-            q.option_a,
-            q.option_b,
-            q.option_c,
-            q.option_d,
+    'student_email' =>
+        $studentEmail,
 
-            q.correct_answer,
-            q.explanation,
+    'exam_title' =>
+        $examTitle,
 
-            q.marks,
-            q.negative_marks,
+    'exam_type' =>
+        $examType,
 
-            a.selected_answer,
-            a.question_status,
+    'subject_name' =>
+        $subjectName,
 
-            a.is_correct,
-            a.marks_awarded
+    'total_questions' =>
+        $totalQuestions,
 
-        FROM exam_questions eq
+    'attempted_questions' =>
+        $attemptedQuestions,
 
-        INNER JOIN questions q
-            ON q.id = eq.question_id
+    'correct_answers' =>
+        $correctAnswers,
 
-        LEFT JOIN answers a
-            ON a.attempt_id = ?
-            AND a.question_id = q.id
+    'wrong_answers' =>
+        $wrongAnswers,
 
-        WHERE
-            eq.exam_id = ?
+    'unanswered_questions' =>
+        $unansweredQuestions,
 
-        ORDER BY
+    'marks_per_question' =>
+        $marksPerQuestion,
 
-            eq.position ASC,
-            q.id ASC
-    ");
+    'total_marks' =>
+        $totalMarks,
 
-    $questionStatement->execute([
-        $attemptId,
-        (int) $result['exam_id']
-    ]);
+    'obtained_marks' =>
+        $obtainedMarks,
 
-    $questionRows =
-        $questionStatement->fetchAll(
-            PDO::FETCH_ASSOC
-        );
+    'percentage' =>
+        $percentage,
 
+    'passing_marks' =>
+        $passingMarks,
 
-    /*
-    |--------------------------------------------------------------------------
-    | UNIQUE QUESTION MAP
-    |--------------------------------------------------------------------------
-    */
+    'grade' =>
+        $grade,
 
-    $questionMap = [];
+    'result_status' =>
+        $resultStatus,
 
+    'accuracy' =>
+        $accuracy,
 
-    foreach (
-        $questionRows as $question
-    ) {
+    'completion_percentage' =>
+        $completionPercentage,
 
-        $questionId =
-            (int) $question['question_id'];
+    'score_position' =>
+        $scorePosition,
 
+    'duration_minutes' =>
+        $durationMinutes,
 
-        if (
-            $questionId <= 0 ||
-            isset(
-                $questionMap[
-                    $questionId
-                ]
-            )
-        ) {
-            continue;
-        }
+    'time_taken_text' =>
+        $timeTakenText,
 
+    'negative_marking' =>
+        $negativeMarking,
 
-        $questionMap[
-            $questionId
-        ] = $question;
-    }
+    'remark' =>
+        $remark,
 
+    'remark_text' =>
+        $remarkText,
 
-    $questions =
-        array_values(
-            $questionMap
-        );
+    'formatted_date' =>
+        $formattedDate,
 
-} catch (Throwable $exception) {
+    'is_passed' =>
+        $isPassed,
 
-    error_log(
-        'ExamSphere PDF question lookup failed: ' .
-        $exception->getMessage()
-    );
+    'correct_percentage' =>
+        $correctPercentage,
 
-    $questions = [];
-}
+    'wrong_percentage' =>
+        $wrongPercentage,
+
+    'unanswered_percentage' =>
+        $unansweredPercentage
+
+];
 
 
 /*
 |--------------------------------------------------------------------------
-| PDF TEMPLATE
+| TEMPLATE PATH
 |--------------------------------------------------------------------------
 */
 
@@ -748,10 +1286,16 @@ $templatePath =
 
 
 if (
-    !is_file($templatePath)
+    !is_file(
+        $templatePath
+    )
 ) {
+
     http_response_code(500);
-    exit('Result PDF template was not found.');
+
+    exit(
+        'Result PDF template was not found.'
+    );
 }
 
 
@@ -768,7 +1312,9 @@ $tempDirectory =
 
 
 if (
-    !is_dir($tempDirectory)
+    !is_dir(
+        $tempDirectory
+    )
 ) {
 
     if (
@@ -778,10 +1324,13 @@ if (
             true
         )
         &&
-        !is_dir($tempDirectory)
+        !is_dir(
+            $tempDirectory
+        )
     ) {
 
         http_response_code(500);
+
         exit(
             'Unable to create PDF temporary directory.'
         );
@@ -796,6 +1345,7 @@ if (
 ) {
 
     http_response_code(500);
+
     exit(
         'PDF temporary directory is not writable.'
     );
@@ -813,19 +1363,28 @@ ob_start();
 
 try {
 
+    /*
+     * Keep all legacy variables available to the existing PDF template.
+     */
+
     require $templatePath;
+
 
     $pdfHtml =
         ob_get_clean();
 
-} catch (Throwable $exception) {
+} catch (
+    Throwable $exception
+) {
 
     ob_end_clean();
+
 
     error_log(
         'ExamSphere PDF template rendering failed: ' .
         $exception->getMessage()
     );
+
 
     http_response_code(500);
 
@@ -836,7 +1395,9 @@ try {
 
 
 if (
-    trim($pdfHtml) === ''
+    trim(
+        $pdfHtml
+    ) === ''
 ) {
 
     http_response_code(500);
@@ -849,58 +1410,60 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| CREATE PDF
+| GENERATE PDF
 |--------------------------------------------------------------------------
 */
 
 try {
 
     $mpdf =
-        new \Mpdf\Mpdf([
+        new \Mpdf\Mpdf(
+            [
 
-            'mode' =>
-                'utf-8',
+                'mode' =>
+                    'utf-8',
 
-            'format' =>
-                'A4',
+                'format' =>
+                    'A4',
 
-            'orientation' =>
-                'P',
+                'orientation' =>
+                    'P',
 
-            'margin_left' =>
-                15,
+                'margin_left' =>
+                    15,
 
-            'margin_right' =>
-                15,
+                'margin_right' =>
+                    15,
 
-            'margin_top' =>
-                20,
+                'margin_top' =>
+                    20,
 
-            'margin_bottom' =>
-                20,
+                'margin_bottom' =>
+                    20,
 
-            'margin_header' =>
-                8,
+                'margin_header' =>
+                    8,
 
-            'margin_footer' =>
-                8,
+                'margin_footer' =>
+                    8,
 
-            'tempDir' =>
-                $tempDirectory,
+                'tempDir' =>
+                    $tempDirectory,
 
-            'default_font' =>
-                'dejavusans',
+                'default_font' =>
+                    'dejavusans',
 
-            'default_font_size' =>
-                8,
+                'default_font_size' =>
+                    8,
 
-            'autoScriptToLang' =>
-                true,
+                'autoScriptToLang' =>
+                    true,
 
-            'autoLangToFont' =>
-                true
+                'autoLangToFont' =>
+                    true
 
-        ]);
+            ]
+        );
 
 
     $mpdf->SetTitle(
@@ -929,23 +1492,57 @@ try {
     );
 
 
+    $mpdf->SetHTMLHeader(
+        '
+        <div
+            style="
+                text-align:right;
+                font-size:7px;
+                color:#777777;
+            "
+        >
+            ExamSphere
+        </div>
+        '
+    );
+
+
+    $mpdf->SetHTMLFooter(
+        '
+        <div
+            style="
+                text-align:center;
+                font-size:7px;
+                color:#777777;
+            "
+        >
+            ExamSphere Online Examination System
+            &nbsp;|&nbsp;
+            Page {PAGENO} of {nbpg}
+        </div>
+        '
+    );
+
+
     $mpdf->WriteHTML(
-        <<<CSS
-body {
-    font-family: dejavusans;
-    color: #333333;
-    font-size: 8px;
-    line-height: 1.45;
-}
+        '
+        <style>
+            body {
+                font-family: dejavusans;
+                color: #333333;
+                font-size: 8px;
+                line-height: 1.45;
+            }
 
-table {
-    border-collapse: collapse;
-}
+            table {
+                border-collapse: collapse;
+            }
 
-.pdf-page {
-    width: 100%;
-}
-CSS,
+            .pdf-page {
+                width: 100%;
+            }
+        </style>
+        ',
         \Mpdf\HTMLParserMode::HEADER_CSS
     );
 
@@ -958,7 +1555,7 @@ CSS,
 
     /*
     |--------------------------------------------------------------------------
-    | SAFE DOWNLOAD NAME
+    | SAFE DOWNLOAD FILE NAME
     |--------------------------------------------------------------------------
     */
 
@@ -998,7 +1595,7 @@ CSS,
         'ExamSphere_Result_' .
         $safeExamName .
         '_' .
-        $attemptId .
+        (int) $attemptId .
         '.pdf';
 
 
@@ -1013,13 +1610,15 @@ CSS,
         \Mpdf\Output\Destination::DOWNLOAD
     );
 
-
-} catch (Throwable $exception) {
+} catch (
+    Throwable $exception
+) {
 
     error_log(
         'ExamSphere result PDF generation failed: ' .
         $exception->getMessage()
     );
+
 
     http_response_code(500);
 

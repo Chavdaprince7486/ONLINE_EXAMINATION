@@ -1,780 +1,2740 @@
 <?php
+
 declare(strict_types=1);
 
 require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
+require_once '../config/auth.php';
 
-if (empty($_SESSION['user_id']) || ($_SESSION['user_role'] ?? '') !== 'student') {
+require_login('student');
+
+$studentId = (int)($_SESSION['user_id'] ?? 0);
+
+if ($studentId <= 0) {
     header('Location: ../auth/login.php');
     exit;
 }
 
-$studentId = (int) $_SESSION['user_id'];
 
-function profile_escape(mixed $value): string
+function profile_e(mixed $value): string
 {
-    return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    return htmlspecialchars(
+        (string)($value ?? ''),
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
 }
 
-function profile_date(?string $value, string $format = 'd M Y'): string
-{
-    if (!$value) {
+
+function profile_date(
+    mixed $value,
+    string $format = 'd M Y'
+): string {
+
+    if (
+        $value === null ||
+        trim((string)$value) === ''
+    ) {
         return '—';
     }
 
     try {
-        return (new DateTimeImmutable($value))->format($format);
+
+        return (
+            new DateTimeImmutable(
+                (string)$value
+            )
+        )->format($format);
+
     } catch (Throwable) {
+
         return '—';
     }
 }
 
+
+function profile_percent(
+    mixed $value
+): string {
+
+    return number_format(
+        max(
+            0,
+            min(
+                100,
+                (float)($value ?? 0)
+            )
+        ),
+        1
+    );
+}
+
+
 $student = null;
+
 $stats = [
+    'attempted' => 0,
     'completed' => 0,
     'average_score' => 0,
     'best_score' => 0,
+    'attempted_questions' => 0,
     'correct_answers' => 0,
     'wrong_answers' => 0,
-    'attempted_questions' => 0,
+    'unanswered_questions' => 0
 ];
+
+$subscription = null;
+
 $pageError = '';
 
-try {
-    $studentStatement = $conn->prepare(
-        "SELECT
-            id,
-            student_code,
-            full_name,
-            email,
-            mobile,
-            gender,
-            dob,
-            address,
-            city,
-            state,
-            pincode,
-            profile_photo,
-            email_verified,
-            status,
-            created_at,
-            last_login
-         FROM students
-         WHERE id = ?
-           AND status = 'Active'
-         LIMIT 1"
-    );
-    $studentStatement->execute([$studentId]);
-    $student = $studentStatement->fetch(PDO::FETCH_ASSOC);
+$csrfToken = csrf_token();
 
-    if (!$student) {
-        $_SESSION = [];
-        if (ini_get('session.use_cookies')) {
-            $params = session_get_cookie_params();
-            setcookie(
-                session_name(),
-                '',
-                time() - 42000,
-                $params['path'] ?? '/',
-                $params['domain'] ?? '',
-                (bool) ($params['secure'] ?? false),
-                (bool) ($params['httponly'] ?? true)
-            );
-        }
+
+try {
+
+    /*
+    |--------------------------------------------------------------------------
+    | STUDENT
+    |--------------------------------------------------------------------------
+    */
+
+    $studentQuery =
+        $conn->prepare(
+            "
+            SELECT
+
+                id,
+                student_code,
+                full_name,
+                email,
+                mobile,
+                gender,
+                dob,
+                address,
+                city,
+                state,
+                pincode,
+                profile_photo,
+                email_verified,
+                status,
+                last_login,
+                created_at
+
+            FROM students
+
+            WHERE id = ?
+
+            LIMIT 1
+            "
+        );
+
+
+    $studentQuery->execute([
+        $studentId
+    ]);
+
+
+    $student =
+        $studentQuery->fetch(
+            PDO::FETCH_ASSOC
+        );
+
+
+    if (
+        !$student ||
+        (string)$student['status'] !== 'Active'
+    ) {
+
         session_destroy();
-        header('Location: ../auth/login.php');
+
+        header(
+            'Location: ../auth/login.php'
+        );
+
         exit;
     }
 
-    $statsStatement = $conn->prepare(
-        "SELECT
-            COUNT(*) AS completed,
-            COALESCE(AVG(percentage), 0) AS average_score,
-            COALESCE(MAX(percentage), 0) AS best_score,
-            COALESCE(SUM(correct_answers), 0) AS correct_answers,
-            COALESCE(SUM(wrong_answers), 0) AS wrong_answers,
-            COALESCE(SUM(attempted_questions), 0) AS attempted_questions
-         FROM results
-         WHERE student_id = ?"
-    );
-    $statsStatement->execute([$studentId]);
-    $loadedStats = $statsStatement->fetch(PDO::FETCH_ASSOC);
-    if (is_array($loadedStats)) {
-        $stats = array_merge($stats, $loadedStats);
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESULT STATS
+    |--------------------------------------------------------------------------
+    */
+
+    $statsQuery =
+        $conn->prepare(
+            "
+            SELECT
+
+                COUNT(*) AS attempted,
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN result_status
+                                IN ('Pass','Fail')
+                            THEN 1
+                            ELSE 0
+                        END
+                    ),
+                    0
+                ) AS completed,
+
+                COALESCE(
+                    AVG(
+                        CASE
+                            WHEN result_status
+                                IN ('Pass','Fail')
+                            THEN percentage
+                            ELSE NULL
+                        END
+                    ),
+                    0
+                ) AS average_score,
+
+                COALESCE(
+                    MAX(
+                        CASE
+                            WHEN result_status
+                                IN ('Pass','Fail')
+                            THEN percentage
+                            ELSE NULL
+                        END
+                    ),
+                    0
+                ) AS best_score,
+
+                COALESCE(
+                    SUM(attempted_questions),
+                    0
+                ) AS attempted_questions,
+
+                COALESCE(
+                    SUM(correct_answers),
+                    0
+                ) AS correct_answers,
+
+                COALESCE(
+                    SUM(wrong_answers),
+                    0
+                ) AS wrong_answers,
+
+                COALESCE(
+                    SUM(unanswered_questions),
+                    0
+                ) AS unanswered_questions
+
+            FROM results
+
+            WHERE student_id = ?
+            "
+        );
+
+
+    $statsQuery->execute([
+        $studentId
+    ]);
+
+
+    $statsRow =
+        $statsQuery->fetch(
+            PDO::FETCH_ASSOC
+        );
+
+
+    if (
+        is_array($statsRow)
+    ) {
+
+        $stats =
+            array_merge(
+                $stats,
+                $statsRow
+            );
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACTIVE SUBSCRIPTION
+    |--------------------------------------------------------------------------
+    */
+
+    $subscriptionQuery =
+        $conn->prepare(
+            "
+            SELECT
+
+                s.id,
+                s.start_date,
+                s.end_date,
+                s.status,
+
+                p.name AS plan_name,
+                p.duration_months,
+                p.price,
+                p.description,
+                p.benefits
+
+            FROM subscriptions s
+
+            INNER JOIN subscription_plans p
+                ON p.id = s.plan_id
+
+            WHERE
+
+                s.student_id = ?
+
+                AND s.status = 'Active'
+
+                AND s.start_date <= CURDATE()
+
+                AND s.end_date >= CURDATE()
+
+            ORDER BY
+
+                s.end_date DESC,
+                s.id DESC
+
+            LIMIT 1
+            "
+        );
+
+
+    $subscriptionQuery->execute([
+        $studentId
+    ]);
+
+
+    $subscription =
+        $subscriptionQuery->fetch(
+            PDO::FETCH_ASSOC
+        );
+
+
 } catch (Throwable $exception) {
-    error_log('Student profile load failed: ' . $exception->getMessage());
-    $pageError = 'Your profile could not be loaded right now. Please try again.';
+
+    error_log(
+        'ExamSphere profile load failed: ' .
+        $exception->getMessage()
+    );
+
+    $pageError =
+        'Unable to load some profile information right now.';
 }
 
-$photo = '../assets/images/default-user.png';
+
+/*
+|--------------------------------------------------------------------------
+| PROFILE PHOTO
+|--------------------------------------------------------------------------
+*/
+
+$profilePhoto =
+    '../assets/images/default-user.png';
+
+
 if (
     is_array($student) &&
     !empty($student['profile_photo'])
 ) {
-    $photoName = basename((string) $student['profile_photo']);
-    $photoPath = __DIR__ . '/../uploads/students/' . $photoName;
-    if ($photoName !== '' && is_file($photoPath)) {
-        $photo = '../uploads/students/' . rawurlencode($photoName);
+
+    $photoName =
+        basename(
+            (string)$student['profile_photo']
+        );
+
+
+    $photoPath =
+        dirname(__DIR__) .
+        '/uploads/students/' .
+        $photoName;
+
+
+    if (
+        $photoName !== '' &&
+        is_file($photoPath)
+    ) {
+
+        $profilePhoto =
+            '../uploads/students/' .
+            rawurlencode($photoName);
     }
 }
 
-$csrf = csrf_token();
-$completedExams = (int) ($stats['completed'] ?? 0);
-$averageScore = (float) ($stats['average_score'] ?? 0);
-$bestScore = (float) ($stats['best_score'] ?? 0);
-$attemptedQuestions = (int) ($stats['attempted_questions'] ?? 0);
-$correctAnswers = (int) ($stats['correct_answers'] ?? 0);
-$accuracy = $attemptedQuestions > 0
-    ? round(($correctAnswers / $attemptedQuestions) * 100, 2)
-    : 0;
+
+/*
+|--------------------------------------------------------------------------
+| VALUES
+|--------------------------------------------------------------------------
+*/
+
+$attempted =
+    (int)($stats['attempted'] ?? 0);
+
+$completed =
+    (int)($stats['completed'] ?? 0);
+
+$averageScore =
+    (float)($stats['average_score'] ?? 0);
+
+$bestScore =
+    (float)($stats['best_score'] ?? 0);
+
+$attemptedQuestions =
+    (int)($stats['attempted_questions'] ?? 0);
+
+$correctAnswers =
+    (int)($stats['correct_answers'] ?? 0);
+
+$wrongAnswers =
+    (int)($stats['wrong_answers'] ?? 0);
+
+$unansweredQuestions =
+    (int)($stats['unanswered_questions'] ?? 0);
+
+
+$accuracy =
+    $attemptedQuestions > 0
+        ? (
+            $correctAnswers /
+            $attemptedQuestions
+        ) * 100
+        : 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| PROFILE COMPLETENESS
+|--------------------------------------------------------------------------
+*/
+
+$profileFields = [
+
+    $student['full_name'] ?? '',
+    $student['email'] ?? '',
+    $student['mobile'] ?? '',
+    $student['gender'] ?? '',
+    $student['dob'] ?? '',
+    $student['address'] ?? '',
+    $student['city'] ?? '',
+    $student['state'] ?? '',
+    $student['pincode'] ?? ''
+
+];
+
+
+$filledFields = 0;
+
+
+foreach (
+    $profileFields
+    as $field
+) {
+
+    if (
+        trim((string)$field) !== ''
+    ) {
+
+        $filledFields++;
+    }
+}
+
+
+$profileCompletion =
+    round(
+        (
+            $filledFields /
+            count($profileFields)
+        ) * 100
+    );
+
+
+/*
+|--------------------------------------------------------------------------
+| SUBSCRIPTION PROGRESS
+|--------------------------------------------------------------------------
+*/
+
+$subscriptionRemaining = 0;
+
+$subscriptionProgress = 0;
+
+
+if (
+    is_array($subscription)
+) {
+
+    try {
+
+        $startDate =
+            new DateTimeImmutable(
+                (string)$subscription['start_date']
+            );
+
+
+        $endDate =
+            new DateTimeImmutable(
+                (string)$subscription['end_date']
+            );
+
+
+        $today =
+            new DateTimeImmutable(
+                'today'
+            );
+
+
+        if (
+            $today >= $startDate &&
+            $today <= $endDate
+        ) {
+
+            $subscriptionRemaining =
+                $today->diff(
+                    $endDate
+                )->days + 1;
+        }
+
+
+        $totalDays =
+            max(
+                1,
+                $startDate
+                    ->diff(
+                        $endDate
+                    )
+                    ->days + 1
+            );
+
+
+        $usedDays =
+            $today > $startDate
+                ? min(
+                    $totalDays,
+                    $startDate
+                        ->diff(
+                            $today
+                        )
+                        ->days + 1
+                )
+                : 0;
+
+
+        $subscriptionProgress =
+            round(
+                (
+                    $usedDays /
+                    $totalDays
+                ) * 100,
+                1
+            );
+
+    } catch (Throwable) {
+
+        $subscriptionRemaining =
+            0;
+
+        $subscriptionProgress =
+            0;
+    }
+}
 
 ?>
+
 <!doctype html>
+
 <html lang="en">
+
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="theme-color" content="#f5f5dc">
-    <meta name="csrf-token" content="<?= profile_escape($csrf) ?>">
-    <title>My Profile | ExamSphere</title>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/dashboard.css">
+<meta charset="UTF-8">
 
-    <style>
-        :root{
-            --cream:#f5f5dc;
-            --cream-soft:#faf8ef;
-            --brown:#5d4037;
-            --brown-dark:#3e2723;
-            --olive:#556b2f;
-            --olive-soft:#e9eedf;
-            --gold:#b99b63;
-            --muted:#7a716b;
-            --line:rgba(93,64,55,.12);
-            --white:#fff;
-            --shadow:0 18px 50px rgba(62,39,35,.09);
-        }
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
 
-        *{box-sizing:border-box}
-        html{scroll-behavior:smooth}
-        body{
-            margin:0;
-            min-height:100vh;
-            font-family:'Poppins',sans-serif;
-            color:#333;
-            background:
-                radial-gradient(circle at 6% 12%, rgba(85,107,47,.075), transparent 23%),
-                radial-gradient(circle at 94% 17%, rgba(93,64,55,.06), transparent 25%),
-                linear-gradient(180deg,#f8f7e9 0%,#f5f5dc 100%);
-        }
+<meta
+    name="theme-color"
+    content="#F5F5DC"
+>
 
-        .profile-page{
-            width:min(1500px,calc(100% - 36px));
-            margin:0 auto;
-            padding:28px 0 60px;
-        }
+<meta
+    name="csrf-token"
+    content="<?= profile_e($csrfToken) ?>"
+>
 
-        .profile-hero{
-            display:grid;
-            grid-template-columns:minmax(0,1fr) auto;
-            align-items:end;
-            gap:28px;
-            margin-bottom:24px;
-        }
 
-        .profile-kicker{
-            display:inline-flex;
-            align-items:center;
-            gap:8px;
-            padding:8px 13px;
-            border-radius:999px;
-            background:rgba(85,107,47,.10);
-            color:var(--olive);
-            font-size:11px;
-            font-weight:800;
-            letter-spacing:.13em;
-            text-transform:uppercase;
-        }
+<title>
+    My Profile | ExamSphere
+</title>
 
-        .profile-hero h1{
-            margin:12px 0 8px;
-            color:var(--brown-dark);
-            font-size:clamp(34px,4vw,54px);
-            line-height:1.03;
-            letter-spacing:-.045em;
-        }
 
-        .profile-hero h1 em{
-            color:var(--olive);
-            font-style:normal;
-        }
+<link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+>
 
-        .profile-hero p{
-            max-width:780px;
-            margin:0;
-            color:var(--muted);
-            font-size:14px;
-            line-height:1.8;
-        }
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+>
 
-        .profile-back{
-            display:inline-flex;
-            align-items:center;
-            gap:9px;
-            min-height:48px;
-            padding:0 17px;
-            border-radius:15px;
-            color:var(--brown-dark);
-            background:rgba(255,255,255,.84);
-            border:1px solid var(--line);
-            box-shadow:0 10px 28px rgba(62,39,35,.06);
-            text-decoration:none;
-            font-weight:700;
-        }
+<link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet"
+>
 
-        .profile-shell{
-            display:grid;
-            grid-template-columns:minmax(0,1.65fr) minmax(300px,.95fr);
-            gap:18px;
-            align-items:start;
-        }
 
-        .profile-card{
-            background:rgba(255,255,255,.88);
-            border:1px solid var(--line);
-            border-radius:26px;
-            box-shadow:var(--shadow);
-            overflow:hidden;
-            backdrop-filter:blur(14px);
-        }
+<link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+>
 
-        .profile-main-card{min-height:100%}
 
-        .profile-cover{
-            height:124px;
-            position:relative;
-            background:
-                radial-gradient(circle at 86% 22%, rgba(255,255,255,.36) 0 90px, transparent 91px),
-                radial-gradient(circle at 4% 95%, rgba(85,107,47,.12) 0 90px, transparent 91px),
-                linear-gradient(135deg,#6a493f 0%,#5d4037 45%,#556b2f 100%);
-        }
+<link
+    rel="stylesheet"
+    href="assets/css/student-nav.css"
+>
 
-        .profile-cover:after{
-            content:"";
-            position:absolute;
-            inset:0;
-            opacity:.22;
-            background-image:radial-gradient(rgba(255,255,255,.45) 1px,transparent 1px);
-            background-size:15px 15px;
-        }
 
-        .profile-main{
-            display:flex;
-            align-items:flex-end;
-            gap:22px;
-            padding:0 28px 26px;
-            margin-top:-54px;
-            position:relative;
-            z-index:2;
-        }
+<link
+    rel="stylesheet"
+    href="assets/css/profile.css"
+>
 
-        .avatar-wrap{
-            position:relative;
-            flex:0 0 auto;
-        }
-
-        .avatar-wrap img{
-            width:126px;
-            height:126px;
-            object-fit:cover;
-            border-radius:50%;
-            border:6px solid #fff;
-            background:#f0ece2;
-            box-shadow:0 16px 30px rgba(62,39,35,.18);
-        }
-
-        .avatar-upload{
-            position:absolute;
-            right:7px;
-            bottom:7px;
-            width:38px;
-            height:38px;
-            display:grid;
-            place-items:center;
-            border-radius:50%;
-            color:#fff;
-            background:var(--brown);
-            border:3px solid #fff;
-            cursor:pointer;
-            box-shadow:0 8px 18px rgba(62,39,35,.18);
-        }
-
-        .profile-identity{padding-bottom:5px;min-width:0}
-        .profile-identity h2{
-            margin:0;
-            color:var(--brown-dark);
-            font-size:30px;
-            line-height:1.15;
-        }
-        .profile-code{
-            margin:6px 0 12px;
-            color:var(--olive);
-            font-size:12px;
-            font-weight:800;
-            letter-spacing:.10em;
-            text-transform:uppercase;
-        }
-        .profile-chips{display:flex;flex-wrap:wrap;gap:8px}
-        .profile-chip{
-            display:inline-flex;
-            align-items:center;
-            gap:7px;
-            padding:8px 11px;
-            border-radius:999px;
-            background:#f7f3ec;
-            color:#6b625b;
-            border:1px solid rgba(93,64,55,.08);
-            font-size:12px;
-            font-weight:600;
-        }
-        .profile-chip i{color:var(--olive)}
-
-        .edit-btn{
-            display:inline-flex;
-            align-items:center;
-            gap:8px;
-            min-height:44px;
-            margin-left:auto;
-            padding:0 16px;
-            border-radius:14px;
-            color:#fff;
-            background:linear-gradient(135deg,#5d4037,#76503e);
-            text-decoration:none;
-            font-size:13px;
-            font-weight:800;
-            white-space:nowrap;
-            box-shadow:0 10px 22px rgba(93,64,55,.16);
-        }
-
-        .stats-grid{
-            display:grid;
-            grid-template-columns:repeat(4,minmax(0,1fr));
-            gap:12px;
-            padding:0 28px 28px;
-        }
-
-        .stat-card{
-            display:flex;
-            align-items:center;
-            gap:12px;
-            min-height:96px;
-            padding:16px;
-            border:1px solid var(--line);
-            border-radius:18px;
-            background:#fff;
-        }
-
-        .stat-icon{
-            width:42px;
-            height:42px;
-            flex:0 0 auto;
-            display:grid;
-            place-items:center;
-            border-radius:14px;
-            font-size:16px;
-        }
-        .stat-icon.olive{background:#edf2e4;color:var(--olive)}
-        .stat-icon.brown{background:#f2e9e3;color:var(--brown)}
-        .stat-icon.gold{background:#f6efdc;color:#957941}
-        .stat-icon.green{background:#e7efe7;color:#4f6b4a}
-        .stat-card small{display:block;color:#817871;font-size:11px;font-weight:600}
-        .stat-card strong{display:block;margin-top:3px;color:var(--brown-dark);font-size:22px;line-height:1}
-
-        .info-grid{
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:18px;
-        }
-
-        .info-card{padding:24px}
-
-        .card-heading{
-            display:flex;
-            align-items:flex-start;
-            justify-content:space-between;
-            gap:18px;
-            margin-bottom:20px;
-        }
-        .card-heading-kicker{
-            color:var(--olive);
-            font-size:10px;
-            font-weight:800;
-            letter-spacing:.13em;
-            text-transform:uppercase;
-        }
-        .card-heading h3{margin:5px 0 0;color:var(--brown-dark);font-size:21px}
-        .card-heading a{color:var(--olive);text-decoration:none;font-size:12px;font-weight:800}
-
-        .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-        .detail-item{
-            min-height:74px;
-            padding:14px;
-            border-radius:15px;
-            background:#faf8f2;
-            border:1px solid rgba(93,64,55,.08);
-        }
-        .detail-item.span-2{grid-column:span 2}
-        .detail-item small{display:block;color:#8d837b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
-        .detail-item strong{display:block;margin-top:5px;color:var(--brown-dark);font-size:13px;line-height:1.55;word-break:break-word}
-
-        .status-pill{
-            display:inline-flex;
-            align-items:center;
-            gap:7px;
-            padding:7px 10px;
-            border-radius:999px;
-            background:var(--olive-soft);
-            color:#4f672d;
-            font-size:11px;
-            font-weight:800;
-        }
-        .status-pill i{font-size:7px}
-
-        .account-list{display:grid;gap:10px}
-        .account-row{
-            display:flex;
-            align-items:center;
-            justify-content:space-between;
-            gap:18px;
-            padding:13px 0;
-            border-bottom:1px solid rgba(93,64,55,.08);
-        }
-        .account-row:last-child{border-bottom:0}
-        .account-row span{color:#7d746d;font-size:12px}
-        .account-row strong{color:var(--brown-dark);font-size:12px;text-align:right}
-
-        .security-box{
-            display:flex;
-            gap:13px;
-            align-items:flex-start;
-            padding:15px;
-            border-radius:16px;
-            background:#f3f6ed;
-            border:1px solid rgba(85,107,47,.10);
-        }
-        .security-icon{width:40px;height:40px;display:grid;place-items:center;flex:0 0 auto;border-radius:13px;background:#fff;color:var(--olive)}
-        .security-box strong{display:block;color:var(--brown-dark);font-size:13px}
-        .security-box p{margin:4px 0 0;color:#7b736c;font-size:11px;line-height:1.6}
-
-        .security-link{
-            display:inline-flex;
-            align-items:center;
-            justify-content:center;
-            gap:8px;
-            width:100%;
-            min-height:44px;
-            margin-top:13px;
-            border-radius:14px;
-            color:var(--brown);
-            background:#f8f2e9;
-            border:1px solid rgba(93,64,55,.09);
-            text-decoration:none;
-            font-size:12px;
-            font-weight:800;
-        }
-
-        .empty-error{
-            padding:32px;
-            margin-bottom:18px;
-            border:1px solid rgba(155,67,57,.14);
-            border-radius:20px;
-            background:#fff8f6;
-            color:#8c4037;
-            text-align:center;
-        }
-        .empty-error i{font-size:26px;margin-bottom:10px}
-        .empty-error p{margin:5px 0 0;font-size:12px;color:#9b7770}
-
-        @media (max-width:1150px){
-            .profile-shell{grid-template-columns:1fr}
-            .profile-side{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-            .profile-side .profile-card{height:100%}
-        }
-        @media (max-width:850px){
-            .profile-page{width:min(100% - 22px,1500px);padding:20px 0 42px}
-            .profile-hero{grid-template-columns:1fr}
-            .profile-back{width:max-content}
-            .stats-grid{grid-template-columns:1fr 1fr;padding-left:18px;padding-right:18px}
-            .profile-main{padding-left:18px;padding-right:18px}
-            .info-grid{grid-template-columns:1fr}
-            .profile-side{grid-template-columns:1fr}
-        }
-        @media (max-width:620px){
-            .profile-cover{height:100px}
-            .profile-main{display:grid;grid-template-columns:auto 1fr;align-items:end;gap:14px;margin-top:-44px}
-            .avatar-wrap img{width:100px;height:100px}
-            .edit-btn{grid-column:1 / -1;margin-left:0;width:100%;justify-content:center}
-            .profile-identity h2{font-size:23px}
-            .profile-chip{font-size:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-            .stats-grid{grid-template-columns:1fr}
-            .detail-grid{grid-template-columns:1fr}
-            .detail-item.span-2{grid-column:span 1}
-        }
-    </style>
 </head>
+
+
 <body>
+
 
 <?php include 'includes/navbar.php'; ?>
 
+
 <main class="profile-page">
-    <section class="profile-hero">
-        <div>
-            <span class="profile-kicker"><i class="fa-solid fa-id-card"></i> Student Account</span>
-            <h1>Your <em>profile.</em></h1>
-            <p>Manage your personal details, review your account information and keep your ExamSphere profile up to date.</p>
+
+
+<!-- =====================================================
+     HERO
+====================================================== -->
+
+<section class="profile-hero">
+
+    <div class="hero-ring hero-ring-one"></div>
+
+    <div class="hero-ring hero-ring-two"></div>
+
+
+    <div class="profile-hero-copy">
+
+        <div class="profile-eyebrow">
+
+            <span></span>
+
+            STUDENT ACCOUNT
+
         </div>
-        <a href="dashboard.php" class="profile-back">
-            <i class="fa-solid fa-arrow-left"></i>
-            Dashboard
+
+
+        <h1>
+
+            Your profile.
+
+            <span>
+                Your journey.
+            </span>
+
+        </h1>
+
+
+        <p>
+
+            Manage your identity, preparation progress,
+            membership and account information from your
+            personal ExamSphere command center.
+
+        </p>
+
+
+        <div class="hero-actions">
+
+            <a
+                href="profile_edit.php"
+                class="hero-btn hero-btn-primary"
+            >
+
+                <i class="fa-solid fa-pen"></i>
+
+                Edit Profile
+
+            </a>
+
+
+            <a
+                href="performance.php"
+                class="hero-btn hero-btn-secondary"
+            >
+
+                <i class="fa-solid fa-chart-line"></i>
+
+                View Performance
+
+            </a>
+
+        </div>
+
+    </div>
+
+
+    <div class="profile-health">
+
+        <div class="health-head">
+
+            <span>
+                PROFILE HEALTH
+            </span>
+
+            <i
+                class="
+                    fa-solid
+                    fa-shield-halved
+                "
+            ></i>
+
+        </div>
+
+
+        <strong class="health-number">
+
+            <?= $profileCompletion ?>%
+
+        </strong>
+
+
+        <div class="health-title">
+            Profile completeness
+        </div>
+
+
+        <div class="health-text">
+
+            Keep your profile updated for
+            a better ExamSphere experience.
+
+        </div>
+
+
+        <div class="health-track">
+
+            <div
+                class="health-fill"
+                style="
+                    width:
+                    <?= $profileCompletion ?>%;
+                "
+            ></div>
+
+        </div>
+
+
+        <a
+            href="profile_edit.php"
+            class="health-link"
+        >
+
+            Complete profile
+
+            <i
+                class="
+                    fa-solid
+                    fa-arrow-right
+                "
+            ></i>
+
         </a>
-    </section>
 
-    <?php if ($pageError !== ''): ?>
-        <section class="empty-error">
-            <i class="fa-solid fa-triangle-exclamation"></i>
-            <strong><?= profile_escape($pageError) ?></strong>
-            <p>Please refresh this page and try again.</p>
-        </section>
-    <?php endif; ?>
+    </div>
 
-    <?php if (is_array($student)): ?>
-        <section class="profile-shell">
-            <div>
-                <article class="profile-card profile-main-card">
-                    <div class="profile-cover"></div>
+</section>
 
-                    <div class="profile-main">
-                        <div class="avatar-wrap">
-                            <img id="profilePreview" src="<?= profile_escape($photo) ?>" alt="Profile photo">
-                            <label class="avatar-upload" for="profilePhoto" title="Change profile photo">
-                                <i class="fa-solid fa-camera"></i>
-                            </label>
-                            <input id="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-                        </div>
 
-                        <div class="profile-identity">
-                            <h2><?= profile_escape($student['full_name']) ?></h2>
-                            <p class="profile-code"><?= profile_escape($student['student_code']) ?></p>
-                            <div class="profile-chips">
-                                <span class="profile-chip"><i class="fa-solid fa-envelope"></i><?= profile_escape($student['email']) ?></span>
-                                <span class="profile-chip"><i class="fa-solid fa-phone"></i><?= profile_escape($student['mobile'] ?: 'Not added') ?></span>
-                            </div>
-                        </div>
+<?php if (
+    $pageError !== ''
+): ?>
 
-                        <a href="profile_edit.php" class="edit-btn">
-                            <i class="fa-solid fa-pen"></i>
-                            Edit profile
-                        </a>
-                    </div>
+<div class="profile-error">
 
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <span class="stat-icon olive"><i class="fa-solid fa-file-circle-check"></i></span>
-                            <div><small>Completed exams</small><strong><?= $completedExams ?></strong></div>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-icon brown"><i class="fa-solid fa-chart-line"></i></span>
-                            <div><small>Average score</small><strong><?= number_format($averageScore,1) ?>%</strong></div>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-icon gold"><i class="fa-solid fa-trophy"></i></span>
-                            <div><small>Best score</small><strong><?= number_format($bestScore,1) ?>%</strong></div>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-icon green"><i class="fa-solid fa-bullseye"></i></span>
-                            <div><small>Accuracy</small><strong><?= number_format($accuracy,1) ?>%</strong></div>
-                        </div>
-                    </div>
-                </article>
+    <i
+        class="
+            fa-solid
+            fa-triangle-exclamation
+        "
+    ></i>
 
-                <div class="info-grid" style="margin-top:18px;">
-                    <article class="profile-card info-card">
-                        <div class="card-heading">
-                            <div>
-                                <span class="card-heading-kicker">Personal information</span>
-                                <h3>Your details</h3>
-                            </div>
-                            <a href="profile_edit.php">Edit</a>
-                        </div>
+    <?= profile_e($pageError) ?>
 
-                        <form id="profileForm" novalidate>
-                            <input type="hidden" name="csrf_token" value="<?= profile_escape($csrf) ?>">
+</div>
 
-                            <div class="detail-grid">
-                                <div class="detail-item">
-                                    <small>Full name</small>
-                                    <strong><?= profile_escape($student['full_name']) ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Mobile</small>
-                                    <strong><?= profile_escape($student['mobile'] ?: 'Not added') ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Email</small>
-                                    <strong><?= profile_escape($student['email']) ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Student code</small>
-                                    <strong><?= profile_escape($student['student_code']) ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Gender</small>
-                                    <strong><?= profile_escape($student['gender'] ?: 'Not specified') ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Date of birth</small>
-                                    <strong><?= profile_date($student['dob'] ?? null) ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>City</small>
-                                    <strong><?= profile_escape($student['city'] ?: 'Not added') ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>State</small>
-                                    <strong><?= profile_escape($student['state'] ?: 'Not added') ?></strong>
-                                </div>
-                                <div class="detail-item">
-                                    <small>Pincode</small>
-                                    <strong><?= profile_escape($student['pincode'] ?: 'Not added') ?></strong>
-                                </div>
-                                <div class="detail-item span-2">
-                                    <small>Address</small>
-                                    <strong><?= profile_escape($student['address'] ?: 'No address added') ?></strong>
-                                </div>
-                            </div>
-                        </form>
-                    </article>
+<?php endif; ?>
 
-                    <article class="profile-card info-card">
-                        <div class="card-heading">
-                            <div>
-                                <span class="card-heading-kicker">Preparation snapshot</span>
-                                <h3>Your progress</h3>
-                            </div>
-                            <a href="performance.php">Analytics</a>
-                        </div>
 
-                        <div class="detail-grid">
-                            <div class="detail-item">
-                                <small>Questions attempted</small>
-                                <strong><?= $attemptedQuestions ?></strong>
-                            </div>
-                            <div class="detail-item">
-                                <small>Correct answers</small>
-                                <strong><?= $correctAnswers ?></strong>
-                            </div>
-                            <div class="detail-item">
-                                <small>Wrong answers</small>
-                                <strong><?= (int) ($stats['wrong_answers'] ?? 0) ?></strong>
-                            </div>
-                            <div class="detail-item">
-                                <small>Accuracy</small>
-                                <strong><?= number_format($accuracy,1) ?>%</strong>
-                            </div>
-                            <div class="detail-item span-2">
-                                <small>Account status</small>
-                                <strong>
-                                    <span class="status-pill">
-                                        <i class="fa-solid fa-circle"></i>
-                                        <?= profile_escape($student['status']) ?>
-                                    </span>
-                                </strong>
-                            </div>
-                        </div>
-                    </article>
-                </div>
+<!-- =====================================================
+     IDENTITY
+====================================================== -->
+
+<section class="identity-card">
+
+    <div class="identity-top-line"></div>
+
+
+    <div class="identity-body">
+
+
+        <div class="identity-avatar-wrap">
+
+
+            <img
+                id="profilePreview"
+                class="identity-avatar"
+                src="<?= profile_e(
+                    $profilePhoto
+                ) ?>"
+                alt="Student profile photo"
+            >
+
+
+            <label
+                for="profilePhoto"
+                class="photo-upload-button"
+                title="Upload profile photo"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-camera
+                    "
+                ></i>
+
+            </label>
+
+
+            <input
+                type="file"
+                id="profilePhoto"
+                accept="
+                    image/jpeg,
+                    image/png,
+                    image/webp
+                "
+                hidden
+            >
+
+        </div>
+
+
+        <div class="identity-information">
+
+
+            <div class="student-status">
+
+                <span></span>
+
+                ACTIVE STUDENT
+
             </div>
 
-            <aside class="profile-side">
-                <article class="profile-card info-card">
-                    <div class="card-heading">
-                        <div>
-                            <span class="card-heading-kicker">Account</span>
-                            <h3>Account details</h3>
-                        </div>
-                    </div>
 
-                    <div class="account-list">
-                        <div class="account-row">
-                            <span>Status</span>
-                            <strong><?= profile_escape($student['status']) ?></strong>
-                        </div>
-                        <div class="account-row">
-                            <span>Email verification</span>
-                            <strong><?= $student['email_verified'] ? 'Verified' : 'Not verified' ?></strong>
-                        </div>
-                        <div class="account-row">
-                            <span>Member since</span>
-                            <strong><?= profile_date($student['created_at'] ?? null) ?></strong>
-                        </div>
-                        <div class="account-row">
-                            <span>Last login</span>
-                            <strong><?= profile_date($student['last_login'] ?? null, 'd M Y, h:i A') ?></strong>
-                        </div>
-                    </div>
-                </article>
+            <h2>
 
-                <article class="profile-card info-card">
-                    <div class="card-heading">
-                        <div>
-                            <span class="card-heading-kicker">Security</span>
-                            <h3>Keep it protected</h3>
-                        </div>
-                    </div>
+                <?= profile_e(
+                    $student['full_name']
+                ) ?>
 
-                    <div class="security-box">
-                        <span class="security-icon"><i class="fa-solid fa-shield-halved"></i></span>
-                        <div>
-                            <strong>Your account stays yours.</strong>
-                            <p>Use a strong password and never share your ExamSphere login credentials.</p>
-                        </div>
-                    </div>
+            </h2>
 
-                    <a href="settings.php" class="security-link">
-                        <i class="fa-solid fa-gear"></i>
-                        Security settings
-                    </a>
-                </article>
 
-                <article class="profile-card info-card">
-                    <div class="card-heading">
-                        <div>
-                            <span class="card-heading-kicker">Next step</span>
-                            <h3>Keep improving</h3>
-                        </div>
-                    </div>
+            <div class="student-code">
 
-                    <p style="margin:0;color:#7b736c;font-size:12px;line-height:1.75;">
-                        Use your performance analytics to identify weak areas and continue with focused practice.
-                    </p>
+                <i
+                    class="
+                        fa-solid
+                        fa-id-badge
+                    "
+                ></i>
 
-                    <a href="practice_exams.php" class="security-link">
-                        <i class="fa-solid fa-book-open"></i>
-                        Start practice
-                    </a>
-                </article>
-            </aside>
-        </section>
-    <?php endif; ?>
+                <?= profile_e(
+                    $student['student_code']
+                ) ?>
+
+            </div>
+
+
+            <div class="contact-row">
+
+
+                <span>
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-envelope
+                        "
+                    ></i>
+
+                    <?= profile_e(
+                        $student['email']
+                    ) ?>
+
+                </span>
+
+
+                <span>
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-phone
+                        "
+                    ></i>
+
+                    <?= profile_e(
+                        $student['mobile']
+                        ?: 'Mobile not added'
+                    ) ?>
+
+                </span>
+
+
+                <?php if (
+                    !empty(
+                        $student['city']
+                    )
+                ): ?>
+
+                <span>
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-location-dot
+                        "
+                    ></i>
+
+                    <?= profile_e(
+                        $student['city']
+                    ) ?>
+
+                </span>
+
+                <?php endif; ?>
+
+
+            </div>
+
+        </div>
+
+
+        <a
+            href="profile_edit.php"
+            class="identity-edit"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-pen
+                "
+            ></i>
+
+            Edit Profile
+
+        </a>
+
+
+    </div>
+
+
+    <!-- =================================================
+         METRICS
+    ================================================== -->
+
+    <div class="metric-grid">
+
+
+        <div class="metric-card">
+
+            <div class="
+                metric-icon
+                metric-icon-brown
+            ">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-file-circle-check
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Exams Attempted
+                </small>
+
+                <strong>
+                    <?= $attempted ?>
+                </strong>
+
+                <span>
+                    total attempts
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="metric-card">
+
+            <div class="
+                metric-icon
+                metric-icon-olive
+            ">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-circle-check
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Completed
+                </small>
+
+                <strong>
+                    <?= $completed ?>
+                </strong>
+
+                <span>
+                    verified results
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="metric-card">
+
+            <div class="
+                metric-icon
+                metric-icon-gold
+            ">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-chart-line
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Average Score
+                </small>
+
+                <strong>
+
+                    <?= profile_percent(
+                        $averageScore
+                    ) ?>%
+
+                </strong>
+
+                <span>
+                    across results
+                </span>
+
+            </div>
+
+        </div>
+
+
+        <div class="metric-card">
+
+            <div class="
+                metric-icon
+                metric-icon-purple
+            ">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-trophy
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <small>
+                    Best Score
+                </small>
+
+                <strong>
+
+                    <?= profile_percent(
+                        $bestScore
+                    ) ?>%
+
+                </strong>
+
+                <span>
+                    personal best
+                </span>
+
+            </div>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     CONTENT
+====================================================== -->
+
+<section class="profile-content">
+
+
+<div class="profile-left">
+
+
+<!-- =================================================
+     PERSONAL
+================================================== -->
+
+<article class="surface-card">
+
+
+<div class="surface-head">
+
+    <div>
+
+        <span class="section-kicker">
+            PERSONAL INFORMATION
+        </span>
+
+        <h3>
+            About you
+        </h3>
+
+        <p>
+            Your registered ExamSphere information.
+        </p>
+
+    </div>
+
+
+    <a
+        href="profile_edit.php"
+        class="surface-link"
+    >
+
+        Edit
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+            "
+        ></i>
+
+    </a>
+
+</div>
+
+
+<div class="info-grid">
+
+
+    <div class="info-item">
+
+        <span>
+            Full Name
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['full_name']
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Student Code
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['student_code']
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Email Address
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['email']
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Mobile Number
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['mobile']
+                ?: 'Not added'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Gender
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['gender']
+                ?: 'Not specified'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Date of Birth
+        </span>
+
+        <strong>
+
+            <?= profile_date(
+                $student['dob']
+                ?? null
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            City
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['city']
+                ?: 'Not added'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            State
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['state']
+                ?: 'Not added'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="info-item">
+
+        <span>
+            Pincode
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['pincode']
+                ?: 'Not added'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+    <div class="
+        info-item
+        info-wide
+    ">
+
+        <span>
+            Address
+        </span>
+
+        <strong>
+
+            <?= profile_e(
+                $student['address']
+                ?: 'No address added'
+            ) ?>
+
+        </strong>
+
+    </div>
+
+
+</div>
+
+
+</article>
+
+
+<!-- =================================================
+     PERFORMANCE
+================================================== -->
+
+<article class="surface-card">
+
+
+<div class="surface-head">
+
+    <div>
+
+        <span class="section-kicker">
+            PERFORMANCE
+        </span>
+
+        <h3>
+            Your preparation snapshot
+        </h3>
+
+        <p>
+            A live overview based on your completed results.
+        </p>
+
+    </div>
+
+
+    <a
+        href="performance.php"
+        class="surface-link"
+    >
+
+        Full Analytics
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+            "
+        ></i>
+
+    </a>
+
+</div>
+
+
+<div class="performance-layout">
+
+
+    <div
+        class="accuracy-ring"
+        style="
+            --score:
+            <?= max(
+                0,
+                min(
+                    100,
+                    $accuracy
+                )
+            ) ?>%;
+        "
+    >
+
+        <div class="accuracy-center">
+
+            <strong>
+
+                <?= profile_percent(
+                    $accuracy
+                ) ?>%
+
+            </strong>
+
+            <span>
+                Accuracy
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <div class="performance-list">
+
+
+        <div class="performance-line">
+
+            <div>
+
+                <span>
+                    Correct Answers
+                </span>
+
+                <strong>
+                    <?= $correctAnswers ?>
+                </strong>
+
+            </div>
+
+
+            <div class="performance-track">
+
+                <div
+                    class="
+                        performance-fill
+                        performance-correct
+                    "
+                    style="
+                        width:
+                        <?= $attemptedQuestions > 0
+                            ? min(
+                                100,
+                                (
+                                    $correctAnswers /
+                                    $attemptedQuestions
+                                ) * 100
+                            )
+                            : 0
+                        ?>%;
+                    "
+                ></div>
+
+            </div>
+
+        </div>
+
+
+        <div class="performance-line">
+
+            <div>
+
+                <span>
+                    Wrong Answers
+                </span>
+
+                <strong>
+                    <?= $wrongAnswers ?>
+                </strong>
+
+            </div>
+
+
+            <div class="performance-track">
+
+                <div
+                    class="
+                        performance-fill
+                        performance-wrong
+                    "
+                    style="
+                        width:
+                        <?= $attemptedQuestions > 0
+                            ? min(
+                                100,
+                                (
+                                    $wrongAnswers /
+                                    $attemptedQuestions
+                                ) * 100
+                            )
+                            : 0
+                        ?>%;
+                    "
+                ></div>
+
+            </div>
+
+        </div>
+
+
+        <div class="performance-line">
+
+            <div>
+
+                <span>
+                    Unanswered
+                </span>
+
+                <strong>
+                    <?= $unansweredQuestions ?>
+                </strong>
+
+            </div>
+
+
+            <div class="performance-track">
+
+                <div
+                    class="
+                        performance-fill
+                        performance-unanswered
+                    "
+                    style="
+                        width:
+                        <?= $attemptedQuestions > 0
+                            ? min(
+                                100,
+                                (
+                                    $unansweredQuestions /
+                                    $attemptedQuestions
+                                ) * 100
+                            )
+                            : 0
+                        ?>%;
+                    "
+                ></div>
+
+            </div>
+
+        </div>
+
+
+    </div>
+
+
+</div>
+
+
+</article>
+
+
+</div>
+
+
+<!-- =================================================
+     RIGHT
+================================================== -->
+
+<aside class="profile-right">
+
+
+<!-- =================================================
+     MEMBERSHIP
+================================================== -->
+
+<?php if (
+    is_array($subscription)
+): ?>
+
+
+<article class="membership-card">
+
+
+    <div
+        class="membership-glow"
+    ></div>
+
+
+    <div class="membership-header">
+
+
+        <div>
+
+            <span>
+                MEMBERSHIP
+            </span>
+
+
+            <div
+                class="membership-status"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-circle
+                    "
+                ></i>
+
+                Active
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="membership-icon"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-gem
+                "
+            ></i>
+
+        </div>
+
+
+    </div>
+
+
+    <h3>
+
+        <?= profile_e(
+            $subscription[
+                'plan_name'
+            ]
+        ) ?>
+
+    </h3>
+
+
+    <p class="membership-description">
+
+        Premium ExamSphere membership
+
+    </p>
+
+
+    <div class="membership-date-grid">
+
+
+        <div>
+
+            <span>
+                STARTED
+            </span>
+
+            <strong>
+
+                <?= profile_date(
+                    $subscription[
+                        'start_date'
+                    ]
+                ) ?>
+
+            </strong>
+
+        </div>
+
+
+        <div>
+
+            <span>
+                EXPIRES
+            </span>
+
+            <strong>
+
+                <?= profile_date(
+                    $subscription[
+                        'end_date'
+                    ]
+                ) ?>
+
+            </strong>
+
+        </div>
+
+
+    </div>
+
+
+    <div class="membership-progress">
+
+
+        <div>
+
+            <span>
+                Membership progress
+            </span>
+
+            <strong>
+
+                <?= profile_percent(
+                    $subscriptionProgress
+                ) ?>%
+
+            </strong>
+
+        </div>
+
+
+        <div class="
+            membership-progress-track
+        ">
+
+            <div
+                class="
+                    membership-progress-fill
+                "
+                style="
+                    width:
+                    <?= min(
+                        100,
+                        max(
+                            0,
+                            $subscriptionProgress
+                        )
+                    ) ?>%;
+                "
+            ></div>
+
+        </div>
+
+    </div>
+
+
+    <div
+        class="membership-bottom"
+    >
+
+        <span>
+
+            <i
+                class="
+                    fa-solid
+                    fa-clock
+                "
+            ></i>
+
+            <?= $subscriptionRemaining ?>
+
+            day<?= $subscriptionRemaining === 1
+                ? ''
+                : 's' ?>
+
+            remaining
+
+        </span>
+
+
+        <a
+            href="subscriptions.php"
+        >
+
+            Manage
+
+            <i
+                class="
+                    fa-solid
+                    fa-arrow-right
+                "
+            ></i>
+
+        </a>
+
+    </div>
+
+
+</article>
+
+
+<?php else: ?>
+
+
+<article
+    class="
+        membership-card
+        membership-free
+    "
+>
+
+
+    <div class="membership-header">
+
+
+        <span>
+            MEMBERSHIP
+        </span>
+
+
+        <div
+            class="membership-icon"
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-gem
+                "
+            ></i>
+
+        </div>
+
+
+    </div>
+
+
+    <h3>
+        Free Account
+    </h3>
+
+
+    <p class="membership-description">
+
+        Practice exams remain free.
+        Subscribe to unlock eligible Live Exams
+        and subscription-only study materials.
+
+    </p>
+
+
+    <a
+        href="subscriptions.php"
+        class="membership-cta"
+    >
+
+        Explore Plans
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+            "
+        ></i>
+
+    </a>
+
+
+</article>
+
+
+<?php endif; ?>
+
+
+<!-- =================================================
+     ACCOUNT STATUS
+================================================== -->
+
+<article class="
+    surface-card
+    compact-card
+">
+
+
+    <div class="compact-head">
+
+
+        <div>
+
+            <span class="section-kicker">
+                ACCOUNT
+            </span>
+
+            <h3>
+                Account status
+            </h3>
+
+        </div>
+
+
+        <div class="compact-icon">
+
+            <i
+                class="
+                    fa-solid
+                    fa-shield-halved
+                "
+            ></i>
+
+        </div>
+
+
+    </div>
+
+
+    <div class="status-list">
+
+
+        <div class="status-row">
+
+            <span>
+                Account
+            </span>
+
+            <strong class="status-active">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-circle
+                    "
+                ></i>
+
+                Active
+
+            </strong>
+
+        </div>
+
+
+        <div class="status-row">
+
+            <span>
+                Email verification
+            </span>
+
+            <strong
+                class="<?= (
+                    (string)(
+                        $student[
+                            'email_verified'
+                        ] ?? ''
+                    ) === 'Yes'
+                )
+                    ? 'status-ok'
+                    : 'status-pending' ?>"
+            >
+
+                <?= (
+                    (string)(
+                        $student[
+                            'email_verified'
+                        ] ?? ''
+                    ) === 'Yes'
+                )
+                    ? 'Verified'
+                    : 'Pending' ?>
+
+            </strong>
+
+        </div>
+
+
+        <div class="status-row">
+
+            <span>
+                Member since
+            </span>
+
+            <strong>
+
+                <?= profile_date(
+                    $student[
+                        'created_at'
+                    ] ?? null
+                ) ?>
+
+            </strong>
+
+        </div>
+
+
+        <div class="status-row">
+
+            <span>
+                Last login
+            </span>
+
+            <strong>
+
+                <?= profile_date(
+                    $student[
+                        'last_login'
+                    ] ?? null,
+                    'd M Y, h:i A'
+                ) ?>
+
+            </strong>
+
+        </div>
+
+
+    </div>
+
+
+</article>
+
+
+<!-- =================================================
+     SECURITY
+================================================== -->
+
+<article class="
+    surface-card
+    compact-card
+">
+
+
+    <div class="compact-head">
+
+
+        <div>
+
+            <span class="section-kicker">
+                SECURITY
+            </span>
+
+            <h3>
+                Account protection
+            </h3>
+
+        </div>
+
+
+        <div class="security-icon">
+
+            <i
+                class="
+                    fa-solid
+                    fa-lock
+                "
+            ></i>
+
+        </div>
+
+
+    </div>
+
+
+    <div class="security-panel">
+
+
+        <div class="security-panel-icon">
+
+            <i
+                class="
+                    fa-solid
+                    fa-shield
+                "
+            ></i>
+
+        </div>
+
+
+        <div>
+
+            <strong>
+                Secure account access
+            </strong>
+
+            <p>
+
+                Keep your credentials private
+                and use a strong password.
+
+            </p>
+
+        </div>
+
+
+    </div>
+
+
+    <div class="security-note">
+
+        <i
+            class="
+                fa-solid
+                fa-circle-info
+            "
+        ></i>
+
+        Change Password is available
+        directly from your navbar profile menu.
+
+    </div>
+
+
+</article>
+
+
+<!-- =================================================
+     QUICK ACCESS
+================================================== -->
+
+<article class="
+    surface-card
+    compact-card
+">
+
+
+    <div class="compact-head">
+
+
+        <div>
+
+            <span class="section-kicker">
+                QUICK ACCESS
+            </span>
+
+            <h3>
+                Continue learning
+            </h3>
+
+        </div>
+
+
+    </div>
+
+
+    <a
+        href="practice_exams.php"
+        class="quick-action"
+    >
+
+        <span
+            class="
+                quick-icon
+                quick-brown
+            "
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-file-pen
+                "
+            ></i>
+
+        </span>
+
+
+        <span
+            class="quick-text"
+        >
+
+            <strong>
+                Practice Exams
+            </strong>
+
+            <small>
+                Improve your preparation
+            </small>
+
+        </span>
+
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+                quick-arrow
+            "
+        ></i>
+
+    </a>
+
+
+    <a
+        href="live_exams.php"
+        class="quick-action"
+    >
+
+        <span
+            class="
+                quick-icon
+                quick-olive
+            "
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-tower-broadcast
+                "
+            ></i>
+
+        </span>
+
+
+        <span
+            class="quick-text"
+        >
+
+            <strong>
+                Live Exams
+            </strong>
+
+            <small>
+                View scheduled exams
+            </small>
+
+        </span>
+
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+                quick-arrow
+            "
+        ></i>
+
+    </a>
+
+
+    <a
+        href="materials.php"
+        class="quick-action"
+    >
+
+        <span
+            class="
+                quick-icon
+                quick-gold
+            "
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-book-open
+                "
+            ></i>
+
+        </span>
+
+
+        <span
+            class="quick-text"
+        >
+
+            <strong>
+                Study Materials
+            </strong>
+
+            <small>
+                Continue your study
+            </small>
+
+        </span>
+
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+                quick-arrow
+            "
+        ></i>
+
+    </a>
+
+
+    <a
+        href="results.php"
+        class="quick-action"
+    >
+
+        <span
+            class="
+                quick-icon
+                quick-purple
+            "
+        >
+
+            <i
+                class="
+                    fa-solid
+                    fa-chart-column
+                "
+            ></i>
+
+        </span>
+
+
+        <span
+            class="quick-text"
+        >
+
+            <strong>
+                Results
+            </strong>
+
+            <small>
+                Review completed exams
+            </small>
+
+        </span>
+
+
+        <i
+            class="
+                fa-solid
+                fa-arrow-right
+                quick-arrow
+            "
+        ></i>
+
+    </a>
+
+
+</article>
+
+
+</aside>
+
+
+</section>
+
+
 </main>
 
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="assets/js/profile.js" defer></script>
+
+<!-- =====================================================
+     PASSWORD MODAL
+====================================================== -->
+
+<div
+    id="profilePasswordModal"
+    class="password-modal"
+    aria-hidden="true"
+>
+
+
+    <div class="password-modal-card">
+
+
+        <div
+            class="
+                password-modal-header
+            "
+        >
+
+
+            <div
+                class="
+                    password-title-wrap
+                "
+            >
+
+                <div
+                    class="
+                        password-title-icon
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-key
+                        "
+                    ></i>
+
+                </div>
+
+
+                <div>
+
+                    <span>
+                        ACCOUNT SECURITY
+                    </span>
+
+                    <h3>
+                        Change Password
+                    </h3>
+
+                    <p>
+                        Protect your ExamSphere account.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <button
+                type="button"
+                class="password-close"
+                id="passwordModalClose"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-xmark
+                    "
+                ></i>
+
+            </button>
+
+
+        </div>
+
+
+        <form
+            id="passwordForm"
+            class="password-form"
+        >
+
+
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="<?= profile_e(
+                    $csrfToken
+                ) ?>"
+            >
+
+
+            <div class="password-field">
+
+
+                <label>
+                    Current Password
+                </label>
+
+
+                <div
+                    class="
+                        password-input-wrap
+                    "
+                >
+
+                    <input
+                        id="currentPassword"
+                        name="current_password"
+                        type="password"
+                        class="
+                            password-input
+                        "
+                        autocomplete="current-password"
+                        required
+                    >
+
+
+                    <button
+                        type="button"
+                        class="password-eye"
+                        data-password-target="currentPassword"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-eye
+                            "
+                        ></i>
+
+                    </button>
+
+
+                </div>
+
+
+            </div>
+
+
+            <div class="password-field">
+
+
+                <label>
+                    New Password
+                </label>
+
+
+                <div
+                    class="
+                        password-input-wrap
+                    "
+                >
+
+                    <input
+                        id="newPassword"
+                        name="new_password"
+                        type="password"
+                        class="
+                            password-input
+                        "
+                        minlength="8"
+                        maxlength="72"
+                        autocomplete="new-password"
+                        required
+                    >
+
+
+                    <button
+                        type="button"
+                        class="password-eye"
+                        data-password-target="newPassword"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-eye
+                            "
+                        ></i>
+
+                    </button>
+
+
+                </div>
+
+
+            </div>
+
+
+            <div
+                id="passwordStrength"
+                class="password-strength"
+            >
+
+                <div
+                    class="
+                        password-strength-head
+                    "
+                >
+
+                    <span>
+                        Password strength
+                    </span>
+
+
+                    <strong
+                        id="passwordStrengthText"
+                    >
+                        —
+                    </strong>
+
+                </div>
+
+
+                <div
+                    class="
+                        password-strength-track
+                    "
+                >
+
+                    <div
+                        id="passwordStrengthFill"
+                        class="
+                            password-strength-fill
+                        "
+                    ></div>
+
+                </div>
+
+            </div>
+
+
+            <div class="password-field">
+
+
+                <label>
+                    Confirm New Password
+                </label>
+
+
+                <div
+                    class="
+                        password-input-wrap
+                    "
+                >
+
+                    <input
+                        id="confirmPassword"
+                        name="confirm_password"
+                        type="password"
+                        class="
+                            password-input
+                        "
+                        minlength="8"
+                        maxlength="72"
+                        autocomplete="new-password"
+                        required
+                    >
+
+
+                    <button
+                        type="button"
+                        class="password-eye"
+                        data-password-target="confirmPassword"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-eye
+                            "
+                        ></i>
+
+                    </button>
+
+                </div>
+
+
+            </div>
+
+
+            <div class="password-hint">
+
+                <i
+                    class="
+                        fa-solid
+                        fa-shield-halved
+                    "
+                ></i>
+
+                Minimum 8 characters with
+                at least one letter and one number.
+
+            </div>
+
+
+            <div
+                class="
+                    password-modal-actions
+                "
+            >
+
+
+                <button
+                    type="button"
+                    class="
+                        password-button
+                        password-cancel
+                    "
+                    id="passwordCancel"
+                >
+
+                    Cancel
+
+                </button>
+
+
+                <button
+                    type="submit"
+                    class="
+                        password-button
+                        password-submit
+                    "
+                    id="passwordSubmit"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-key
+                        "
+                    ></i>
+
+                    Update Password
+
+                </button>
+
+
+            </div>
+
+
+        </form>
+
+
+    </div>
+
+</div>
+
+
+<script>
+
+window.EXAMSPHERE_CSRF_TOKEN =
+
+<?= json_encode(
+    $csrfToken,
+    JSON_HEX_TAG |
+    JSON_HEX_AMP |
+    JSON_HEX_APOS |
+    JSON_HEX_QUOT
+) ?>;
+
+</script>
+
+
+<script
+    src="
+        https://cdn.jsdelivr.net/npm/sweetalert2@11
+    "
+></script>
+
+
+<script
+    src="assets/js/profile.js"
+    defer
+></script>
+
+
 </body>
+
 </html>

@@ -230,17 +230,10 @@ if (
 
     } catch (Throwable) {
 
-        $deadline =
-            null;
+        $deadline = null;
     }
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| LEGACY FALLBACK
-|--------------------------------------------------------------------------
-*/
 
 if (
     $deadline === null
@@ -253,221 +246,281 @@ if (
                 (string) $attempt['started_at']
             );
 
+        $durationMinutes =
+            (int) (
+                $attempt['duration_minutes']
+                ?? 0
+            );
+
+        if (
+            $durationMinutes <= 0
+        ) {
+
+            throw new RuntimeException(
+                'Invalid examination duration.'
+            );
+        }
+
         $deadline =
             $startedAt->modify(
                 '+' .
-                (int) $attempt['duration_minutes'] .
+                $durationMinutes .
                 ' minutes'
             );
 
-    } catch (Throwable) {
+    } catch (Throwable $exception) {
 
         http_response_code(500);
 
         exit(
-            'This examination attempt has an invalid deadline.'
+            'Invalid examination timing configuration.'
         );
     }
 }
 
 
-$now =
-    new DateTimeImmutable();
-
-
 /*
 |--------------------------------------------------------------------------
-| DEADLINE EXPIRED
+| TIME EXPIRED
 |--------------------------------------------------------------------------
 */
 
 if (
-    $now >= $deadline
+    new DateTimeImmutable() >= $deadline
 ) {
 
-    /*
-    |--------------------------------------------------------------------------
-    | DO NOT FINALIZE HERE
-    |--------------------------------------------------------------------------
-    |
-    | Canonical server-side grading belongs to ajax/submit_exam.php.
-    | Marking the attempt Auto Submitted before grading would prevent the
-    | canonical submit transaction from processing it.
-    |
-    */
-
-    $resultId = null;
-
-    try {
-
-        $resultStatement =
-            $conn->prepare("
-                SELECT id
-                FROM results
-                WHERE
-                    attempt_id = ?
-                    AND student_id = ?
-                LIMIT 1
-            ");
-
-        $resultStatement->execute([
-            $attemptId,
-            $studentId
-        ]);
-
-        $resultId =
-            $resultStatement->fetchColumn();
-
-    } catch (Throwable $exception) {
-
-        error_log(
-            'Take exam expired result lookup failed: ' .
-            $exception->getMessage()
-        );
-    }
-
-
     if (
-        $resultId !== false &&
-        $resultId !== null &&
-        $resultId !== ''
-    ) {
-
-        header(
-            'Location: result.php?id=' .
-            (int) $resultId
-        );
-
-        exit;
-    }
-
-
-    $examCsrfToken =
-        (string) (
+        empty(
             $_SESSION['exam_csrf_token']
-            ?? ''
-        );
-
-
-    if (
-        $examCsrfToken === ''
+        )
     ) {
 
         $_SESSION['exam_csrf_token'] =
             bin2hex(
                 random_bytes(32)
             );
-
-        $examCsrfToken =
-            (string) $_SESSION['exam_csrf_token'];
     }
 
+    ?>
 
-    $safeAttemptId =
-        (int) $attemptId;
+    <!doctype html>
 
-    $safeToken =
-        htmlspecialchars(
-            $examCsrfToken,
-            ENT_QUOTES | ENT_SUBSTITUTE,
-            'UTF-8'
-        );
+    <html lang="en">
 
+    <head>
 
-    echo '<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ExamSphere | Submitting Examination</title>
-<style>
-:root{
-    --cream:#F5F5DC;
-    --brown:#5D4037;
-    --dark:#3E2723;
-    --muted:#6E625A;
-    --border:#E4DED1;
-}
-*{box-sizing:border-box}
-body{
-    margin:0;
-    min-height:100vh;
-    display:grid;
-    place-items:center;
-    padding:24px;
-    background:var(--cream);
-    color:var(--dark);
-    font-family:Arial,sans-serif;
-}
-.card{
-    width:min(520px,100%);
-    background:#fff;
-    border:1px solid var(--border);
-    border-radius:24px;
-    padding:34px;
-    box-shadow:0 24px 70px rgba(62,39,35,.14);
-    text-align:center;
-}
-.spinner{
-    width:48px;
-    height:48px;
-    margin:0 auto 18px;
-    border:4px solid #E9E3D8;
-    border-top-color:var(--brown);
-    border-radius:50%;
-    animation:spin .8s linear infinite;
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-h1{margin:0 0 10px;font-size:24px}
-p{margin:0;color:var(--muted);line-height:1.7}
-form{margin-top:22px}
-button{
-    min-height:48px;
-    padding:0 18px;
-    border:0;
-    border-radius:14px;
-    background:var(--brown);
-    color:#fff;
-    font-weight:700;
-    cursor:pointer;
-}
-.note{
-    margin-top:16px;
-    font-size:13px;
-    color:var(--muted);
-}
-</style>
-</head>
-<body>
-<div class="card">
-    <div class="spinner" aria-hidden="true"></div>
-    <h1>Time is over</h1>
-    <p>Your examination is being submitted and graded securely by the server.</p>
+        <meta charset="UTF-8">
 
-    <form id="autoSubmitForm" method="post" action="ajax/submit_exam.php">
-        <input type="hidden" name="attempt_id" value="' . $safeAttemptId . '">
-        <input type="hidden" name="csrf_token" value="' . $safeToken . '">
-        <input type="hidden" name="auto_submit" value="1">
-        <button type="submit">Continue to Result</button>
-    </form>
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0"
+        >
 
-    <div class="note">
-        Keep this page open until the result page appears.
-    </div>
-</div>
+        <title>
+            Time Over | ExamSphere
+        </title>
 
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    var form = document.getElementById("autoSubmitForm");
-    if (form) {
-        window.setTimeout(function () {
-            form.submit();
-        }, 350);
-    }
-});
-</script>
-</body>
-</html>';
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&display=swap"
+            rel="stylesheet"
+        >
+
+        <style>
+
+            * {
+                box-sizing: border-box;
+            }
+
+            body {
+
+                margin: 0;
+
+                min-height: 100vh;
+
+                display: grid;
+
+                place-items: center;
+
+                padding: 20px;
+
+                background: #F5F5DC;
+
+                color: #3E2723;
+
+                font-family:
+                    Poppins,
+                    sans-serif;
+            }
+
+            .take-timeout {
+
+                width:
+                    min(
+                        520px,
+                        100%
+                    );
+
+                padding: 38px;
+
+                text-align: center;
+
+                border:
+                    1px solid
+                    #E3DDD2;
+
+                border-radius:
+                    26px;
+
+                background:
+                    #FFFFFF;
+
+                box-shadow:
+                    0 30px 80px
+                    rgba(
+                        62,
+                        39,
+                        35,
+                        .14
+                    );
+            }
+
+            .take-timeout-icon {
+
+                width: 72px;
+                height: 72px;
+
+                display: grid;
+
+                place-items: center;
+
+                margin:
+                    0 auto 18px;
+
+                border-radius: 20px;
+
+                background:
+                    #F0E9E2;
+
+                color:
+                    #5D4037;
+
+                font-size: 27px;
+            }
+
+            .take-timeout h1 {
+
+                margin:
+                    0 0 8px;
+
+                color:
+                    #3E2723;
+
+                font-size: 25px;
+
+                font-weight: 900;
+            }
+
+            .take-timeout p {
+
+                margin: 0;
+
+                color:
+                    #786F68;
+
+                font-size: 11px;
+
+                line-height: 1.8;
+            }
+
+            .take-timeout button {
+
+                margin-top: 22px;
+
+                min-height: 47px;
+
+                padding:
+                    0 22px;
+
+                border: 0;
+
+                border-radius: 12px;
+
+                color: #FFFFFF;
+
+                background: #5D4037;
+
+                font-family:
+                    inherit;
+
+                font-size: 10px;
+
+                font-weight: 800;
+
+                cursor: pointer;
+            }
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="take-timeout">
+
+            <div class="take-timeout-icon">
+                ⏱
+            </div>
+
+            <h1>
+                Time is Over
+            </h1>
+
+            <p>
+                Your examination time has expired.
+                Your attempt will now be submitted
+                automatically.
+            </p>
+
+            <form
+                method="post"
+                action="ajax/submit_exam.php"
+            >
+
+                <input
+                    type="hidden"
+                    name="attempt_id"
+                    value="<?= (int) $attemptId ?>"
+                >
+
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="<?= take_exam_escape(
+                        $_SESSION['exam_csrf_token']
+                    ) ?>"
+                >
+
+                <input
+                    type="hidden"
+                    name="auto_submit"
+                    value="1"
+                >
+
+                <button
+                    type="submit"
+                >
+                    Submit & View Result
+                </button>
+
+            </form>
+
+        </div>
+
+    </body>
+
+    </html>
+
+    <?php
 
     exit;
 }
@@ -480,124 +533,73 @@ document.addEventListener("DOMContentLoaded", function () {
 */
 
 $requiredQuestionCount =
-    (int) $attempt[
-        'required_question_count'
-    ];
-
+    (int) (
+        $attempt[
+            'required_question_count'
+        ] ?? 0
+    );
 
 if (
     $requiredQuestionCount <= 0
 ) {
 
+    http_response_code(409);
+
     exit(
-        'This examination has an invalid configured question count.'
+        'Invalid examination question configuration.'
     );
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| VERIFY ACTIVE QUESTION COUNT
+| LOAD ACTIVE QUESTIONS
 |--------------------------------------------------------------------------
 */
 
 try {
 
-    $questionCountStatement =
-        $conn->prepare("
-            SELECT
-                COUNT(DISTINCT eq.question_id)
+    $questionStatement = $conn->prepare("
+        SELECT
 
-            FROM exam_questions eq
+            eq.question_id,
+            eq.position,
 
-            INNER JOIN questions q
-                ON q.id = eq.question_id
+            q.question_type,
 
-            WHERE
-                eq.exam_id = ?
+            q.question_text,
+            q.question_image,
 
-                AND q.status = 'Active'
-        ");
+            q.option_a,
+            q.option_b,
+            q.option_c,
+            q.option_d,
 
-    $questionCountStatement->execute([
-        (int) $attempt['exam_id']
-    ]);
+            q.difficulty,
 
-    $activeQuestionCount =
-        (int) $questionCountStatement->fetchColumn();
+            q.marks
 
-} catch (Throwable $exception) {
+        FROM exam_questions eq
 
-    error_log(
-        'Take exam question count failed: ' .
-        $exception->getMessage()
-    );
+        INNER JOIN questions q
+            ON q.id = eq.question_id
 
-    http_response_code(500);
+        WHERE
 
-    exit(
-        'Unable to verify examination questions.'
-    );
-}
+            eq.exam_id = ?
 
+            AND q.status = 'Active'
 
-if (
-    $activeQuestionCount !== $requiredQuestionCount
-) {
+        ORDER BY
 
-    exit(
-        'This examination is no longer ready because its active question count does not match the configured question count.'
-    );
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| LOAD QUESTIONS
-|--------------------------------------------------------------------------
-*/
-
-try {
-
-    $questionStatement =
-        $conn->prepare("
-            SELECT
-
-                eq.question_id,
-                eq.position,
-
-                q.question_type,
-                q.question_text,
-
-                q.question_image,
-
-                q.option_a,
-                q.option_b,
-                q.option_c,
-                q.option_d,
-
-                q.difficulty,
-                q.marks
-
-            FROM exam_questions eq
-
-            INNER JOIN questions q
-                ON q.id = eq.question_id
-
-            WHERE
-
-                eq.exam_id = ?
-
-                AND q.status = 'Active'
-
-            ORDER BY
-
-                eq.position ASC,
-                q.id ASC
-        ");
+            eq.position ASC,
+            q.id ASC
+    ");
 
     $questionStatement->execute([
-        (int) $attempt['exam_id']
+        (int) $attempt[
+            'exam_id'
+        ]
     ]);
 
     $questions =
@@ -620,44 +622,123 @@ try {
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| EXACT QUESTION COUNT
+|--------------------------------------------------------------------------
+*/
+
 if (
-    count($questions) !== $requiredQuestionCount
+    count($questions) !==
+    $requiredQuestionCount
 ) {
 
+    http_response_code(409);
+
     exit(
-        'This examination is not ready. Its active question count does not match the configured question count.'
+        'The examination does not contain the configured number of active questions.'
     );
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| LOAD SAVED ANSWERS
+| MARKS PER QUESTION
+|--------------------------------------------------------------------------
+*/
+
+$marksPerQuestion = null;
+
+foreach (
+    $questions as $question
+) {
+
+    $marks =
+        round(
+            (float) (
+                $question[
+                    'marks'
+                ] ?? 0
+            ),
+            2
+        );
+
+    if (
+        $marks <= 0
+    ) {
+
+        http_response_code(409);
+
+        exit(
+            'Question marks are not configured correctly.'
+        );
+    }
+
+    if (
+        $marksPerQuestion === null
+    ) {
+
+        $marksPerQuestion =
+            $marks;
+
+    } elseif (
+        abs(
+            $marksPerQuestion -
+            $marks
+        ) > 0.00001
+    ) {
+
+        http_response_code(409);
+
+        exit(
+            'All questions must use the same marks value.'
+        );
+    }
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| DYNAMIC TOTAL MARKS
+|--------------------------------------------------------------------------
+*/
+
+$totalMarks =
+    round(
+        $requiredQuestionCount *
+        $marksPerQuestion,
+        2
+    );
+
+
+/*
+|--------------------------------------------------------------------------
+| SAVED ANSWERS
 |--------------------------------------------------------------------------
 */
 
 $savedAnswers = [];
+
 $savedStatuses = [];
 
 
 try {
 
-    $answerStatement =
-        $conn->prepare("
-            SELECT
+    $answerStatement = $conn->prepare("
+        SELECT
 
-                question_id,
-                selected_answer,
-                question_status
+            question_id,
+            selected_answer,
+            question_status
 
-            FROM answers
+        FROM answers
 
-            WHERE
-                attempt_id = ?
+        WHERE
+            attempt_id = ?
 
-            ORDER BY
-                id ASC
-        ");
+        ORDER BY
+            id ASC
+    ");
 
     $answerStatement->execute([
         $attemptId
@@ -672,9 +753,11 @@ try {
     ) {
 
         $questionId =
-            (int) $answer[
-                'question_id'
-            ];
+            (int) (
+                $answer[
+                    'question_id'
+                ] ?? 0
+            );
 
 
         $selectedAnswer =
@@ -715,14 +798,19 @@ try {
             (string) (
                 $answer[
                     'question_status'
-                ] ?? 'Not Answered'
+                ] ??
+                (
+                    $selectedAnswer !== ''
+                        ? 'Answered'
+                        : 'Not Answered'
+                )
             );
     }
 
 } catch (Throwable $exception) {
 
     error_log(
-        'Take exam answer state failed: ' .
+        'Saved answer state load failed: ' .
         $exception->getMessage()
     );
 }
@@ -730,10 +818,7 @@ try {
 
 /*
 |--------------------------------------------------------------------------
-| BUILD FRONTEND QUESTIONS
-|--------------------------------------------------------------------------
-|
-| Correct answers are NEVER exposed.
+| FRONTEND QUESTIONS
 |--------------------------------------------------------------------------
 */
 
@@ -745,21 +830,44 @@ foreach (
 ) {
 
     $questionId =
-        (int) $question[
-            'question_id'
-        ];
+        (int) (
+            $question[
+                'question_id'
+            ] ?? 0
+        );
 
 
     $options = [];
 
 
+    $optionMap = [
+
+        'A' =>
+            $question[
+                'option_a'
+            ],
+
+        'B' =>
+            $question[
+                'option_b'
+            ],
+
+        'C' =>
+            $question[
+                'option_c'
+            ],
+
+        'D' =>
+            $question[
+                'option_d'
+            ]
+
+    ];
+
+
     foreach (
-        [
-            'A' => $question['option_a'],
-            'B' => $question['option_b'],
-            'C' => $question['option_c'],
-            'D' => $question['option_d']
-        ] as $label => $text
+        $optionMap as
+        $label => $text
     ) {
 
         $text =
@@ -773,7 +881,6 @@ foreach (
         if (
             $text === ''
         ) {
-
             continue;
         }
 
@@ -785,6 +892,7 @@ foreach (
 
             'text' =>
                 $text
+
         ];
     }
 
@@ -793,9 +901,68 @@ foreach (
         count($options) !== 4
     ) {
 
+        http_response_code(409);
+
         exit(
-            'This examination contains an invalid question option set.'
+            'Question options are not configured correctly.'
         );
+    }
+
+
+    $answer =
+        strtoupper(
+            trim(
+                (string) (
+                    $savedAnswers[
+                        $questionId
+                    ] ?? ''
+                )
+            )
+        );
+
+
+    $status =
+        trim(
+            (string) (
+                $savedStatuses[
+                    $questionId
+                ] ??
+                (
+                    $answer !== ''
+                        ? 'Answered'
+                        : 'Not Visited'
+                )
+            )
+        );
+
+
+    $allowedStatuses = [
+
+        'Not Visited',
+
+        'Not Answered',
+
+        'Answered',
+
+        'Marked for Review',
+
+        'Answered & Marked for Review'
+
+    ];
+
+
+    if (
+        !in_array(
+            $status,
+            $allowedStatuses,
+            true
+        )
+    ) {
+
+        $status =
+            $answer !== ''
+                ? 'Answered'
+                : 'Not Visited';
     }
 
 
@@ -832,7 +999,7 @@ foreach (
             (string) (
                 $question[
                     'difficulty'
-                ] ?? ''
+                ] ?? 'General'
             ),
 
         'marks' =>
@@ -846,48 +1013,35 @@ foreach (
             $options,
 
         'answer' =>
-            $savedAnswers[
-                $questionId
-            ] ?? '',
+            $answer,
 
         'status' =>
-            $savedStatuses[
-                $questionId
-            ] ?? 'Not Visited'
+            $status
+
     ];
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| EXAM CSRF
+| CSRF
 |--------------------------------------------------------------------------
 */
 
 if (
     empty(
-        $_SESSION['exam_csrf_token']
+        $_SESSION[
+            'exam_csrf_token'
+        ]
     )
 ) {
 
-    try {
-
-        $_SESSION['exam_csrf_token'] =
-            bin2hex(
-                random_bytes(32)
-            );
-
-    } catch (Throwable $exception) {
-
-        $_SESSION['exam_csrf_token'] =
-            hash(
-                'sha256',
-                uniqid(
-                    '',
-                    true
-                )
-            );
-    }
+    $_SESSION[
+        'exam_csrf_token'
+    ] =
+        bin2hex(
+            random_bytes(32)
+        );
 }
 
 
@@ -897,41 +1051,110 @@ $csrfToken =
     ];
 
 
-$deadlineTimestamp =
-    $deadline->getTimestamp();
+$deadlineMs =
+    $deadline->getTimestamp() * 1000;
 
 
-$deadlineMilliseconds =
-    $deadlineTimestamp * 1000;
+/*
+|--------------------------------------------------------------------------
+| DISPLAY
+|--------------------------------------------------------------------------
+*/
+
+$examType =
+    trim(
+        (string) (
+            $attempt[
+                'exam_type'
+            ] ?? 'Practice'
+        )
+    );
 
 
-$initialAnswered =
-    count($savedAnswers);
+$subjectName =
+    trim(
+        (string) (
+            $attempt[
+                'subject_name'
+            ] ?? ''
+        )
+    );
+
+
+$subjectCode =
+    trim(
+        (string) (
+            $attempt[
+                'subject_code'
+            ] ?? ''
+        )
+    );
+
+
+$studentName =
+    trim(
+        (string) (
+            $_SESSION[
+                'student_name'
+            ] ??
+            $_SESSION[
+                'name'
+            ] ??
+            $_SESSION[
+                'user_name'
+            ] ??
+            'Student'
+        )
+    );
+
+
+$negativeMarking =
+    (int) (
+        $attempt[
+            'negative_marking'
+        ] ?? 0
+    ) === 1;
+
 
 ?>
 
-<!DOCTYPE html>
+<!doctype html>
 
-<html lang="en">
+<html
+    lang="en"
+>
 
 <head>
 
     <meta charset="UTF-8">
+
 
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
 
+
     <meta
         name="theme-color"
-        content="#5D4037"
+        content="#F5F5DC"
     >
+
+
+    <meta
+        name="csrf-token"
+        content="<?= take_exam_escape(
+            $csrfToken
+        ) ?>"
+    >
+
 
     <title>
 
         <?= take_exam_escape(
-            $attempt['exam_title']
+            $attempt[
+                'exam_title'
+            ]
         ) ?>
 
         | ExamSphere
@@ -939,26 +1162,19 @@ $initialAnswered =
     </title>
 
 
-    <link
-        rel="preconnect"
-        href="https://fonts.googleapis.com"
-    >
-
-    <link
-        rel="preconnect"
-        href="https://fonts.gstatic.com"
-        crossorigin
-    >
-
-    <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap"
-        rel="stylesheet"
-    >
+    <!-- =====================================================
+         BOOTSTRAP
+    ====================================================== -->
 
     <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
         rel="stylesheet"
     >
+
+
+    <!-- =====================================================
+         FONT AWESOME
+    ====================================================== -->
 
     <link
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
@@ -966,1683 +1182,37 @@ $initialAnswered =
     >
 
 
-    <style>
+    <!-- =====================================================
+         FONTS
+    ====================================================== -->
 
-        :root {
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
 
-            --brown-dark:
-                #3E2723;
 
-            --brown:
-                #5D4037;
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
 
-            --olive:
-                #556B2F;
 
-            --olive-dark:
-                #465925;
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Noto+Sans+Gujarati:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet"
+    >
 
-            --cream:
-                #F5F5DC;
 
-            --cream-light:
-                #FAF9F3;
+    <!-- =====================================================
+         MASTER EXAM CSS
+    ====================================================== -->
 
-            --white:
-                #FFFFFF;
-
-            --text:
-                #332D29;
-
-            --muted:
-                #7B726A;
-
-            --border:
-                #E3DED0;
-
-            --green:
-                #2E7D52;
-
-            --red:
-                #C84E4E;
-
-            --orange:
-                #D88A24;
-
-            --shadow:
-                0 20px 60px
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .10
-                );
-        }
-
-
-        * {
-            box-sizing:
-                border-box;
-        }
-
-
-        body {
-
-            margin:
-                0;
-
-            min-height:
-                100vh;
-
-            background:
-                radial-gradient(
-                    circle at top left,
-                    rgba(
-                        85,
-                        107,
-                        47,
-                        .08
-                    ),
-                    transparent 25%
-                ),
-
-                radial-gradient(
-                    circle at bottom right,
-                    rgba(
-                        93,
-                        64,
-                        55,
-                        .08
-                    ),
-                    transparent 28%
-                ),
-
-                var(--cream);
-
-            color:
-                var(--text);
-
-            font-family:
-                Poppins,
-                Arial,
-                sans-serif;
-        }
-
-
-        .exam-shell {
-
-            width:
-                min(
-                    1500px,
-                    calc(
-                        100% - 32px
-                    )
-                );
-
-            margin:
-                24px auto;
-        }
-
-
-        .exam-topbar {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                20px;
-
-            padding:
-                18px 22px;
-
-            border:
-                1px solid
-                var(--border);
-
-            border-radius:
-                22px;
-
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    .92
-                );
-
-            box-shadow:
-                var(--shadow);
-
-            backdrop-filter:
-                blur(
-                    18px
-                );
-
-            position:
-                sticky;
-
-            top:
-                12px;
-
-            z-index:
-                100;
-        }
-
-
-        .brand-area {
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            gap:
-                13px;
-
-            min-width:
-                0;
-        }
-
-
-        .brand-icon {
-
-            width:
-                46px;
-
-            height:
-                46px;
-
-            border-radius:
-                15px;
-
-            display:
-                grid;
-
-            place-items:
-                center;
-
-            color:
-                var(--white);
-
-            background:
-                linear-gradient(
-                    145deg,
-                    var(--brown),
-                    var(--brown-dark)
-                );
-
-            box-shadow:
-                0 10px 25px
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .18
-                );
-
-            flex:
-                0 0 auto;
-        }
-
-
-        .brand-text {
-
-            min-width:
-                0;
-        }
-
-
-        .brand-text strong {
-
-            display:
-                block;
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                15px;
-
-            font-weight:
-                800;
-        }
-
-
-        .brand-text span {
-
-            display:
-                block;
-
-            color:
-                var(--muted);
-
-            font-size:
-                10px;
-        }
-
-
-        .exam-heading {
-
-            min-width:
-                0;
-
-            text-align:
-                center;
-
-            flex:
-                1;
-        }
-
-
-        .exam-heading small {
-
-            display:
-                block;
-
-            color:
-                var(--olive);
-
-            font-size:
-                9px;
-
-            font-weight:
-                800;
-
-            letter-spacing:
-                1.6px;
-
-            text-transform:
-                uppercase;
-        }
-
-
-        .exam-heading h1 {
-
-            margin:
-                3px 0 0;
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                17px;
-
-            font-weight:
-                800;
-
-            white-space:
-                nowrap;
-
-            overflow:
-                hidden;
-
-            text-overflow:
-                ellipsis;
-        }
-
-
-        .timer-box {
-
-            min-width:
-                145px;
-
-            padding:
-                10px 15px;
-
-            border:
-                1px solid
-                rgba(
-                    85,
-                    107,
-                    47,
-                    .20
-                );
-
-            border-radius:
-                16px;
-
-            background:
-                #EEF3E6;
-
-            text-align:
-                center;
-        }
-
-
-        .timer-box small {
-
-            display:
-                block;
-
-            margin-bottom:
-                2px;
-
-            color:
-                var(--olive-dark);
-
-            font-size:
-                9px;
-
-            font-weight:
-                700;
-
-            text-transform:
-                uppercase;
-
-            letter-spacing:
-                1px;
-        }
-
-
-        #examTimer {
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                22px;
-
-            font-weight:
-                800;
-
-            letter-spacing:
-                1px;
-        }
-
-
-        .timer-box.warning {
-
-            background:
-                #FFF4DE;
-
-            border-color:
-                #F0C06A;
-        }
-
-
-        .timer-box.warning #examTimer {
-
-            color:
-                var(--orange);
-        }
-
-
-        .timer-box.danger {
-
-            background:
-                #FBEAEA;
-
-            border-color:
-                #E5AAAA;
-        }
-
-
-        .timer-box.danger #examTimer {
-
-            color:
-                var(--red);
-        }
-
-
-        .exam-layout {
-
-            display:
-                grid;
-
-            grid-template-columns:
-                minmax(
-                    0,
-                    1fr
-                )
-                320px;
-
-            gap:
-                22px;
-
-            margin-top:
-                22px;
-        }
-
-
-        .question-panel,
-        .sidebar-panel {
-
-            border:
-                1px solid
-                var(--border);
-
-            border-radius:
-                24px;
-
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    .94
-                );
-
-            box-shadow:
-                var(--shadow);
-        }
-
-
-        .question-panel {
-
-            padding:
-                28px;
-        }
-
-
-        .question-header {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                15px;
-
-            padding-bottom:
-                20px;
-
-            border-bottom:
-                1px solid
-                var(--border);
-        }
-
-
-        .question-number {
-
-            display:
-                inline-flex;
-
-            align-items:
-                center;
-
-            gap:
-                9px;
-
-            color:
-                var(--brown-dark);
-
-            font-weight:
-                800;
-        }
-
-
-        .question-number span {
-
-            display:
-                grid;
-
-            place-items:
-                center;
-
-            width:
-                40px;
-
-            height:
-                40px;
-
-            border-radius:
-                13px;
-
-            color:
-                var(--white);
-
-            background:
-                var(--brown);
-        }
-
-
-        .question-progress {
-
-            color:
-                var(--muted);
-
-            font-size:
-                12px;
-
-            font-weight:
-                600;
-        }
-
-
-        .question-body {
-
-            padding:
-                28px 5px;
-        }
-
-
-        .question-body h2 {
-
-            margin:
-                0 0 24px;
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                clamp(
-                    18px,
-                    2vw,
-                    24px
-                );
-
-            line-height:
-                1.55;
-
-            font-weight:
-                700;
-        }
-
-
-        .question-image {
-
-            width:
-                min(
-                    100%,
-                    720px
-                );
-
-            max-height:
-                340px;
-
-            object-fit:
-                contain;
-
-            display:
-                block;
-
-            margin:
-                0 auto 25px;
-
-            border:
-                1px solid
-                var(--border);
-
-            border-radius:
-                18px;
-
-            background:
-                var(--cream-light);
-        }
-
-
-        .options {
-
-            display:
-                grid;
-
-            gap:
-                13px;
-        }
-
-
-        .option {
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            gap:
-                15px;
-
-            padding:
-                15px 17px;
-
-            border:
-                1px solid
-                var(--border);
-
-            border-radius:
-                17px;
-
-            background:
-                var(--white);
-
-            cursor:
-                pointer;
-
-            transition:
-                .2s ease;
-
-            user-select:
-                none;
-        }
-
-
-        .option:hover {
-
-            transform:
-                translateY(
-                    -1px
-                );
-
-            border-color:
-                rgba(
-                    93,
-                    64,
-                    55,
-                    .35
-                );
-
-            box-shadow:
-                0 12px 30px
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .07
-                );
-        }
-
-
-        .option.selected {
-
-            border-color:
-                var(--olive);
-
-            background:
-                #F0F4E9;
-
-            box-shadow:
-                0 12px 30px
-                rgba(
-                    85,
-                    107,
-                    47,
-                    .10
-                );
-        }
-
-
-        .option input {
-
-            position:
-                absolute;
-
-            opacity:
-                0;
-
-            pointer-events:
-                none;
-        }
-
-
-        .option-letter {
-
-            width:
-                38px;
-
-            height:
-                38px;
-
-            border-radius:
-                12px;
-
-            display:
-                grid;
-
-            place-items:
-                center;
-
-            flex:
-                0 0 auto;
-
-            color:
-                var(--brown);
-
-            background:
-                var(--cream);
-
-            font-weight:
-                800;
-        }
-
-
-        .option.selected .option-letter {
-
-            color:
-                var(--white);
-
-            background:
-                var(--olive);
-        }
-
-
-        .option-text {
-
-            line-height:
-                1.45;
-
-            font-size:
-                14px;
-
-            font-weight:
-                500;
-        }
-
-
-        .question-status-text {
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            gap:
-                8px;
-
-            margin-top:
-                20px;
-
-            color:
-                var(--muted);
-
-            font-size:
-                11px;
-
-            font-weight:
-                600;
-        }
-
-
-        .question-actions {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                14px;
-
-            padding-top:
-                20px;
-
-            border-top:
-                1px solid
-                var(--border);
-        }
-
-
-        .action-left {
-
-            display:
-                flex;
-
-            flex-wrap:
-                wrap;
-
-            gap:
-                10px;
-        }
-
-
-        .action-right {
-
-            display:
-                flex;
-
-            gap:
-                10px;
-        }
-
-
-        .exam-btn {
-
-            min-height:
-                44px;
-
-            padding:
-                0 16px;
-
-            border:
-                1px solid
-                transparent;
-
-            border-radius:
-                13px;
-
-            display:
-                inline-flex;
-
-            align-items:
-                center;
-
-            justify-content:
-                center;
-
-            gap:
-                7px;
-
-            font-size:
-                12px;
-
-            font-weight:
-                700;
-
-            transition:
-                .2s ease;
-        }
-
-
-        .exam-btn:disabled {
-
-            opacity:
-                .48;
-
-            cursor:
-                not-allowed;
-
-            transform:
-                none !important;
-        }
-
-
-        .btn-primary {
-
-            color:
-                var(--white);
-
-            background:
-                var(--brown);
-        }
-
-
-        .btn-primary:hover:not(:disabled) {
-
-            color:
-                var(--white);
-
-            background:
-                var(--brown-dark);
-
-            transform:
-                translateY(
-                    -1px
-                );
-        }
-
-
-        .btn-secondary {
-
-            color:
-                var(--brown-dark);
-
-            border-color:
-                var(--border);
-
-            background:
-                var(--white);
-        }
-
-
-        .btn-secondary:hover:not(:disabled) {
-
-            color:
-                var(--brown-dark);
-
-            background:
-                var(--cream-light);
-
-            transform:
-                translateY(
-                    -1px
-                );
-        }
-
-
-        .btn-review {
-
-            color:
-                var(--olive-dark);
-
-            border-color:
-                rgba(
-                    85,
-                    107,
-                    47,
-                    .25
-                );
-
-            background:
-                #F0F4E9;
-        }
-
-
-        .btn-review:hover:not(:disabled) {
-
-            color:
-                var(--olive-dark);
-
-            background:
-                #E7EEDB;
-
-            transform:
-                translateY(
-                    -1px
-                );
-        }
-
-
-        .sidebar-panel {
-
-            padding:
-                22px;
-
-            align-self:
-                start;
-
-            position:
-                sticky;
-
-            top:
-                102px;
-        }
-
-
-        .sidebar-title {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                10px;
-
-            margin-bottom:
-                18px;
-        }
-
-
-        .sidebar-title h3 {
-
-            margin:
-                0;
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                14px;
-
-            font-weight:
-                800;
-        }
-
-
-        .answered-count {
-
-            color:
-                var(--olive);
-
-            font-size:
-                10px;
-
-            font-weight:
-                800;
-        }
-
-
-        .status-legend {
-
-            display:
-                grid;
-
-            gap:
-                9px;
-
-            margin-bottom:
-                18px;
-
-            padding-bottom:
-                18px;
-
-            border-bottom:
-                1px solid
-                var(--border);
-        }
-
-
-        .legend-item {
-
-            display:
-                flex;
-
-            align-items:
-                center;
-
-            gap:
-                8px;
-
-            color:
-                var(--muted);
-
-            font-size:
-                10px;
-
-            font-weight:
-                600;
-        }
-
-
-        .legend-dot {
-
-            width:
-                11px;
-
-            height:
-                11px;
-
-            border-radius:
-                4px;
-
-            flex:
-                0 0 auto;
-        }
-
-
-        .dot-not-visited {
-
-            background:
-                #E7E4DD;
-        }
-
-
-        .dot-not-answered {
-
-            background:
-                #D7B7A9;
-        }
-
-
-        .dot-answered {
-
-            background:
-                #86B894;
-        }
-
-
-        .dot-review {
-
-            background:
-                #D8B95B;
-        }
-
-
-        .dot-answered-review {
-
-            background:
-                #8E7AB5;
-        }
-
-
-        .palette {
-
-            display:
-                grid;
-
-            grid-template-columns:
-                repeat(
-                    5,
-                    1fr
-                );
-
-            gap:
-                8px;
-
-            max-height:
-                430px;
-
-            overflow-y:
-                auto;
-
-            padding-right:
-                4px;
-        }
-
-
-        .palette button {
-
-            width:
-                100%;
-
-            aspect-ratio:
-                1;
-
-            border:
-                1px solid
-                var(--border);
-
-            border-radius:
-                11px;
-
-            color:
-                var(--brown-dark);
-
-            background:
-                var(--white);
-
-            font-size:
-                11px;
-
-            font-weight:
-                800;
-
-            transition:
-                .18s ease;
-        }
-
-
-        .palette button:hover {
-
-            transform:
-                translateY(
-                    -1px
-                );
-        }
-
-
-        .palette button.current {
-
-            color:
-                var(--white);
-
-            border-color:
-                var(--brown);
-
-            background:
-                var(--brown);
-
-            box-shadow:
-                0 8px 18px
-                rgba(
-                    93,
-                    64,
-                    55,
-                    .18
-                );
-        }
-
-
-        .palette button.answered {
-
-            border-color:
-                #86B894;
-
-            color:
-                #245D31;
-
-            background:
-                #EDF7EF;
-        }
-
-
-        .palette button.not-answered {
-
-            border-color:
-                #D7B7A9;
-
-            color:
-                #7A4D3B;
-
-            background:
-                #FBF1ED;
-        }
-
-
-        .palette button.review {
-
-            border-color:
-                #D8B95B;
-
-            color:
-                #705B1E;
-
-            background:
-                #FCF6DC;
-        }
-
-
-        .palette button.answered-review {
-
-            border-color:
-                #8E7AB5;
-
-            color:
-                #55417A;
-
-            background:
-                #F2EDF9;
-        }
-
-
-        .palette button.not-visited {
-
-            color:
-                var(--brown-dark);
-
-            background:
-                #F8F7F3;
-        }
-
-
-        .exam-summary {
-
-            margin-top:
-                20px;
-
-            padding-top:
-                18px;
-
-            border-top:
-                1px solid
-                var(--border);
-        }
-
-
-        .summary-row {
-
-            display:
-                flex;
-
-            justify-content:
-                space-between;
-
-            align-items:
-                center;
-
-            gap:
-                12px;
-
-            padding:
-                9px 0;
-
-            color:
-                var(--muted);
-
-            font-size:
-                10px;
-
-            font-weight:
-                600;
-        }
-
-
-        .summary-row strong {
-
-            color:
-                var(--brown-dark);
-
-            font-size:
-                11px;
-
-            font-weight:
-                800;
-        }
-
-
-        .submit-panel {
-
-            margin-top:
-                18px;
-
-            padding-top:
-                18px;
-
-            border-top:
-                1px solid
-                var(--border);
-        }
-
-
-        .submit-panel p {
-
-            margin:
-                0 0 12px;
-
-            color:
-                var(--muted);
-
-            font-size:
-                10px;
-
-            line-height:
-                1.6;
-        }
-
-
-        .submit-button {
-
-            width:
-                100%;
-
-            min-height:
-                46px;
-
-            border:
-                0;
-
-            border-radius:
-                14px;
-
-            color:
-                var(--white);
-
-            background:
-                var(--olive);
-
-            font-size:
-                12px;
-
-            font-weight:
-                800;
-
-            transition:
-                .2s ease;
-        }
-
-
-        .submit-button:hover:not(:disabled) {
-
-            background:
-                var(--olive-dark);
-
-            transform:
-                translateY(
-                    -1px
-                );
-        }
-
-
-        .exam-toast {
-
-            position:
-                fixed;
-
-            left:
-                50%;
-
-            bottom:
-                24px;
-
-            z-index:
-                1000;
-
-            min-width:
-                260px;
-
-            max-width:
-                min(
-                    90vw,
-                    480px
-                );
-
-            padding:
-                13px 17px;
-
-            border:
-                1px solid
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .12
-                );
-
-            border-radius:
-                14px;
-
-            color:
-                var(--brown-dark);
-
-            background:
-                rgba(
-                    255,
-                    255,
-                    255,
-                    .96
-                );
-
-            box-shadow:
-                0 15px 40px
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .18
-                );
-
-            backdrop-filter:
-                blur(
-                    18px
-                );
-
-            font-size:
-                11px;
-
-            font-weight:
-                700;
-
-            text-align:
-                center;
-
-            opacity:
-                0;
-
-            transform:
-                translate(
-                    -50%,
-                    20px
-                );
-
-            pointer-events:
-                none;
-
-            transition:
-                .25s ease;
-        }
-
-
-        .exam-toast.show {
-
-            opacity:
-                1;
-
-            transform:
-                translate(
-                    -50%,
-                    0
-                );
-        }
-
-
-        .modal-card {
-
-            overflow:
-                hidden;
-
-            border:
-                0;
-
-            border-radius:
-                22px;
-
-            box-shadow:
-                0 30px 80px
-                rgba(
-                    62,
-                    39,
-                    35,
-                    .22
-                );
-        }
-
-
-        .modal-card .modal-header {
-
-            color:
-                var(--white);
-
-            border:
-                0;
-
-            background:
-                linear-gradient(
-                    135deg,
-                    var(--brown),
-                    var(--brown-dark)
-                );
-        }
-
-
-        @media (
-            max-width: 1100px
-        ) {
-
-            .exam-layout {
-
-                grid-template-columns:
-                    1fr;
-            }
-
-
-            .sidebar-panel {
-
-                position:
-                    static;
-            }
-
-
-            .palette {
-
-                max-height:
-                    none;
-            }
-        }
-
-
-        @media (
-            max-width: 760px
-        ) {
-
-            .exam-shell {
-
-                width:
-                    min(
-                        100%,
-                        calc(
-                            100% - 16px
-                        )
-                    );
-
-                margin:
-                    8px auto;
-            }
-
-
-            .exam-topbar {
-
-                flex-direction:
-                    column;
-
-                align-items:
-                    stretch;
-
-                padding:
-                    15px;
-            }
-
-
-            .exam-heading {
-
-                text-align:
-                    left;
-            }
-
-
-            .timer-box {
-
-                width:
-                    100%;
-            }
-
-
-            .question-panel {
-
-                padding:
-                    18px;
-            }
-
-
-            .question-actions {
-
-                flex-direction:
-                    column;
-
-                align-items:
-                    stretch;
-            }
-
-
-            .action-left {
-
-                width:
-                    100%;
-            }
-
-
-            .action-left .exam-btn,
-            .action-right .exam-btn {
-
-                flex:
-                    1;
-            }
-
-
-            .action-right {
-
-                width:
-                    100%;
-            }
-
-
-            .option {
-
-                align-items:
-                    flex-start;
-            }
-        }
-
-    </style>
+    <link
+        rel="stylesheet"
+        href="assets/css/exam.css?v=20260914-final"
+    >
 
 </head>
 
@@ -2650,458 +1220,1354 @@ $initialAnswered =
 <body>
 
 
-<div class="exam-shell">
+<div
+    class="exm-page"
+>
 
 
-    <header class="exam-topbar">
+    <!-- =====================================================
+         TOP NAVIGATION
+    ====================================================== -->
+
+    <header
+        class="exm-top-nav"
+    >
 
 
-        <div class="brand-area">
+        <div
+            class="exm-logo-area"
+        >
 
-            <div class="brand-icon">
+            <div
+                class="exm-logo"
+            >
 
                 <i
-                    class="fa-solid fa-graduation-cap"
+                    class="
+                        fa-solid
+                        fa-book-open
+                    "
                 ></i>
 
             </div>
 
 
-            <div class="brand-text">
+            <div
+                class="exm-logo-copy"
+            >
 
                 <strong>
                     ExamSphere
                 </strong>
 
+
                 <span>
-                    Online Examination
+                    Smart • Secure • Success
                 </span>
 
             </div>
-
-        </div>
-
-
-        <div class="exam-heading">
-
-            <small>
-
-                <?= take_exam_escape(
-                    $attempt['exam_type']
-                ) ?>
-
-                Examination
-
-            </small>
-
-
-            <h1>
-
-                <?= take_exam_escape(
-                    $attempt['exam_title']
-                ) ?>
-
-            </h1>
 
         </div>
 
 
         <div
-            class="timer-box"
-            id="timerBox"
+            class="exm-tools"
         >
 
-            <small>
-                Time remaining
-            </small>
 
-
-            <div
-                id="examTimer"
+            <button
+                type="button"
+                class="exm-tool"
+                id="examShortcuts"
             >
-                00:00
-            </div>
+
+                <i
+                    class="
+                        fa-regular
+                        fa-keyboard
+                    "
+                ></i>
+
+                Shortcuts
+
+            </button>
+
+
+            <button
+                type="button"
+                class="exm-tool"
+                id="examInstructions"
+            >
+
+                <i
+                    class="
+                        fa-regular
+                        fa-circle-question
+                    "
+                ></i>
+
+                Instructions
+
+            </button>
+
+
+            <button
+                type="button"
+                class="exm-tool"
+                id="examPaper"
+            >
+
+                <i
+                    class="
+                        fa-regular
+                        fa-file-lines
+                    "
+                ></i>
+
+                Question Paper
+
+            </button>
+
 
         </div>
 
-    </header>
 
-
-    <main class="exam-layout">
-
-
-        <section class="question-panel">
-
-
-            <div class="question-header">
-
-                <div
-                    class="question-number"
-                >
-
-                    <span id="questionNumber">
-                        1
-                    </span>
-
-
-                    Question
-
-                </div>
-
-
-                <div
-                    class="question-progress"
-                    id="questionProgress"
-                >
-
-                    Question 1 of
-                    <?= $requiredQuestionCount ?>
-
-                </div>
-
-            </div>
+        <div
+            class="exm-student-top"
+        >
 
 
             <div
-                class="question-body"
-                id="questionContainer"
-            ></div>
-
-
-            <div
-                class="question-actions"
+                class="exm-avatar"
             >
 
-                <div class="action-left">
-
-                    <button
-                        type="button"
-                        class="
-                            exam-btn
-                            btn-secondary
-                        "
-                        id="previousButton"
-                    >
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-arrow-left
-                            "
-                        ></i>
-
-                        Previous
-
-                    </button>
-
-
-                    <button
-                        type="button"
-                        class="
-                            exam-btn
-                            btn-review
-                        "
-                        id="reviewButton"
-                    >
-
-                        <i
-                            class="
-                                fa-regular
-                                fa-bookmark
-                            "
-                        ></i>
-
-                        Mark for review
-
-                    </button>
-
-
-                    <button
-                        type="button"
-                        class="
-                            exam-btn
-                            btn-secondary
-                        "
-                        id="clearButton"
-                    >
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-eraser
-                            "
-                        ></i>
-
-                        Clear
-
-                    </button>
-
-                </div>
-
-
-                <div class="action-right">
-
-                    <button
-                        type="button"
-                        class="
-                            exam-btn
-                            btn-primary
-                        "
-                        id="nextButton"
-                    >
-
-                        Save & Next
-
-                        <i
-                            class="
-                                fa-solid
-                                fa-arrow-right
-                            "
-                        ></i>
-
-                    </button>
-
-                </div>
+                <i
+                    class="
+                        fa-solid
+                        fa-user
+                    "
+                ></i>
 
             </div>
 
-        </section>
+
+            <div
+                class="exm-student-copy"
+            >
+
+                <strong>
+
+                    <?= take_exam_escape(
+                        $studentName
+                    ) ?>
+
+                </strong>
 
 
-        <aside class="sidebar-panel">
-
-
-            <div class="sidebar-title">
-
-                <h3>
-                    Question navigator
-                </h3>
-
-
-                <span
-                    class="answered-count"
-                    id="answeredCount"
-                >
-
-                    <?= $initialAnswered ?>
-
-                    answered
-
+                <span>
+                    Student
                 </span>
 
             </div>
 
 
-            <div class="status-legend">
-
-                <div class="legend-item">
-
-                    <span
-                        class="
-                            legend-dot
-                            dot-not-visited
-                        "
-                    ></span>
-
-                    Not visited
-
-                </div>
+            <i
+                class="
+                    fa-solid
+                    fa-chevron-down
+                "
+                style="
+                    color:#7D746C;
+                    font-size:8px;
+                "
+            ></i>
 
 
-                <div class="legend-item">
-
-                    <span
-                        class="
-                            legend-dot
-                            dot-not-answered
-                        "
-                    ></span>
-
-                    Not answered
-
-                </div>
+        </div>
 
 
-                <div class="legend-item">
-
-                    <span
-                        class="
-                            legend-dot
-                            dot-answered
-                        "
-                    ></span>
-
-                    Answered
-
-                </div>
+    </header>
 
 
-                <div class="legend-item">
+    <!-- =====================================================
+         EXAM BAR
+    ====================================================== -->
 
-                    <span
-                        class="
-                            legend-dot
-                            dot-review
-                        "
-                    ></span>
-
-                    Marked for review
-
-                </div>
+    <div
+        class="exm-dark-bar"
+    >
 
 
-                <div class="legend-item">
+        <div
+            class="exm-dark-left"
+        >
 
-                    <span
-                        class="
-                            legend-dot
-                            dot-answered-review
-                        "
-                    ></span>
 
-                    Answered & review
+            <span
+                class="exm-dark-type"
+            >
 
-                </div>
+                <?= take_exam_escape(
+                    $examType
+                ) ?>
 
+            </span>
+
+
+            <span
+                class="exm-dark-divider"
+            >
+                |
+            </span>
+
+
+            <span
+                class="exm-dark-name"
+            >
+
+                <?= take_exam_escape(
+                    $attempt[
+                        'exam_title'
+                    ]
+                ) ?>
+
+            </span>
+
+
+        </div>
+
+
+        <div
+            class="exm-dark-timer"
+        >
+
+
+            <i
+                class="
+                    fa-regular
+                    fa-clock
+                "
+            ></i>
+
+
+            <span>
+                Time Left :
+            </span>
+
+
+            <strong
+                id="examTimer"
+            >
+                00:00
+            </strong>
+
+
+        </div>
+
+
+    </div>
+
+
+    <!-- =====================================================
+         MAIN CONTAINER
+    ====================================================== -->
+
+    <main
+        class="exm-container"
+    >
+
+
+        <!-- =================================================
+             SECTIONS
+        ================================================== -->
+
+        <section
+            class="exm-sections"
+        >
+
+
+            <div
+                class="exm-sections-title"
+            >
+                Sections
             </div>
 
 
             <div
-                class="palette"
-                id="questionPalette"
+                class="exm-section-scroll"
             >
 
-                <?php for (
-                    $i = 1;
-                    $i <= $requiredQuestionCount;
-                    $i++
-                ): ?>
 
-                    <button
-                        type="button"
-                        data-index="<?= $i - 1 ?>"
-                        class="not-visited"
+                <div
+                    class="
+                        exm-section
+                        active
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-regular
+                            fa-circle
+                        "
+                    ></i>
+
+
+                    <?= take_exam_escape(
+                        $subjectName !== ''
+                            ? $subjectName
+                            : 'Practice Examination'
+                    ) ?>
+
+
+                    <?php if (
+                        $subjectCode !== ''
+                    ): ?>
+
+                        <span>
+                            <?= take_exam_escape(
+                                $subjectCode
+                            ) ?>
+                        </span>
+
+                    <?php endif; ?>
+
+
+                </div>
+
+
+            </div>
+
+
+        </section>
+
+
+        <!-- =================================================
+             META
+        ================================================== -->
+
+        <div
+            class="exm-meta-bar"
+        >
+
+
+            <span>
+                Marks for correct answer:
+            </span>
+
+
+            <strong>
+
+                <?= take_exam_escape(
+                    $marksPerQuestion
+                ) ?>
+
+            </strong>
+
+
+            <span
+                class="exm-meta-sep"
+            >
+                |
+            </span>
+
+
+            <span>
+                Negative Marks:
+            </span>
+
+
+            <strong>
+
+                <?= $negativeMarking
+                    ? 'Enabled'
+                    : '0'
+                ?>
+
+            </strong>
+
+
+        </div>
+
+
+        <!-- =================================================
+             MAIN GRID
+        ================================================== -->
+
+        <div
+            class="exm-main"
+        >
+
+
+            <!-- =================================================
+                 QUESTION PANEL
+            ================================================== -->
+
+            <section
+                class="exm-question-panel"
+            >
+
+
+                <div
+                    class="exm-question-tools"
+                >
+
+
+                    <span
+                        class="exm-select-note"
                     >
 
-                        <?= $i ?>
+                        <i
+                            class="
+                                fa-solid
+                                fa-circle-info
+                            "
+                        ></i>
 
-                    </button>
+                        Select one correct answer
 
-                <?php endfor; ?>
+                    </span>
 
-            </div>
+
+                    <select
+                        class="exm-language"
+                        id="examLanguage"
+                    >
+
+                        <option value="default">
+                            English
+                        </option>
+
+                    </select>
+
+
+                </div>
+
+
+                <div
+                    class="exm-question-body"
+                    id="questionContainer"
+                ></div>
+
+
+                <footer
+                    class="exm-question-footer"
+                >
+
+
+                    <div
+                        class="exm-footer-left"
+                    >
+
+
+                        <button
+                            type="button"
+                            class="
+                                exm-action
+                                review
+                            "
+                            id="markNextButton"
+                        >
+
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-bookmark
+                                "
+                            ></i>
+
+                            Mark for Review & Next
+
+                        </button>
+
+
+                        <button
+                            type="button"
+                            class="
+                                exm-action
+                                clear
+                            "
+                            id="clearButton"
+                        >
+
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-circle-xmark
+                                "
+                            ></i>
+
+                            Clear Response
+
+                        </button>
+
+
+                    </div>
+
+
+                    <div
+                        class="exm-footer-right"
+                    >
+
+
+                        <button
+                            type="button"
+                            class="exm-action"
+                            id="previousButton"
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-arrow-left
+                                "
+                            ></i>
+
+                            Previous
+
+                        </button>
+
+
+                        <button
+                            type="button"
+                            class="
+                                exm-action
+                                primary
+                            "
+                            id="nextButton"
+                        >
+
+                            Save & Next
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-arrow-right
+                                "
+                            ></i>
+
+                        </button>
+
+
+                    </div>
+
+
+                </footer>
+
+
+            </section>
+
+
+            <!-- =================================================
+                 SIDEBAR
+            ================================================== -->
+
+            <aside
+                class="exm-sidebar"
+            >
+
+
+                <div
+                    class="exm-sidebar-card"
+                >
+
+
+                    <!-- PROFILE -->
+
+                    <section
+                        class="exm-side-block"
+                    >
+
+
+                        <div
+                            class="exm-profile"
+                        >
+
+
+                            <div
+                                class="
+                                    exm-profile-avatar
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-user
+                                    "
+                                ></i>
+
+                            </div>
+
+
+                            <div
+                                class="
+                                    exm-profile-copy
+                                "
+                            >
+
+                                <strong>
+
+                                    <?= take_exam_escape(
+                                        $studentName
+                                    ) ?>
+
+                                </strong>
+
+
+                                <span>
+                                    Student
+                                </span>
+
+                            </div>
+
+
+                        </div>
+
+
+                        <!-- STATUS -->
+
+                        <div
+                            class="
+                                exm-status-grid
+                            "
+                        >
+
+
+                            <div
+                                class="exm-status"
+                            >
+
+                                <span
+                                    class="
+                                        exm-status-number
+                                        answered
+                                    "
+                                    id="statusAnswered"
+                                >
+                                    0
+                                </span>
+
+                                <span>
+                                    Answered
+                                </span>
+
+                            </div>
+
+
+                            <div
+                                class="exm-status"
+                            >
+
+                                <span
+                                    class="
+                                        exm-status-number
+                                        notanswered
+                                    "
+                                    id="statusNotAnswered"
+                                >
+                                    0
+                                </span>
+
+                                <span>
+                                    Not Answered
+                                </span>
+
+                            </div>
+
+
+                            <div
+                                class="exm-status"
+                            >
+
+                                <span
+                                    class="
+                                        exm-status-number
+                                        notvisited
+                                    "
+                                    id="statusNotVisited"
+                                >
+
+                                    <?= $requiredQuestionCount ?>
+
+                                </span>
+
+                                <span>
+                                    Not Visited
+                                </span>
+
+                            </div>
+
+
+                            <div
+                                class="exm-status"
+                            >
+
+                                <span
+                                    class="
+                                        exm-status-number
+                                        review
+                                    "
+                                    id="statusReviewed"
+                                >
+                                    0
+                                </span>
+
+                                <span>
+                                    Marked for Review
+                                </span>
+
+                            </div>
+
+
+                            <div
+                                class="
+                                    exm-status
+                                    exm-status-full
+                                "
+                            >
+
+                                <span
+                                    class="
+                                        exm-status-number
+                                        answerreview
+                                    "
+                                    id="statusAnswerReview"
+                                >
+                                    0
+                                </span>
+
+                                <span>
+                                    Answered & Marked for Review
+                                </span>
+
+                            </div>
+
+
+                        </div>
+
+
+                    </section>
+
+
+                    <!-- QUESTION PALETTE -->
+
+                    <section
+                        class="exm-side-block"
+                    >
+
+
+                        <h3
+                            class="exm-side-title"
+                        >
+                            Choose a Question
+                        </h3>
+
+
+                        <div
+                            class="exm-palette"
+                            id="questionPalette"
+                        ></div>
+
+
+                    </section>
+
+
+                    <!-- DETAILS -->
+
+                    <section
+                        class="exm-side-block"
+                    >
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Total Questions
+                            </span>
+
+
+                            <strong>
+
+                                <?= $requiredQuestionCount ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Marks / Question
+                            </span>
+
+
+                            <strong>
+
+                                <?= take_exam_escape(
+                                    $marksPerQuestion
+                                ) ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Total Marks
+                            </span>
+
+
+                            <strong>
+
+                                <?= take_exam_escape(
+                                    $totalMarks
+                                ) ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Duration
+                            </span>
+
+
+                            <strong>
+
+                                <?= (int) (
+                                    $attempt[
+                                        'duration_minutes'
+                                    ] ?? 0
+                                ) ?>
+
+                                min
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Passing Marks
+                            </span>
+
+
+                            <strong>
+
+                                <?= take_exam_escape(
+                                    $attempt[
+                                        'passing_marks'
+                                    ] ?? 0
+                                ) ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-detail-row"
+                        >
+
+                            <span>
+                                Negative Marking
+                            </span>
+
+
+                            <strong>
+
+                                <?= $negativeMarking
+                                    ? 'Enabled'
+                                    : 'None'
+                                ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="exm-formula"
+                        >
+
+                            <span>
+                                Dynamic Total Marks
+                            </span>
+
+
+                            <strong>
+
+                                <?= $requiredQuestionCount ?>
+
+                                ×
+
+                                <?= take_exam_escape(
+                                    $marksPerQuestion
+                                ) ?>
+
+                                =
+
+                                <?= take_exam_escape(
+                                    $totalMarks
+                                ) ?>
+
+                            </strong>
+
+                        </div>
+
+
+                    </section>
+
+
+                    <!-- SUBMIT -->
+
+                    <section
+                        class="exm-side-block"
+                    >
+
+
+                        <div
+                            class="exm-submit"
+                        >
+
+
+                            <p>
+
+                                Review your answers before
+                                final submission. Once submitted,
+                                your result will be calculated
+                                securely by the server.
+
+                            </p>
+
+
+                            <button
+                                type="button"
+                                class="
+                                    exm-submit-button
+                                "
+                                id="submitButton"
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-paper-plane
+                                    "
+                                ></i>
+
+                                Submit
+
+                            </button>
+
+
+                        </div>
+
+
+                    </section>
+
+
+                </div>
+
+
+            </aside>
+
+
+        </div>
+
+
+    </main>
+
+
+    <!-- =====================================================
+         TOAST
+    ====================================================== -->
+
+    <div
+        class="exm-toast"
+        id="examToast"
+    ></div>
+
+
+</div>
+
+
+<!-- =========================================================
+     INSTRUCTIONS MODAL
+========================================================== -->
+
+<div
+    class="modal fade"
+    id="instructionsModal"
+    tabindex="-1"
+    aria-hidden="true"
+>
+
+    <div
+        class="
+            modal-dialog
+            modal-dialog-centered
+        "
+    >
+
+        <div
+            class="modal-content"
+        >
 
 
             <div
-                class="exam-summary"
-                id="examSummary"
+                class="modal-header"
             >
 
-                <div class="summary-row">
 
-                    <span>
-                        Total questions
-                    </span>
-
-                    <strong>
-                        <?= $requiredQuestionCount ?>
-                    </strong>
-
-                </div>
-
-
-                <div class="summary-row">
-
-                    <span>
-                        Total marks
-                    </span>
-
-                    <strong>
-                        <?= take_exam_escape(
-                            $attempt['total_marks']
-                        ) ?>
-                    </strong>
-
-                </div>
-
-
-                <div class="summary-row">
-
-                    <span>
-                        Duration
-                    </span>
-
-                    <strong>
-
-                        <?= (int) $attempt[
-                            'duration_minutes'
-                        ] ?>
-
-                        min
-
-                    </strong>
-
-                </div>
-
-
-                <div class="summary-row">
-
-                    <span>
-                        Negative marking
-                    </span>
-
-                    <strong>
-
-                        <?= (int) $attempt[
-                            'negative_marking'
-                        ] === 1
-                            ? 'Enabled'
-                            : 'None'
-                        ?>
-
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div class="submit-panel">
-
-                <p>
-
-                    Make sure you have reviewed
-                    your answers before submitting
-                    the examination.
-
-                </p>
-
-
-                <button
-                    type="button"
-                    class="submit-button"
-                    id="openSubmitButton"
+                <h5
+                    class="modal-title"
                 >
 
                     <i
                         class="
                             fa-solid
-                            fa-paper-plane
+                            fa-circle-info
+                            me-2
                         "
                     ></i>
 
-                    Submit examination
+                    Examination Instructions
 
-                </button>
+                </h5>
+
+
+                <button
+                    type="button"
+                    class="btn-close btn-close-white"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                ></button>
+
 
             </div>
 
-        </aside>
 
-    </main>
+            <div
+                class="modal-body"
+                style="
+                    padding:22px;
+                    color:#6E665F;
+                    font-size:10px;
+                    line-height:1.85;
+                "
+            >
+
+
+                <p>
+                    Select one correct answer for each question.
+                </p>
+
+
+                <p>
+                    Use <strong>Mark for Review & Next</strong>
+                    when you want to revisit a question later.
+                </p>
+
+
+                <p>
+                    Use <strong>Clear Response</strong>
+                    to remove the currently selected answer.
+                </p>
+
+
+                <p>
+                    Your answers are continuously synchronized
+                    with the examination server.
+                </p>
+
+
+                <p class="mb-0">
+                    When the timer reaches zero, the examination
+                    is automatically submitted.
+                </p>
+
+
+            </div>
+
+
+        </div>
+
+    </div>
 
 </div>
 
+
+<!-- =========================================================
+     SHORTCUT MODAL
+========================================================== -->
+
+<div
+    class="modal fade"
+    id="shortcutsModal"
+    tabindex="-1"
+    aria-hidden="true"
+>
+
+    <div
+        class="
+            modal-dialog
+            modal-dialog-centered
+            modal-sm
+        "
+    >
+
+        <div
+            class="modal-content"
+        >
+
+
+            <div
+                class="modal-header"
+                style="
+                    background:#F4EFE8;
+                    color:#3E2723;
+                "
+            >
+
+
+                <h5
+                    class="modal-title"
+                >
+                    Keyboard Shortcuts
+                </h5>
+
+
+                <button
+                    type="button"
+                    class="btn-close"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                ></button>
+
+
+            </div>
+
+
+            <div
+                class="modal-body"
+                style="
+                    padding:18px;
+                    font-size:9px;
+                "
+            >
+
+
+                <div
+                    class="
+                        d-flex
+                        justify-content-between
+                        py-2
+                        border-bottom
+                    "
+                >
+
+                    <span>
+                        Previous
+                    </span>
+
+                    <strong>
+                        ←
+                    </strong>
+
+                </div>
+
+
+                <div
+                    class="
+                        d-flex
+                        justify-content-between
+                        py-2
+                        border-bottom
+                    "
+                >
+
+                    <span>
+                        Save & Next
+                    </span>
+
+                    <strong>
+                        →
+                    </strong>
+
+                </div>
+
+
+                <div
+                    class="
+                        d-flex
+                        justify-content-between
+                        py-2
+                        border-bottom
+                    "
+                >
+
+                    <span>
+                        Mark Review
+                    </span>
+
+                    <strong>
+                        R
+                    </strong>
+
+                </div>
+
+
+                <div
+                    class="
+                        d-flex
+                        justify-content-between
+                        py-2
+                    "
+                >
+
+                    <span>
+                        Clear
+                    </span>
+
+                    <strong>
+                        C
+                    </strong>
+
+                </div>
+
+
+            </div>
+
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     QUESTION PAPER MODAL
+========================================================== -->
+
+<div
+    class="modal fade"
+    id="paperModal"
+    tabindex="-1"
+    aria-hidden="true"
+>
+
+    <div
+        class="
+            modal-dialog
+            modal-dialog-centered
+            modal-lg
+        "
+    >
+
+        <div
+            class="modal-content"
+        >
+
+
+            <div
+                class="modal-header"
+            >
+
+
+                <h5
+                    class="modal-title"
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-file-lines
+                            me-2
+                        "
+                    ></i>
+
+                    Question Paper
+
+                </h5>
+
+
+                <button
+                    type="button"
+                    class="btn-close btn-close-white"
+                    data-bs-dismiss="modal"
+                    aria-label="Close"
+                ></button>
+
+
+            </div>
+
+
+            <div
+                class="modal-body"
+                style="
+                    padding:20px;
+                "
+            >
+
+
+                <p
+                    style="
+                        color:#776E66;
+                        font-size:9px;
+                    "
+                >
+
+                    Select a question number to jump directly
+                    to that question.
+
+                </p>
+
+
+                <div
+                    id="paperPalette"
+                    style="
+                        display:grid;
+                        grid-template-columns:
+                            repeat(10,1fr);
+                        gap:7px;
+                    "
+                ></div>
+
+
+            </div>
+
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     SUBMIT MODAL
+========================================================== -->
 
 <div
     class="modal fade"
@@ -3118,15 +2584,18 @@ $initialAnswered =
     >
 
         <div
-            class="
-                modal-content
-                modal-card
-            "
+            class="modal-content"
         >
 
-            <div class="modal-header">
 
-                <h5 class="modal-title">
+            <div
+                class="modal-header"
+            >
+
+
+                <h5
+                    class="modal-title"
+                >
 
                     <i
                         class="
@@ -3136,7 +2605,7 @@ $initialAnswered =
                         "
                     ></i>
 
-                    Submit examination
+                    Submit Examination
 
                 </h5>
 
@@ -3145,48 +2614,71 @@ $initialAnswered =
                     type="button"
                     class="btn-close btn-close-white"
                     data-bs-dismiss="modal"
+                    aria-label="Close"
                 ></button>
+
 
             </div>
 
 
-            <div class="modal-body p-4">
-
-                <p
-                    class="mb-3"
-                    id="submitWarning"
-                >
-
-                    Are you sure you want to submit
-                    this examination?
-
-                </p>
+            <div
+                class="modal-body"
+                style="
+                    padding:22px;
+                "
+            >
 
 
                 <div
-                    class="
-                        p-3
-                        rounded-4
-                    "
+                    id="submitMessage"
                     style="
-                        background:#F5F5DC;
+                        color:#6E665F;
+                        font-size:9px;
+                        line-height:1.75;
+                    "
+                ></div>
+
+
+                <div
+                    style="
+                        display:grid;
+                        grid-template-columns:
+                            repeat(3,1fr);
+                        gap:7px;
+                        margin-top:14px;
                     "
                 >
 
+
                     <div
-                        class="
-                            d-flex
-                            justify-content-between
-                            mb-2
+                        style="
+                            padding:12px 8px;
+                            border:1px solid #E4DED3;
+                            border-radius:10px;
+                            background:#FAF8F3;
+                            text-align:center;
                         "
                     >
 
-                        <span>
+                        <small
+                            style="
+                                display:block;
+                                color:#7E756D;
+                                font-size:6px;
+                            "
+                        >
                             Answered
-                        </span>
+                        </small>
+
 
                         <strong
-                            id="dialogAnswered"
+                            id="submitAnswered"
+                            style="
+                                display:block;
+                                margin-top:3px;
+                                color:#556B2F;
+                                font-size:17px;
+                            "
                         >
                             0
                         </strong>
@@ -3195,19 +2687,34 @@ $initialAnswered =
 
 
                     <div
-                        class="
-                            d-flex
-                            justify-content-between
-                            mb-2
+                        style="
+                            padding:12px 8px;
+                            border:1px solid #E4DED3;
+                            border-radius:10px;
+                            background:#FAF8F3;
+                            text-align:center;
                         "
                     >
 
-                        <span>
+                        <small
+                            style="
+                                display:block;
+                                color:#7E756D;
+                                font-size:6px;
+                            "
+                        >
                             Unanswered
-                        </span>
+                        </small>
+
 
                         <strong
-                            id="dialogUnanswered"
+                            id="submitUnanswered"
+                            style="
+                                display:block;
+                                margin-top:3px;
+                                color:#A84B42;
+                                font-size:17px;
+                            "
                         >
                             0
                         </strong>
@@ -3216,25 +2723,43 @@ $initialAnswered =
 
 
                     <div
-                        class="
-                            d-flex
-                            justify-content-between
+                        style="
+                            padding:12px 8px;
+                            border:1px solid #E4DED3;
+                            border-radius:10px;
+                            background:#FAF8F3;
+                            text-align:center;
                         "
                     >
 
-                        <span>
-                            Marked for review
-                        </span>
+                        <small
+                            style="
+                                display:block;
+                                color:#7E756D;
+                                font-size:6px;
+                            "
+                        >
+                            Review
+                        </small>
+
 
                         <strong
-                            id="dialogReviewed"
+                            id="submitReview"
+                            style="
+                                display:block;
+                                margin-top:3px;
+                                color:#73549A;
+                                font-size:17px;
+                            "
                         >
                             0
                         </strong>
 
                     </div>
+
 
                 </div>
+
 
             </div>
 
@@ -3243,46 +2768,36 @@ $initialAnswered =
                 class="
                     modal-footer
                     border-0
-                    p-4
-                    pt-0
+                    p-3
                 "
             >
 
+
                 <button
                     type="button"
-                    class="
-                        exam-btn
-                        btn-secondary
-                    "
+                    class="exm-action"
                     data-bs-dismiss="modal"
                 >
-
-                    Continue exam
-
+                    Continue Exam
                 </button>
 
 
                 <button
                     type="button"
                     class="
-                        exam-btn
-                        btn-primary
+                        exm-action
+                        primary
                     "
-                    id="confirmSubmitButton"
+                    id="confirmSubmit"
                 >
 
-                    Submit now
-
-                    <i
-                        class="
-                            fa-solid
-                            fa-check
-                        "
-                    ></i>
+                    Submit Now
 
                 </button>
 
+
             </div>
+
 
         </div>
 
@@ -3291,16 +2806,14 @@ $initialAnswered =
 </div>
 
 
-<div
-    class="exam-toast"
-    id="examToast"
-></div>
-
+<!-- =========================================================
+     SUBMIT FORM
+========================================================== -->
 
 <form
+    id="submitForm"
     method="post"
     action="ajax/submit_exam.php"
-    id="realSubmitForm"
     style="display:none;"
 >
 
@@ -3325,27 +2838,39 @@ $initialAnswered =
         type="hidden"
         name="auto_submit"
         value="0"
-        id="autoSubmitField"
+        id="autoSubmit"
     >
+
 
 </form>
 
+
+<!-- =========================================================
+     BOOTSTRAP JS
+========================================================== -->
 
 <script
     src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"
 ></script>
 
 
+<!-- =========================================================
+     EXAM CONFIG
+========================================================== -->
+
 <script>
 
 window.EXAMSPHERE_EXAM = {
 
     attemptId:
-
         <?= (int) $attemptId ?>,
 
-    csrfToken:
+    examId:
+        <?= (int) (
+            $attempt['exam_id']
+        ) ?>,
 
+    csrfToken:
         <?= json_encode(
             $csrfToken,
             JSON_HEX_TAG |
@@ -3355,11 +2880,35 @@ window.EXAMSPHERE_EXAM = {
         ) ?>,
 
     deadline:
+        <?= (int) $deadlineMs ?>,
 
-        <?= (int) $deadlineMilliseconds ?>,
+    durationMinutes:
+        <?= (int) (
+            $attempt[
+                'duration_minutes'
+            ] ?? 0
+        ) ?>,
+
+    requiredQuestionCount:
+        <?= $requiredQuestionCount ?>,
+
+    totalMarks:
+        <?= json_encode(
+            $totalMarks
+        ) ?>,
+
+    marksPerQuestion:
+        <?= json_encode(
+            $marksPerQuestion
+        ) ?>,
+
+    negativeMarking:
+        <?= $negativeMarking
+            ? 'true'
+            : 'false'
+        ?>,
 
     questions:
-
         <?= json_encode(
             $frontendQuestions,
             JSON_HEX_TAG |
@@ -3375,8 +2924,12 @@ window.EXAMSPHERE_EXAM = {
 </script>
 
 
+<!-- =========================================================
+     EXAM JAVASCRIPT
+========================================================== -->
+
 <script
-    src="assets/js/exam.js"
+    src="assets/js/exam.js?v=20260914-final"
     defer
 ></script>
 

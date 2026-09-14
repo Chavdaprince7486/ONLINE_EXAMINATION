@@ -5,53 +5,65 @@ declare(strict_types=1);
 require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
-require_once '../config/razorpay.php';
+require_once '../config/auth.php';
+
+require_login('student');
+
+
+$studentId =
+    (int) (
+        $_SESSION['user_id']
+        ?? 0
+    );
 
 
 /*
 |--------------------------------------------------------------------------
-| Authentication
+| HELPERS
 |--------------------------------------------------------------------------
 */
 
-if (
-    empty($_SESSION['user_id']) ||
-    ($_SESSION['user_role'] ?? '') !== 'student'
-) {
-    header('Location: ../auth/login.php');
-    exit;
-}
+function live_escape(
+    mixed $value
+): string {
 
-$studentId = (int) $_SESSION['user_id'];
-
-
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
-
-function live_exams_escape(mixed $value): string
-{
     return htmlspecialchars(
-        (string) $value,
-        ENT_QUOTES | ENT_SUBSTITUTE,
+        (string) (
+            $value ?? ''
+        ),
+        ENT_QUOTES |
+        ENT_SUBSTITUTE,
         'UTF-8'
     );
 }
 
-function live_exams_number(float|int|string|null $value): string
-{
-    $number = (float) $value;
 
-    if (floor($number) === $number) {
+function live_number(
+    mixed $value
+): string {
+
+    $number =
+        round(
+            (float) (
+                $value ?? 0
+            ),
+            2
+        );
+
+
+    if (
+        floor($number) === $number
+    ) {
+
         return number_format(
             $number,
             0,
             '.',
             ''
         );
+
     }
+
 
     return rtrim(
         rtrim(
@@ -67,62 +79,94 @@ function live_exams_number(float|int|string|null $value): string
     );
 }
 
-function live_exams_parse_date(?string $value): ?DateTimeImmutable
-{
+
+function live_parse_datetime(
+    mixed $value
+): ?DateTimeImmutable {
+
     if (
-        trim((string) $value) === ''
+        $value === null ||
+        trim(
+            (string) $value
+        ) === ''
     ) {
+
         return null;
     }
 
+
     try {
+
         return new DateTimeImmutable(
             (string) $value
         );
-    } catch (Throwable) {
+
+    } catch (
+        Throwable $exception
+    ) {
+
         return null;
     }
 }
 
-function live_exams_state(
-    string $status,
-    ?DateTimeImmutable $startsAt,
-    ?DateTimeImmutable $endsAt,
-    DateTimeImmutable $now
+
+function live_exam_state(
+    ?DateTimeImmutable $start,
+    ?DateTimeImmutable $end,
+    DateTimeImmutable $now,
+    string $examStatus
 ): string {
 
     if (
-        $status === 'Completed' ||
-        (
-            $endsAt !== null &&
-            $now > $endsAt
-        )
+        $examStatus === 'Cancelled'
     ) {
+
+        return 'cancelled';
+    }
+
+
+    if (
+        $examStatus === 'Completed'
+    ) {
+
         return 'completed';
     }
 
+
     if (
-        $startsAt !== null &&
-        $now < $startsAt
+        $end !== null &&
+        $now > $end
     ) {
+
+        return 'completed';
+    }
+
+
+    if (
+        $start !== null &&
+        $now < $start
+    ) {
+
         return 'upcoming';
     }
 
+
     if (
-        $startsAt !== null &&
-        $now >= $startsAt &&
+        $start !== null &&
+        $now >= $start &&
         (
-            $endsAt === null ||
-            $now <= $endsAt
+            $end === null ||
+            $now <= $end
         )
     ) {
+
         return 'live';
     }
 
+
     if (
-        $startsAt === null &&
         in_array(
-            $status,
+            $examStatus,
             [
                 'Live',
                 'Running',
@@ -131,119 +175,216 @@ function live_exams_state(
             true
         )
     ) {
+
         return 'live';
     }
+
 
     return 'upcoming';
 }
 
-function live_exams_state_label(
+
+function live_state_label(
     string $state
 ): string {
 
     return match ($state) {
-        'live' => 'Live now',
-        'completed' => 'Ended',
-        default => 'Upcoming'
+
+        'live' =>
+            'Live Now',
+
+        'upcoming' =>
+            'Upcoming',
+
+        'completed' =>
+            'Completed',
+
+        'cancelled' =>
+            'Cancelled',
+
+        default =>
+            'Scheduled'
+    };
+}
+
+
+function live_state_icon(
+    string $state
+): string {
+
+    return match ($state) {
+
+        'live' =>
+            'fa-tower-broadcast',
+
+        'upcoming' =>
+            'fa-calendar-days',
+
+        'completed' =>
+            'fa-circle-check',
+
+        'cancelled' =>
+            'fa-ban',
+
+        default =>
+            'fa-calendar'
+    };
+}
+
+
+function live_state_badge_class(
+    string $state
+): string {
+
+    return match ($state) {
+
+        'live' =>
+            'live-badge-live',
+
+        'upcoming' =>
+            'live-badge-upcoming',
+
+        'completed' =>
+            'live-badge-completed',
+
+        'cancelled' =>
+            'live-badge-cancelled',
+
+        default =>
+            'live-badge-upcoming'
     };
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| Filters
+| FILTERS
 |--------------------------------------------------------------------------
 */
 
-$search = trim(
-    (string) (
-        $_GET['search'] ?? ''
-    )
-);
-
-$view = trim(
-    (string) (
-        $_GET['view'] ?? 'all'
-    )
-);
-
-$allowedViews = [
-    'all',
-    'upcoming',
-    'live',
-    'completed'
-];
-
-if (
-    !in_array(
-        $view,
-        $allowedViews,
-        true
-    )
-) {
-    $view = 'all';
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| Flash
-|--------------------------------------------------------------------------
-*/
-
-$paymentMessage = '';
-$paymentType = '';
-
-if (
-    !empty(
-        $_SESSION['live_exam_flash']
-    )
-) {
-
-    $paymentMessage =
-        (string) $_SESSION[
-            'live_exam_flash'
-        ];
-
-    $paymentType =
-        'success';
-
-    unset(
-        $_SESSION['live_exam_flash']
+$search =
+    trim(
+        (string) (
+            $_GET['search']
+            ?? ''
+        )
     );
+
+
+$subjectId =
+    filter_input(
+        INPUT_GET,
+        'subject_id',
+        FILTER_VALIDATE_INT
+    );
+
+
+if (
+    $subjectId === false ||
+    $subjectId === null ||
+    $subjectId <= 0
+) {
+
+    $subjectId =
+        null;
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| PAYMENT FLASH
-|--------------------------------------------------------------------------
-| Real Razorpay checkout is launched client-side after a server-created
-| order is returned by the protected AJAX endpoint.
+| SUBJECTS
 |--------------------------------------------------------------------------
 */
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $postedCsrf = trim((string)($_POST['csrf_token'] ?? ''));
+$subjects =
+    [];
 
-    if (!function_exists('verify_csrf_token') || !verify_csrf_token($postedCsrf)) {
-        $paymentMessage = 'Your session security token is invalid. Please refresh and try again.';
-        $paymentType = 'error';
-    }
+
+try {
+
+    $subjectStatement =
+        $conn->query(
+            "
+            SELECT
+
+                id,
+                name,
+                code
+
+            FROM subjects
+
+            WHERE
+
+                status = 'Active'
+
+            ORDER BY
+
+                name ASC,
+                id ASC
+            "
+        );
+
+
+    $subjects =
+        $subjectStatement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+} catch (
+    Throwable $exception
+) {
+
+    error_log(
+        'Live subjects load failed: ' .
+        $exception->getMessage()
+    );
+
+    $subjects =
+        [];
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| Load Live Exams
-|--------------------------------------------------------------------------
-|
-| Only exams having the exact required number of ACTIVE questions
-| are shown.
+| ACTIVE SUBSCRIPTION
 |--------------------------------------------------------------------------
 */
 
-$rawLiveExams = [];
+$hasActiveSubscription =
+    false;
+
+
+try {
+
+    $hasActiveSubscription =
+        has_active_subscription(
+            $conn,
+            $studentId
+        );
+
+} catch (
+    Throwable $exception
+) {
+
+    error_log(
+        'Live subscription check failed: ' .
+        $exception->getMessage()
+    );
+
+    $hasActiveSubscription =
+        false;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LIVE EXAMS
+|--------------------------------------------------------------------------
+*/
+
+$exams =
+    [];
+
 
 try {
 
@@ -252,7 +393,6 @@ try {
 
             e.id,
             e.subject_id,
-            e.teacher_id,
 
             e.title,
             e.description,
@@ -260,18 +400,21 @@ try {
             e.exam_type,
 
             e.duration_minutes,
+
             e.required_question_count,
 
-            e.total_marks,
             e.passing_marks,
 
             e.negative_marking,
+
             e.exam_fee,
+
             e.subscription_required,
+
+            e.status,
 
             e.starts_at,
             e.ends_at,
-            e.status,
 
             e.created_at,
             e.updated_at,
@@ -279,43 +422,60 @@ try {
             s.name AS subject_name,
             s.code AS subject_code,
 
-            (
-                SELECT COUNT(DISTINCT eq1.question_id)
+            COUNT(
+                DISTINCT eq.question_id
+            ) AS active_question_count,
 
-                FROM exam_questions eq1
+            MIN(
+                q.marks
+            ) AS marks_per_question_min,
 
-                INNER JOIN questions q1
-                    ON q1.id = eq1.question_id
-
-                WHERE
-                    eq1.exam_id = e.id
-                    AND q1.status = 'Active'
-            ) AS active_question_count
+            MAX(
+                q.marks
+            ) AS marks_per_question_max
 
         FROM exams e
 
         INNER JOIN subjects s
-            ON s.id = e.subject_id
-            AND s.status = 'Active'
+
+            ON s.id =
+                e.subject_id
+
+            AND s.status =
+                'Active'
+
+        LEFT JOIN exam_questions eq
+
+            ON eq.exam_id =
+                e.id
+
+        LEFT JOIN questions q
+
+            ON q.id =
+                eq.question_id
+
+            AND q.status =
+                'Active'
 
         WHERE
 
-            e.exam_type = 'Live'
+            e.exam_type =
+                'Live'
 
-            AND e.status IN (
-                'Scheduled',
-                'Live',
-                'Completed',
-                'Active',
-                'Upcoming',
-                'Running'
-            )
-
-            AND e.required_question_count > 0
+            AND e.required_question_count >
+                0
     ";
 
-    $parameters = [];
 
+    $parameters =
+        [];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | SEARCH
+    |--------------------------------------------------------------------------
+    */
 
     if (
         $search !== ''
@@ -330,10 +490,12 @@ try {
             )
         ";
 
+
         $searchValue =
             '%' .
             $search .
             '%';
+
 
         $parameters[] =
             $searchValue;
@@ -349,34 +511,88 @@ try {
     }
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | SUBJECT FILTER
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        $subjectId !== null
+    ) {
+
+        $sql .= "
+            AND e.subject_id = ?
+        ";
+
+
+        $parameters[] =
+            $subjectId;
+    }
+
+
     $sql .= "
+
+        GROUP BY
+
+            e.id,
+            e.subject_id,
+
+            e.title,
+            e.description,
+
+            e.exam_type,
+
+            e.duration_minutes,
+
+            e.required_question_count,
+
+            e.passing_marks,
+
+            e.negative_marking,
+
+            e.exam_fee,
+
+            e.subscription_required,
+
+            e.status,
+
+            e.starts_at,
+            e.ends_at,
+
+            e.created_at,
+            e.updated_at,
+
+            s.name,
+            s.code
+
         ORDER BY
 
             CASE
 
                 WHEN
                     e.starts_at IS NOT NULL
-                    AND e.starts_at <= NOW()
-                    AND (
-                        e.ends_at IS NULL
-                        OR e.ends_at >= NOW()
-                    )
-
+                    AND e.starts_at > NOW()
                 THEN 0
 
                 WHEN
-                    e.starts_at IS NOT NULL
-                    AND e.starts_at > NOW()
-
+                    (
+                        e.starts_at IS NULL
+                        OR e.starts_at <= NOW()
+                    )
+                    AND
+                    (
+                        e.ends_at IS NULL
+                        OR e.ends_at >= NOW()
+                    )
                 THEN 1
 
                 ELSE 2
 
-            END,
+            END ASC,
 
             COALESCE(
                 e.starts_at,
-                e.updated_at,
                 e.created_at
             ) ASC,
 
@@ -384,167 +600,165 @@ try {
     ";
 
 
-    $liveStatement =
+    $examStatement =
         $conn->prepare(
             $sql
         );
 
-    $liveStatement->execute(
+
+    $examStatement->execute(
         $parameters
     );
 
-    $rawLiveExams =
-        $liveStatement->fetchAll(
+
+    $exams =
+        $examStatement->fetchAll(
             PDO::FETCH_ASSOC
         );
 
-} catch (Throwable $exception) {
+
+} catch (
+    Throwable $exception
+) {
 
     error_log(
-        'Live exams listing failed: ' .
+        'Live exams load failed: ' .
         $exception->getMessage()
     );
 
-    $rawLiveExams = [];
+    $exams =
+        [];
 }
 
 
 /*
 |--------------------------------------------------------------------------
-| Readiness Filter
+| EXAM IDS
 |--------------------------------------------------------------------------
 */
 
-$readyLiveExams = [];
+$examIds =
+    [];
+
 
 foreach (
-    $rawLiveExams as $exam
+    $exams as $exam
 ) {
 
-    $requiredCount =
-        (int) $exam[
-            'required_question_count'
-        ];
-
-    $activeCount =
-        (int) $exam[
-            'active_question_count'
-        ];
-
-    if (
-        $requiredCount <= 0 ||
-        $activeCount !== $requiredCount
-    ) {
-        continue;
-    }
-
-    $readyLiveExams[] =
-        $exam;
+    $examIds[] =
+        (int) $exam['id'];
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| Current Date
-|--------------------------------------------------------------------------
-*/
-
-$now =
-    new DateTimeImmutable();
+$examIds =
+    array_values(
+        array_unique(
+            $examIds
+        )
+    );
 
 
 /*
 |--------------------------------------------------------------------------
-| Load Latest Results In One Query
+| LATEST RESULTS
 |--------------------------------------------------------------------------
 */
 
-$latestResults = [];
+$latestResults =
+    [];
 
 
 if (
-    !empty($readyLiveExams)
+    !empty($examIds)
 ) {
 
-    try {
-
-        $examIds = array_map(
-            static function (
-                array $exam
-            ): int {
-                return (int) $exam['id'];
-            },
-            $readyLiveExams
+    $placeholders =
+        implode(
+            ',',
+            array_fill(
+                0,
+                count($examIds),
+                '?'
+            )
         );
 
 
-        $examIds =
-            array_values(
-                array_unique(
-                    $examIds
-                )
-            );
-
-
-        $placeholders =
-            implode(
-                ',',
-                array_fill(
-                    0,
-                    count($examIds),
-                    '?'
-                )
-            );
-
+    try {
 
         $resultStatement =
-            $conn->prepare("
+            $conn->prepare(
+                "
                 SELECT
 
                     r.id,
                     r.exam_id,
+                    r.attempt_id,
+
                     r.percentage,
                     r.grade,
+
                     r.result_status,
+
+                    r.obtained_marks,
+                    r.total_marks,
+
+                    r.correct_answers,
+                    r.wrong_answers,
+                    r.unanswered_questions,
+
                     r.created_at
 
                 FROM results r
 
                 INNER JOIN (
+
                     SELECT
 
                         exam_id,
-                        MAX(id) AS latest_result_id
+
+                        MAX(id)
+                            AS latest_result_id
 
                     FROM results
 
                     WHERE
+
                         student_id = ?
 
                         AND exam_id IN (
                             {$placeholders}
                         )
 
-                    GROUP BY exam_id
+                    GROUP BY
+
+                        exam_id
 
                 ) latest
 
-                    ON latest.latest_result_id = r.id
+                    ON latest.latest_result_id =
+                        r.id
 
                 WHERE
+
                     r.student_id = ?
-            ");
+
+                "
+            );
 
 
         $resultParameters =
             array_merge(
+
                 [
                     $studentId
                 ],
+
                 $examIds,
+
                 [
                     $studentId
                 ]
+
             );
 
 
@@ -553,20 +767,27 @@ if (
         );
 
 
-        foreach (
-            $resultStatement->fetchAll(PDO::FETCH_ASSOC)
-            as $result
+        while (
+            $row =
+                $resultStatement->fetch(
+                    PDO::FETCH_ASSOC
+                )
         ) {
 
             $latestResults[
-                (int) $result['exam_id']
-            ] = $result;
+                (int) $row[
+                    'exam_id'
+                ]
+            ] =
+                $row;
         }
 
-    } catch (Throwable $exception) {
+    } catch (
+        Throwable $exception
+    ) {
 
         error_log(
-            'Live exam results lookup failed: ' .
+            'Live latest results lookup failed: ' .
             $exception->getMessage()
         );
     }
@@ -575,98 +796,104 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| Load Active Attempts In One Query
+| ACTIVE ATTEMPTS
 |--------------------------------------------------------------------------
 */
 
-$activeAttempts = [];
+$activeAttempts =
+    [];
 
 
 if (
-    !empty($readyLiveExams)
+    !empty($examIds)
 ) {
 
-    try {
-
-        $examIds = array_map(
-            static function (
-                array $exam
-            ): int {
-                return (int) $exam['id'];
-            },
-            $readyLiveExams
+    $placeholders =
+        implode(
+            ',',
+            array_fill(
+                0,
+                count($examIds),
+                '?'
+            )
         );
 
 
-        $examIds =
-            array_values(
-                array_unique(
-                    $examIds
-                )
-            );
-
-
-        $placeholders =
-            implode(
-                ',',
-                array_fill(
-                    0,
-                    count($examIds),
-                    '?'
-                )
-            );
-
+    try {
 
         $attemptStatement =
-            $conn->prepare("
+            $conn->prepare(
+                "
                 SELECT
 
                     ea.id,
                     ea.exam_id,
+
                     ea.started_at,
                     ea.server_deadline,
+
                     ea.status
 
                 FROM exam_attempts ea
 
                 INNER JOIN (
+
                     SELECT
 
                         exam_id,
-                        MAX(id) AS latest_attempt_id
+
+                        MAX(id)
+                            AS latest_attempt_id
 
                     FROM exam_attempts
 
                     WHERE
-                        student_id = ?
 
-                        AND status = 'Started'
+                        student_id = ?
 
                         AND exam_id IN (
                             {$placeholders}
                         )
 
-                    GROUP BY exam_id
+                        AND status =
+                            'Started'
+
+                    GROUP BY
+
+                        exam_id
 
                 ) latest
 
-                    ON latest.latest_attempt_id = ea.id
+                    ON latest.latest_attempt_id =
+                        ea.id
 
                 WHERE
+
                     ea.student_id = ?
-                    AND ea.status = 'Started'
-            ");
+
+                    AND ea.status =
+                        'Started'
+
+                ORDER BY
+
+                    ea.id DESC
+                "
+            );
 
 
         $attemptParameters =
             array_merge(
+
                 [
                     $studentId
                 ],
+
                 $examIds,
+
                 [
                     $studentId
                 ]
+
             );
 
 
@@ -675,20 +902,27 @@ if (
         );
 
 
-        foreach (
-            $attemptStatement->fetchAll(PDO::FETCH_ASSOC)
-            as $attempt
+        while (
+            $row =
+                $attemptStatement->fetch(
+                    PDO::FETCH_ASSOC
+                )
         ) {
 
             $activeAttempts[
-                (int) $attempt['exam_id']
-            ] = $attempt;
+                (int) $row[
+                    'exam_id'
+                ]
+            ] =
+                $row;
         }
 
-    } catch (Throwable $exception) {
+    } catch (
+        Throwable $exception
+    ) {
 
         error_log(
-            'Live exam attempt lookup failed: ' .
+            'Live active attempts lookup failed: ' .
             $exception->getMessage()
         );
     }
@@ -697,399 +931,313 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| Subscription State
+| ENRICH
 |--------------------------------------------------------------------------
 */
 
-$hasSubscription = false;
+$now =
+    new DateTimeImmutable();
 
 
-try {
-
-    $subscriptionStatement =
-        $conn->prepare("
-            SELECT id
-
-            FROM subscriptions
-
-            WHERE
-                student_id = ?
-
-                AND status = 'Active'
-
-                AND start_date <= CURDATE()
-
-                AND end_date >= CURDATE()
-
-            ORDER BY
-                end_date DESC
-
-            LIMIT 1
-        ");
-
-    $subscriptionStatement->execute([
-        $studentId
-    ]);
-
-    $hasSubscription =
-        (bool) $subscriptionStatement->fetchColumn();
-
-} catch (Throwable $exception) {
-
-    error_log(
-        'Live exam subscription status failed: ' .
-        $exception->getMessage()
-    );
-}
+$liveNowCount =
+    0;
 
 
-/*
-|--------------------------------------------------------------------------
-| Build Student-Facing Exam List
-|--------------------------------------------------------------------------
-*/
+$upcomingCount =
+    0;
 
-$liveExams = [];
 
-$upcomingCount = 0;
-$liveCount = 0;
-$completedCount = 0;
+$completedCount =
+    0;
+
+
+$attemptedCount =
+    0;
+
+
+$inProgressCount =
+    0;
+
+
+$totalLiveQuestions =
+    0;
+
+
+$readyCount =
+    0;
 
 
 foreach (
-    $readyLiveExams as $exam
+    $exams as &$exam
 ) {
 
     $examId =
         (int) $exam['id'];
 
 
-    $startsAt =
-        live_exams_parse_date(
-            $exam['starts_at']
+    $questionCount =
+        (int) (
+            $exam[
+                'active_question_count'
+            ] ?? 0
         );
 
 
-    $endsAt =
-        live_exams_parse_date(
-            $exam['ends_at']
+    $requiredCount =
+        (int) (
+            $exam[
+                'required_question_count'
+            ] ?? 0
         );
 
 
-    $state =
-        live_exams_state(
-            (string) $exam['status'],
-            $startsAt,
-            $endsAt,
-            $now
+    $marksMin =
+        round(
+            (float) (
+                $exam[
+                    'marks_per_question_min'
+                ] ?? 0
+            ),
+            2
         );
 
 
-    $stateLabel =
-        live_exams_state_label(
-            $state
+    $marksMax =
+        round(
+            (float) (
+                $exam[
+                    'marks_per_question_max'
+                ] ?? 0
+            ),
+            2
         );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DYNAMIC TOTAL
+    |--------------------------------------------------------------------------
+    */
+
+    $dynamicTotalMarks =
+        round(
+            $questionCount *
+            $marksMin,
+            2
+        );
+
+
+    $exam[
+        'marks_per_question'
+    ] =
+        $marksMin;
+
+
+    $exam[
+        'dynamic_total_marks'
+    ] =
+        $dynamicTotalMarks;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | READY
+    |--------------------------------------------------------------------------
+    */
+
+    $isReady =
+        (
+            $requiredCount > 0
+            &&
+            $questionCount ===
+                $requiredCount
+            &&
+            $marksMin > 0
+            &&
+            $marksMin ===
+                $marksMax
+        );
+
+
+    $exam[
+        'exam_ready'
+    ] =
+        $isReady;
 
 
     if (
-        $state === 'upcoming'
+        $isReady
     ) {
-        $upcomingCount++;
-    } elseif (
+
+        $readyCount++;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DATES
+    |--------------------------------------------------------------------------
+    */
+
+    $start =
+        live_parse_datetime(
+            $exam[
+                'starts_at'
+            ] ?? null
+        );
+
+
+    $end =
+        live_parse_datetime(
+            $exam[
+                'ends_at'
+            ] ?? null
+        );
+
+
+    $exam[
+        'start_datetime'
+    ] =
+        $start;
+
+
+    $exam[
+        'end_datetime'
+    ] =
+        $end;
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | STATE
+    |--------------------------------------------------------------------------
+    */
+
+    $state =
+        live_exam_state(
+            $start,
+            $end,
+            $now,
+            (string) (
+                $exam[
+                    'status'
+                ] ?? ''
+            )
+        );
+
+
+    $exam[
+        'state'
+    ] =
+        $state;
+
+
+    if (
         $state === 'live'
     ) {
-        $liveCount++;
-    } else {
+
+        $liveNowCount++;
+
+    } elseif (
+        $state === 'upcoming'
+    ) {
+
+        $upcomingCount++;
+
+    } elseif (
+        $state === 'completed'
+    ) {
+
         $completedCount++;
     }
 
 
     /*
-     * Access verification.
-     */
-    $accessMessage = '';
+    |--------------------------------------------------------------------------
+    | RESULT
+    |--------------------------------------------------------------------------
+    */
 
-
-    try {
-
-        $accessMessage =
-            live_exam_access_message(
-                $conn,
-                $studentId,
-                $exam
-            );
-
-    } catch (Throwable $exception) {
-
-        error_log(
-            'Live exam access lookup failed: ' .
-            $exception->getMessage()
-        );
-
-        $accessMessage =
-            'Unable to verify live exam access right now.';
-    }
-
-
-    $accessMessageLower =
-        strtolower(
-            $accessMessage
-        );
-
-
-    $requiresPayment =
-        (
-            (float) $exam['exam_fee'] > 0
-            &&
-            str_contains(
-                $accessMessageLower,
-                'payment'
-            )
-        );
-
-
-    $requiresSubscription =
-        (
-            (int) $exam[
-                'subscription_required'
-            ] === 1
-
-            &&
-
-            str_contains(
-                $accessMessageLower,
-                'subscription'
-            )
-        );
-
-
-    /*
-     * Active attempt.
-     */
-    $activeAttempt =
-        $activeAttempts[
-            $examId
-        ] ?? null;
-
-
-    /*
-     * Latest result.
-     */
-    $latestResult =
+    $exam[
+        'latest_result'
+    ] =
         $latestResults[
             $examId
         ] ?? null;
 
 
     /*
-     * Authoritative action.
-     */
-    $actionType =
-        'details';
+    |--------------------------------------------------------------------------
+    | ATTEMPT
+    |--------------------------------------------------------------------------
+    */
 
-    $actionText =
-        'View details';
-
-    $actionUrl =
-        'exam-details.php?exam_id=' .
-        $examId;
-
-
-    /*
-     * Payment has priority.
-     */
-    if (
-        $requiresPayment
-    ) {
-
-        $actionType =
-            'payment';
-
-        $actionText =
-            'Pay to unlock';
-
-        $actionUrl =
-            '#payment-' .
-            $examId;
-
-    } elseif (
-        $requiresSubscription
-    ) {
-
-        $actionType =
-            'subscription';
-
-        $actionText =
-            'Activate subscription';
-
-        $actionUrl =
-            'subscriptions.php';
-
-    } elseif (
-        $state === 'live'
-    ) {
-
-        /*
-         * start_exam.php is the authoritative gate.
-         * Only expose the entry button when the database
-         * status is one accepted by start_exam.php.
-         */
-        if (
-            in_array(
-                (string) $exam['status'],
-                [
-                    'Active',
-                    'Live'
-                ],
-                true
-            )
-        ) {
-
-            $actionType =
-                $activeAttempt
-                    ? 'resume'
-                    : 'start';
-
-            $actionText =
-                $activeAttempt
-                    ? 'Resume live exam'
-                    : 'Enter live exam';
-
-            $actionUrl =
-                'start_exam.php?id=' .
-                $examId;
-
-        } else {
-
-            $actionType =
-                'waiting';
-
-            $actionText =
-                'Waiting for activation';
-
-            $actionUrl =
-                'exam-details.php?exam_id=' .
-                $examId;
-        }
-
-    } elseif (
-        $state === 'completed' &&
-        $latestResult
-    ) {
-
-        $actionType =
-            'result';
-
-        $actionText =
-            'View result';
-
-        $actionUrl =
-            'result.php?id=' .
-            (int) $latestResult['id'];
-
-    } elseif (
-        $state === 'completed'
-    ) {
-
-        $actionType =
-            'ended';
-
-        $actionText =
-            'Exam ended';
-
-        $actionUrl =
-            'exam-details.php?exam_id=' .
-            $examId;
-
-    } else {
-
-        $actionType =
-            'upcoming';
-
-        $actionText =
-            'Available at scheduled time';
-
-        $actionUrl =
-            'exam-details.php?exam_id=' .
-            $examId;
-    }
-
-
-    /*
-     * Current view filter.
-     */
-    $include =
-        match ($view) {
-            'upcoming' => $state === 'upcoming',
-            'live' => $state === 'live',
-            'completed' => $state === 'completed',
-            default => true
-        };
+    $exam[
+        'active_attempt'
+    ] =
+        $activeAttempts[
+            $examId
+        ] ?? null;
 
 
     if (
-        !$include
+        $exam[
+            'active_attempt'
+        ] !== null
     ) {
-        continue;
+
+        $inProgressCount++;
     }
 
 
-    $exam['state'] =
-        $state;
+    if (
+        $exam[
+            'latest_result'
+        ] !== null
+    ) {
 
-    $exam['state_label'] =
-        $stateLabel;
-
-    $exam['state_class'] =
-        $state;
-
-    $exam['starts_object'] =
-        $startsAt;
-
-    $exam['ends_object'] =
-        $endsAt;
-
-    $exam['access_message'] =
-        $accessMessage;
-
-    $exam['requires_payment'] =
-        $requiresPayment;
-
-    $exam['requires_subscription'] =
-        $requiresSubscription;
-
-    $exam['active_attempt'] =
-        $activeAttempt;
-
-    $exam['latest_result'] =
-        $latestResult;
-
-    $exam['action_type'] =
-        $actionType;
-
-    $exam['action_text'] =
-        $actionText;
-
-    $exam['action_url'] =
-        $actionUrl;
+        $attemptedCount++;
+    }
 
 
-    $liveExams[] =
-        $exam;
+    $totalLiveQuestions +=
+        $questionCount;
 }
+
+
+unset(
+    $exam
+);
 
 
 /*
 |--------------------------------------------------------------------------
-| CSRF
+| FILTER STATE
 |--------------------------------------------------------------------------
 */
 
-$csrfToken =
-    function_exists('csrf_token')
-        ? csrf_token()
-        : '';
+$filterActive =
+    (
+        $search !== ''
+        ||
+        $subjectId !== null
+    );
 
+
+$renderExamCount =
+    count(
+        $exams
+    );
+
+
+/*
+|--------------------------------------------------------------------------
+| PAGE
+|--------------------------------------------------------------------------
+*/
+
+$pageTitle =
+    'Live Exams';
 
 ?>
 
@@ -1101,38 +1249,72 @@ $csrfToken =
 
     <meta charset="UTF-8">
 
+
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
 
+
     <meta
         name="theme-color"
-        content="#f5f5dc"
+        content="#F5F5DC"
     >
 
+
+    <meta
+        name="csrf-token"
+        content="<?= live_escape(
+            function_exists('csrf_token')
+                ? csrf_token()
+                : (
+                    $_SESSION[
+                        'csrf_token'
+                    ] ?? ''
+                )
+        ); ?>"
+    >
+
+
     <title>
-        Live Exams | ExamSphere
+
+        <?= live_escape(
+            $pageTitle
+        ); ?>
+
+        |
+
+        ExamSphere
+
     </title>
 
 
+    <!-- =====================================================
+         FONT
+    ====================================================== -->
+
     <link
         rel="preconnect"
         href="https://fonts.googleapis.com"
     >
 
+
     <link
         rel="preconnect"
-        href="https://fonts.googleapis.com"
+        href="https://fonts.gstatic.com"
         crossorigin
     >
 
 
     <link
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet"
     >
 
+
+    <!-- =====================================================
+         ICONS
+    ====================================================== -->
 
     <link
         rel="stylesheet"
@@ -1140,1627 +1322,5283 @@ $csrfToken =
     >
 
 
+    <!-- =====================================================
+         EXISTING DASHBOARD CSS
+    ====================================================== -->
+
     <link
         rel="stylesheet"
         href="assets/css/dashboard.css"
     >
 
 
-    <link
-        rel="stylesheet"
-        href="assets/css/live-exams-pro.css"
-    >
+    <style>
+
+        /*
+        =========================================================
+        EXAMSPHERE LIVE EXAMS — PRACTICE STYLE
+        =========================================================
+        */
+
+        :root {
+
+            --cream:
+                #F5F5DC;
+
+            --cream-light:
+                #FAF9F4;
+
+            --white:
+                #FFFFFF;
+
+            --brown:
+                #5D4037;
+
+            --brown-dark:
+                #3E2723;
+
+            --brown-soft:
+                #76574C;
+
+            --olive:
+                #556B2F;
+
+            --olive-dark:
+                #435620;
+
+            --charcoal:
+                #333333;
+
+            --muted:
+                #7F766E;
+
+            --border:
+                #E4DED3;
+
+            --green-bg:
+                #EAF3E2;
+
+            --green:
+                #597233;
+
+            --gold-bg:
+                #FFF4DE;
+
+            --gold:
+                #9B741F;
+
+            --red-bg:
+                #FBE9E6;
+
+            --red:
+                #A64B42;
+
+            --purple-bg:
+                #F1ECF8;
+
+            --purple:
+                #705A99;
+
+            --shadow-sm:
+                0 10px 30px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .055
+                );
+
+            --shadow:
+                0 22px 55px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .09
+                );
+
+            --shadow-lg:
+                0 30px 75px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .14
+                );
+
+        }
+
+
+        * {
+
+            box-sizing:
+                border-box;
+
+        }
+
+
+        html {
+
+            scroll-behavior:
+                smooth;
+
+        }
+
+
+        body {
+
+            margin:
+                0;
+
+            color:
+                var(--charcoal);
+
+            font-family:
+                'Poppins',
+                Arial,
+                sans-serif;
+
+            background:
+
+                radial-gradient(
+                    circle at 5% 4%,
+                    rgba(
+                        85,
+                        107,
+                        47,
+                        .10
+                    ),
+                    transparent 24%
+                ),
+
+                radial-gradient(
+                    circle at 96% 3%,
+                    rgba(
+                        93,
+                        64,
+                        55,
+                        .11
+                    ),
+                    transparent 25%
+                ),
+
+                linear-gradient(
+                    180deg,
+                    #F8F7EB 0%,
+                    var(--cream) 46%,
+                    #F1EFE5 100%
+                );
+
+        }
+
+
+        a {
+
+            text-decoration:
+                none;
+
+        }
+
+
+        button,
+        input,
+        select {
+
+            font-family:
+                inherit;
+
+        }
+
+
+        /*
+        =========================================================
+        MAIN
+        =========================================================
+        */
+
+        .live-premium-page {
+
+            width:
+                min(
+                    1460px,
+                    calc(
+                        100% - 40px
+                    )
+                );
+
+            margin:
+                30px auto 70px;
+
+        }
+
+
+        /*
+        =========================================================
+        HERO
+        =========================================================
+        */
+
+        .live-hero {
+
+            position:
+                relative;
+
+            overflow:
+                hidden;
+
+            display:
+                grid;
+
+            grid-template-columns:
+                minmax(
+                    0,
+                    1fr
+                )
+                310px;
+
+            gap:
+                30px;
+
+            padding:
+                34px;
+
+            border:
+                1px solid
+                rgba(
+                    228,
+                    222,
+                    211,
+                    .92
+                );
+
+            border-radius:
+                30px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .89
+                );
+
+            box-shadow:
+                var(--shadow);
+
+            backdrop-filter:
+                blur(
+                    20px
+                );
+
+        }
+
+
+        .live-hero::before {
+
+            content:
+                '';
+
+            position:
+                absolute;
+
+            width:
+                320px;
+
+            height:
+                320px;
+
+            top:
+                -190px;
+
+            right:
+                -100px;
+
+            border-radius:
+                50%;
+
+            background:
+                rgba(
+                    85,
+                    107,
+                    47,
+                    .10
+                );
+
+        }
+
+
+        .live-hero::after {
+
+            content:
+                '';
+
+            position:
+                absolute;
+
+            width:
+                210px;
+
+            height:
+                210px;
+
+            bottom:
+                -150px;
+
+            left:
+                33%;
+
+            border-radius:
+                50%;
+
+            background:
+                rgba(
+                    93,
+                    64,
+                    55,
+                    .065
+                );
+
+        }
+
+
+        .live-hero-content {
+
+            position:
+                relative;
+
+            z-index:
+                2;
+
+        }
+
+
+        .live-kicker {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                8px;
+
+            padding:
+                7px 10px;
+
+            border:
+                1px solid
+                #DFD8CD;
+
+            border-radius:
+                9px;
+
+            color:
+                var(--olive);
+
+            background:
+                #F6F6EB;
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            letter-spacing:
+                1.4px;
+
+            text-transform:
+                uppercase;
+
+        }
+
+
+        .live-kicker i {
+
+            font-size:
+                10px;
+
+        }
+
+
+        .live-hero-title {
+
+            margin:
+                15px 0 10px;
+
+            max-width:
+                860px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                clamp(
+                    32px,
+                    4.2vw,
+                    56px
+                );
+
+            line-height:
+                1.05;
+
+            letter-spacing:
+                -.045em;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-hero-title span {
+
+            color:
+                var(--olive);
+
+            font-weight:
+                700;
+
+        }
+
+
+        .live-hero-text {
+
+            max-width:
+                820px;
+
+            margin:
+                0;
+
+            color:
+                var(--muted);
+
+            font-size:
+                11px;
+
+            line-height:
+                1.85;
+
+            font-weight:
+                500;
+
+        }
+
+
+        .live-hero-pills {
+
+            display:
+                flex;
+
+            flex-wrap:
+                wrap;
+
+            gap:
+                8px;
+
+            margin-top:
+                18px;
+
+        }
+
+
+        .live-hero-pill {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                7px;
+
+            min-height:
+                34px;
+
+            padding:
+                0 11px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                999px;
+
+            color:
+                var(--brown);
+
+            background:
+                #FBFAF6;
+
+            font-size:
+                8px;
+
+            font-weight:
+                700;
+
+        }
+
+
+        .live-hero-pill i {
+
+            color:
+                var(--olive);
+
+            font-size:
+                10px;
+
+        }
+
+
+        /*
+        =========================================================
+        HERO SIDE
+        =========================================================
+        */
+
+        .live-hero-side {
+
+            position:
+                relative;
+
+            z-index:
+                2;
+
+            padding:
+                23px;
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .18
+                );
+
+            border-radius:
+                23px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    #5D4037 0%,
+                    #452D27 55%,
+                    #3E2723 100%
+                );
+
+            box-shadow:
+                0
+                25px
+                50px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .19
+                );
+
+        }
+
+
+        .live-hero-side-icon {
+
+            width:
+                49px;
+
+            height:
+                49px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            margin-bottom:
+                15px;
+
+            border-radius:
+                15px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .10
+                );
+
+            font-size:
+                18px;
+
+        }
+
+
+        .live-hero-side small {
+
+            display:
+                block;
+
+            color:
+                #D8CEC3;
+
+            font-size:
+                8px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                1.1px;
+
+        }
+
+
+        .live-hero-side strong {
+
+            display:
+                block;
+
+            margin-top:
+                4px;
+
+            color:
+                #FFFFFF;
+
+            font-size:
+                34px;
+
+            line-height:
+                1.1;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-hero-side p {
+
+            margin:
+                8px 0 0;
+
+            color:
+                #DED6CE;
+
+            font-size:
+                8px;
+
+            line-height:
+                1.7;
+
+        }
+
+
+        .live-hero-side-bottom {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                1fr
+                1fr;
+
+            gap:
+                8px;
+
+            margin-top:
+                18px;
+
+        }
+
+
+        .live-side-stat {
+
+            padding:
+                11px;
+
+            border:
+                1px solid
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .11
+                );
+
+            border-radius:
+                12px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .06
+                );
+
+        }
+
+
+        .live-side-stat span {
+
+            display:
+                block;
+
+            color:
+                #BFB4A9;
+
+            font-size:
+                6.5px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .6px;
+
+        }
+
+
+        .live-side-stat strong {
+
+            margin-top:
+                3px;
+
+            font-size:
+                13px;
+
+        }
+
+
+        /*
+        =========================================================
+        SUBSCRIPTION ALERT
+        =========================================================
+        */
+
+        .live-subscription-alert {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                9px;
+
+            margin-top:
+                15px;
+
+            padding:
+                10px 12px;
+
+            border:
+                1px solid
+                #DFD8CD;
+
+            border-radius:
+                12px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .75
+                );
+
+            color:
+                var(--brown);
+
+            font-size:
+                8px;
+
+            font-weight:
+                700;
+
+        }
+
+
+        .live-subscription-alert.active {
+
+            color:
+                var(--olive-dark);
+
+            background:
+                #F1F6E9;
+
+            border-color:
+                #D9E6C8;
+
+        }
+
+
+        .live-subscription-alert i {
+
+            font-size:
+                11px;
+
+        }
+
+
+        /*
+        =========================================================
+        SUMMARY
+        =========================================================
+        */
+
+        .live-summary-grid {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    4,
+                    minmax(
+                        0,
+                        1fr
+                    )
+                );
+
+            gap:
+                12px;
+
+            margin-top:
+                15px;
+
+        }
+
+
+        .live-summary-card {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                12px;
+
+            min-height:
+                83px;
+
+            padding:
+                14px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                18px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .87
+                );
+
+            box-shadow:
+                var(--shadow-sm);
+
+            transition:
+                transform .22s ease,
+                box-shadow .22s ease;
+
+        }
+
+
+        .live-summary-card:hover {
+
+            transform:
+                translateY(
+                    -2px
+                );
+
+            box-shadow:
+                0
+                18px
+                38px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .08
+                );
+
+        }
+
+
+        .live-summary-icon {
+
+            width:
+                45px;
+
+            height:
+                45px;
+
+            flex:
+                0 0 auto;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            border-radius:
+                14px;
+
+            color:
+                var(--brown);
+
+            background:
+                #F0EAE2;
+
+            font-size:
+                14px;
+
+        }
+
+
+        .live-summary-card:nth-child(2)
+        .live-summary-icon {
+
+            color:
+                var(--olive);
+
+            background:
+                var(--green-bg);
+
+        }
+
+
+        .live-summary-card:nth-child(3)
+        .live-summary-icon {
+
+            color:
+                var(--gold);
+
+            background:
+                var(--gold-bg);
+
+        }
+
+
+        .live-summary-card:nth-child(4)
+        .live-summary-icon {
+
+            color:
+                var(--purple);
+
+            background:
+                var(--purple-bg);
+
+        }
+
+
+        .live-summary-content span {
+
+            display:
+                block;
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+
+            font-weight:
+                600;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .7px;
+
+        }
+
+
+        .live-summary-content strong {
+
+            display:
+                block;
+
+            margin-top:
+                2px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                20px;
+
+            line-height:
+                1.15;
+
+            font-weight:
+                900;
+
+        }
+
+
+        /*
+        =========================================================
+        TOOLBAR
+        =========================================================
+        */
+
+        .live-toolbar {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                9px;
+
+            margin-top:
+                19px;
+
+            padding:
+                10px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                18px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .90
+                );
+
+            box-shadow:
+                var(--shadow-sm);
+
+            backdrop-filter:
+                blur(
+                    18px
+                );
+
+        }
+
+
+        .live-search {
+
+            flex:
+                1;
+
+            min-height:
+                47px;
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                9px;
+
+            padding:
+                0 13px;
+
+            border:
+                1px solid
+                #DDD6CB;
+
+            border-radius:
+                12px;
+
+            background:
+                #FCFBF8;
+
+        }
+
+
+        .live-search i,
+        .live-subject i {
+
+            color:
+                #95897E;
+
+            font-size:
+                11px;
+
+        }
+
+
+        .live-search input {
+
+            width:
+                100%;
+
+            height:
+                100%;
+
+            border:
+                0;
+
+            outline:
+                0;
+
+            color:
+                var(--brown-dark);
+
+            background:
+                transparent;
+
+            font-size:
+                9px;
+
+            font-weight:
+                600;
+
+        }
+
+
+        .live-search input::placeholder {
+
+            color:
+                #9B9188;
+
+        }
+
+
+        .live-subject {
+
+            width:
+                245px;
+
+            min-height:
+                47px;
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                8px;
+
+            padding:
+                0 12px;
+
+            border:
+                1px solid
+                #DDD6CB;
+
+            border-radius:
+                12px;
+
+            background:
+                #FCFBF8;
+
+        }
+
+
+        .live-subject select {
+
+            width:
+                100%;
+
+            border:
+                0;
+
+            outline:
+                0;
+
+            color:
+                var(--brown-dark);
+
+            background:
+                transparent;
+
+            font-size:
+                9px;
+
+            font-weight:
+                600;
+
+            cursor:
+                pointer;
+
+        }
+
+
+        .live-toolbar-button {
+
+            min-height:
+                47px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            padding:
+                0 15px;
+
+            border:
+                0;
+
+            border-radius:
+                12px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            cursor:
+                pointer;
+
+            transition:
+                .2s ease;
+
+        }
+
+
+        .live-toolbar-button:hover {
+
+            color:
+                #FFFFFF;
+
+            transform:
+                translateY(
+                    -1px
+                );
+
+            box-shadow:
+                0
+                10px
+                24px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .16
+                );
+
+        }
+
+
+        .live-clear-button {
+
+            color:
+                var(--brown);
+
+            background:
+                #EEE9E0;
+
+        }
+
+
+        .live-clear-button:hover {
+
+            color:
+                var(--brown-dark);
+
+            background:
+                #E5DFD4;
+
+            box-shadow:
+                none;
+
+        }
+
+
+        /*
+        =========================================================
+        SECTION HEAD
+        =========================================================
+        */
+
+        .live-section-head {
+
+            display:
+                flex;
+
+            align-items:
+                flex-end;
+
+            justify-content:
+                space-between;
+
+            gap:
+                15px;
+
+            margin:
+                30px 0 16px;
+
+        }
+
+
+        .live-section-kicker {
+
+            color:
+                var(--olive);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            letter-spacing:
+                1.5px;
+
+            text-transform:
+                uppercase;
+
+        }
+
+
+        .live-section-head h2 {
+
+            margin:
+                4px 0 0;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                25px;
+
+            line-height:
+                1.2;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-section-head p {
+
+            margin:
+                5px 0 0;
+
+            color:
+                var(--muted);
+
+            font-size:
+                9px;
+
+        }
+
+
+        .live-result-count {
+
+            text-align:
+                right;
+
+        }
+
+
+        .live-result-count strong {
+
+            color:
+                var(--brown);
+
+            font-size:
+                26px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-result-count span {
+
+            margin-left:
+                4px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+
+            font-weight:
+                600;
+
+        }
+
+
+        /*
+        =========================================================
+        GRID
+        =========================================================
+        */
+
+        .live-grid {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    minmax(
+                        0,
+                        1fr
+                    )
+                );
+
+            gap:
+                16px;
+
+        }
+
+
+        /*
+        =========================================================
+        CARD
+        =========================================================
+        */
+
+        .live-exam-card {
+
+            position:
+                relative;
+
+            overflow:
+                hidden;
+
+            min-height:
+                530px;
+
+            display:
+                flex;
+
+            flex-direction:
+                column;
+
+            padding:
+                19px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                22px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .96
+                );
+
+            box-shadow:
+                var(--shadow-sm);
+
+            transition:
+                transform .23s ease,
+                box-shadow .23s ease,
+                border-color .23s ease;
+
+        }
+
+
+        .live-exam-card::before {
+
+            content:
+                '';
+
+            position:
+                absolute;
+
+            width:
+                150px;
+
+            height:
+                150px;
+
+            right:
+                -90px;
+
+            top:
+                -90px;
+
+            border-radius:
+                50%;
+
+            background:
+                rgba(
+                    85,
+                    107,
+                    47,
+                    .065
+                );
+
+            transition:
+                .3s ease;
+
+        }
+
+
+        .live-exam-card::after {
+
+            content:
+                '';
+
+            position:
+                absolute;
+
+            height:
+                3px;
+
+            left:
+                19px;
+
+            right:
+                19px;
+
+            top:
+                0;
+
+            border-radius:
+                0 0 99px 99px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    var(--brown),
+                    var(--olive)
+                );
+
+            opacity:
+                0;
+
+            transform:
+                scaleX(
+                    .4
+                );
+
+            transition:
+                .25s ease;
+
+        }
+
+
+        .live-exam-card:hover {
+
+            transform:
+                translateY(
+                    -6px
+                );
+
+            border-color:
+                #D8D0C4;
+
+            box-shadow:
+                var(--shadow-lg);
+
+        }
+
+
+        .live-exam-card:hover::before {
+
+            transform:
+                scale(
+                    1.3
+                );
+
+        }
+
+
+        .live-exam-card:hover::after {
+
+            opacity:
+                1;
+
+            transform:
+                scaleX(
+                    1
+                );
+
+        }
+
+
+        /*
+        =========================================================
+        CARD TOP
+        =========================================================
+        */
+
+        .live-card-top {
+
+            position:
+                relative;
+
+            z-index:
+                2;
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                8px;
+
+        }
+
+
+        .live-card-number {
+
+            width:
+                38px;
+
+            height:
+                38px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            border-radius:
+                12px;
+
+            color:
+                var(--brown);
+
+            background:
+                #F0EAE2;
+
+            font-size:
+                9px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-card-badges {
+
+            display:
+                flex;
+
+            flex-wrap:
+                wrap;
+
+            justify-content:
+                flex-end;
+
+            gap:
+                5px;
+
+        }
+
+
+        .live-card-badge {
+
+            min-height:
+                25px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                5px;
+
+            padding:
+                0 8px;
+
+            border-radius:
+                999px;
+
+            font-size:
+                6.8px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-badge-live {
+
+            color:
+                var(--olive-dark);
+
+            background:
+                #EEF5E4;
+
+        }
+
+
+        .live-badge-upcoming {
+
+            color:
+                var(--gold);
+
+            background:
+                var(--gold-bg);
+
+        }
+
+
+        .live-badge-completed {
+
+            color:
+                #746B63;
+
+            background:
+                #F1EDE7;
+
+        }
+
+
+        .live-badge-cancelled {
+
+            color:
+                var(--red);
+
+            background:
+                var(--red-bg);
+
+        }
+
+
+        .live-badge-premium {
+
+            color:
+                var(--brown);
+
+            background:
+                #F1E9DF;
+
+        }
+
+
+        /*
+        =========================================================
+        CARD ICON
+        =========================================================
+        */
+
+        .live-card-icon {
+
+            position:
+                relative;
+
+            z-index:
+                2;
+
+            width:
+                54px;
+
+            height:
+                54px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            margin-top:
+                17px;
+
+            border-radius:
+                17px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+
+            box-shadow:
+                0
+                13px
+                27px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .16
+                );
+
+            font-size:
+                17px;
+
+        }
+
+
+        .live-card-icon.live {
+
+            background:
+                linear-gradient(
+                    145deg,
+                    var(--olive),
+                    var(--olive-dark)
+                );
+
+        }
+
+
+        /*
+        =========================================================
+        CONTENT
+        =========================================================
+        */
+
+        .live-card-content {
+
+            position:
+                relative;
+
+            z-index:
+                2;
+
+        }
+
+
+        .live-subject-label {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            gap:
+                5px;
+
+            margin-top:
+                15px;
+
+            color:
+                var(--olive);
+
+            font-size:
+                7.5px;
+
+            font-weight:
+                800;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .9px;
+
+        }
+
+
+        .live-subject-label small {
+
+            color:
+                #A0978E;
+
+            font-size:
+                6.7px;
+
+            letter-spacing:
+                0;
+
+        }
+
+
+        .live-card-title {
+
+            margin:
+                6px 0 0;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                19px;
+
+            line-height:
+                1.35;
+
+            font-weight:
+                900;
+
+            letter-spacing:
+                -.01em;
+
+        }
+
+
+        .live-card-description {
+
+            display:
+                -webkit-box;
+
+            -webkit-line-clamp:
+                3;
+
+            -webkit-box-orient:
+                vertical;
+
+            overflow:
+                hidden;
+
+            min-height:
+                48px;
+
+            margin:
+                8px 0 0;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8px;
+
+            line-height:
+                1.75;
+
+            font-weight:
+                500;
+
+        }
+
+
+        /*
+        =========================================================
+        META
+        =========================================================
+        */
+
+        .live-meta {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+
+            gap:
+                7px;
+
+            margin-top:
+                16px;
+
+        }
+
+
+        .live-meta-item {
+
+            padding:
+                9px 7px;
+
+            border:
+                1px solid
+                #E7E1D8;
+
+            border-radius:
+                12px;
+
+            background:
+                #FCFBF7;
+
+            text-align:
+                center;
+
+        }
+
+
+        .live-meta-item i {
+
+            display:
+                block;
+
+            margin-bottom:
+                4px;
+
+            color:
+                var(--olive);
+
+            font-size:
+                9px;
+
+        }
+
+
+        .live-meta-item span {
+
+            display:
+                block;
+
+            color:
+                #8E857C;
+
+            font-size:
+                6.2px;
+
+            text-transform:
+                uppercase;
+
+            letter-spacing:
+                .4px;
+
+        }
+
+
+        .live-meta-item strong {
+
+            display:
+                block;
+
+            margin-top:
+                2px;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                9.5px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        /*
+        =========================================================
+        SCHEDULE
+        =========================================================
+        */
+
+        .live-schedule {
+
+            margin-top:
+                9px;
+
+            padding:
+                10px 11px;
+
+            border:
+                1px dashed
+                #DCD5CA;
+
+            border-radius:
+                12px;
+
+            background:
+                #FAF8F2;
+
+        }
+
+
+        .live-schedule-row {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                8px;
+
+            padding:
+                3px 0;
+
+        }
+
+
+        .live-schedule-row span {
+
+            color:
+                var(--muted);
+
+            font-size:
+                6.7px;
+
+        }
+
+
+        .live-schedule-row strong {
+
+            color:
+                var(--brown);
+
+            font-size:
+                7.2px;
+
+            font-weight:
+                800;
+
+            text-align:
+                right;
+
+        }
+
+
+        /*
+        =========================================================
+        ACCESS
+        =========================================================
+        */
+
+        .live-access {
+
+            margin-top:
+                8px;
+
+            padding:
+                9px 11px;
+
+            border:
+                1px solid
+                #EEE9E1;
+
+            border-radius:
+                12px;
+
+            background:
+                #FFFFFF;
+
+        }
+
+
+        .live-access-row {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                10px;
+
+        }
+
+
+        .live-access-label {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                6px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+
+        }
+
+
+        .live-access-label i {
+
+            color:
+                var(--olive);
+
+        }
+
+
+        .live-access-value {
+
+            font-size:
+                7px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-access-value.granted {
+
+            color:
+                var(--olive);
+
+        }
+
+
+        .live-access-value.locked {
+
+            color:
+                var(--red);
+
+        }
+
+
+        /*
+        =========================================================
+        RESULT
+        =========================================================
+        */
+
+        .live-result {
+
+            margin-top:
+                8px;
+
+            padding:
+                9px 11px;
+
+            border:
+                1px solid
+                #E8E0D5;
+
+            border-radius:
+                12px;
+
+            background:
+                #FCFBF7;
+
+        }
+
+
+        .live-result-row {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                space-between;
+
+            gap:
+                10px;
+
+        }
+
+
+        .live-result-label {
+
+            color:
+                var(--muted);
+
+            font-size:
+                7px;
+
+        }
+
+
+        .live-result-score {
+
+            color:
+                var(--brown);
+
+            font-size:
+                8px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-result-grade {
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            min-width:
+                28px;
+
+            min-height:
+                23px;
+
+            padding:
+                0 6px;
+
+            border-radius:
+                8px;
+
+            color:
+                var(--olive-dark);
+
+            background:
+                var(--green-bg);
+
+            font-size:
+                8px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        /*
+        =========================================================
+        ACTION
+        =========================================================
+        */
+
+        .live-card-action {
+
+            display:
+                flex;
+
+            align-items:
+                center;
+
+            gap:
+                7px;
+
+            margin-top:
+                auto;
+
+            padding-top:
+                14px;
+
+        }
+
+
+        .live-primary-btn {
+
+            flex:
+                1;
+
+            min-height:
+                42px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            padding:
+                0 11px;
+
+            border:
+                0;
+
+            border-radius:
+                12px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--brown),
+                    var(--brown-dark)
+                );
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+            transition:
+                .2s ease;
+
+        }
+
+
+        .live-primary-btn:hover {
+
+            color:
+                #FFFFFF;
+
+            transform:
+                translateY(
+                    -1px
+                );
+
+            box-shadow:
+                0
+                11px
+                23px
+                rgba(
+                    62,
+                    39,
+                    35,
+                    .16
+                );
+
+        }
+
+
+        .live-primary-btn.olive {
+
+            background:
+                linear-gradient(
+                    135deg,
+                    var(--olive),
+                    var(--olive-dark)
+                );
+
+        }
+
+
+        .live-lock-btn {
+
+            flex:
+                1;
+
+            min-height:
+                42px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            padding:
+                0 11px;
+
+            border:
+                1px solid
+                #E5D7BB;
+
+            border-radius:
+                12px;
+
+            color:
+                #87671F;
+
+            background:
+                #FFF6E3;
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-ended-btn {
+
+            flex:
+                1;
+
+            min-height:
+                42px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                12px;
+
+            color:
+                #746B63;
+
+            background:
+                #F3EFE9;
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-secondary-btn {
+
+            min-width:
+                42px;
+
+            min-height:
+                42px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                12px;
+
+            color:
+                var(--brown);
+
+            background:
+                #FFFFFF;
+
+            font-size:
+                9px;
+
+            transition:
+                .2s ease;
+
+        }
+
+
+        .live-secondary-btn:hover {
+
+            color:
+                var(--brown-dark);
+
+            background:
+                #F7F3EA;
+
+        }
+
+
+        /*
+        =========================================================
+        INFO STRIP
+        =========================================================
+        */
+
+        .live-info-strip {
+
+            display:
+                grid;
+
+            grid-template-columns:
+                repeat(
+                    3,
+                    1fr
+                );
+
+            gap:
+                10px;
+
+            margin-top:
+                18px;
+
+            padding:
+                11px;
+
+            border:
+                1px solid
+                var(--border);
+
+            border-radius:
+                18px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .80
+                );
+
+            box-shadow:
+                var(--shadow-sm);
+
+        }
+
+
+        .live-info {
+
+            display:
+                flex;
+
+            align-items:
+                flex-start;
+
+            gap:
+                9px;
+
+            padding:
+                9px;
+
+            border-radius:
+                12px;
+
+        }
+
+
+        .live-info-icon {
+
+            width:
+                33px;
+
+            height:
+                33px;
+
+            flex:
+                0 0 auto;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            border-radius:
+                10px;
+
+            color:
+                var(--olive);
+
+            background:
+                var(--green-bg);
+
+            font-size:
+                10px;
+
+        }
+
+
+        .live-info strong {
+
+            display:
+                block;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                7.5px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-info small {
+
+            display:
+                block;
+
+            margin-top:
+                2px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                6.7px;
+
+            line-height:
+                1.55;
+
+        }
+
+
+        /*
+        =========================================================
+        EMPTY
+        =========================================================
+        */
+
+        .live-empty {
+
+            padding:
+                70px 25px;
+
+            border:
+                1px dashed
+                #D9D1C5;
+
+            border-radius:
+                23px;
+
+            background:
+                rgba(
+                    255,
+                    255,
+                    255,
+                    .73
+                );
+
+            text-align:
+                center;
+
+        }
+
+
+        .live-empty-icon {
+
+            width:
+                70px;
+
+            height:
+                70px;
+
+            display:
+                grid;
+
+            place-items:
+                center;
+
+            margin:
+                0 auto 14px;
+
+            border-radius:
+                21px;
+
+            color:
+                var(--brown);
+
+            background:
+                #EFEAE1;
+
+            font-size:
+                21px;
+
+        }
+
+
+        .live-empty-kicker {
+
+            color:
+                var(--olive);
+
+            font-size:
+                7.5px;
+
+            font-weight:
+                800;
+
+            letter-spacing:
+                1.4px;
+
+            text-transform:
+                uppercase;
+
+        }
+
+
+        .live-empty h3 {
+
+            margin:
+                6px 0;
+
+            color:
+                var(--brown-dark);
+
+            font-size:
+                21px;
+
+            font-weight:
+                900;
+
+        }
+
+
+        .live-empty p {
+
+            max-width:
+                560px;
+
+            margin:
+                0 auto 18px;
+
+            color:
+                var(--muted);
+
+            font-size:
+                8.5px;
+
+            line-height:
+                1.75;
+
+        }
+
+
+        .live-empty-btn {
+
+            min-height:
+                42px;
+
+            display:
+                inline-flex;
+
+            align-items:
+                center;
+
+            justify-content:
+                center;
+
+            gap:
+                7px;
+
+            padding:
+                0 14px;
+
+            border-radius:
+                12px;
+
+            color:
+                #FFFFFF;
+
+            background:
+                var(--brown);
+
+            font-size:
+                8px;
+
+            font-weight:
+                800;
+
+        }
+
+
+        .live-empty-btn:hover {
+
+            color:
+                #FFFFFF;
+
+            background:
+                var(--brown-dark);
+
+        }
+
+
+        /*
+        =========================================================
+        RESPONSIVE
+        =========================================================
+        */
+
+        @media (
+            max-width: 1250px
+        ) {
+
+            .live-grid {
+
+                grid-template-columns:
+                    repeat(
+                        2,
+                        minmax(
+                            0,
+                            1fr
+                        )
+                    );
+
+            }
+
+        }
+
+
+        @media (
+            max-width: 1050px
+        ) {
+
+            .live-hero {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+
+            .live-hero-side {
+
+                width:
+                    100%;
+
+            }
+
+
+            .live-summary-grid {
+
+                grid-template-columns:
+                    repeat(
+                        2,
+                        minmax(
+                            0,
+                            1fr
+                        )
+                    );
+
+            }
+
+
+            .live-toolbar {
+
+                flex-wrap:
+                    wrap;
+
+            }
+
+
+            .live-search {
+
+                flex:
+                    1 1
+                    100%;
+
+            }
+
+
+            .live-subject {
+
+                flex:
+                    1;
+
+                width:
+                    auto;
+
+            }
+
+
+            .live-info-strip {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+        }
+
+
+        @media (
+            max-width: 720px
+        ) {
+
+            .live-premium-page {
+
+                width:
+                    calc(
+                        100% - 18px
+                    );
+
+                margin:
+                    12px auto 40px;
+
+            }
+
+
+            .live-hero {
+
+                padding:
+                    20px;
+
+                border-radius:
+                    21px;
+
+            }
+
+
+            .live-hero-title {
+
+                font-size:
+                    35px;
+
+                letter-spacing:
+                    -.04em;
+
+            }
+
+
+            .live-hero-text {
+
+                font-size:
+                    9px;
+
+            }
+
+
+            .live-summary-grid {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+
+            .live-toolbar {
+
+                display:
+                    grid;
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+
+            .live-search,
+            .live-subject {
+
+                width:
+                    100%;
+
+            }
+
+
+            .live-toolbar-button {
+
+                width:
+                    100%;
+
+            }
+
+
+            .live-section-head {
+
+                align-items:
+                    flex-start;
+
+                flex-direction:
+                    column;
+
+            }
+
+
+            .live-result-count {
+
+                text-align:
+                    left;
+
+            }
+
+
+            .live-grid {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+
+            .live-exam-card {
+
+                min-height:
+                    0;
+
+            }
+
+        }
+
+
+        @media (
+            max-width: 430px
+        ) {
+
+            .live-hero-pills {
+
+                flex-direction:
+                    column;
+
+            }
+
+
+            .live-hero-pill {
+
+                width:
+                    fit-content;
+
+            }
+
+
+            .live-meta {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+
+            .live-card-action {
+
+                flex-direction:
+                    column;
+
+            }
+
+
+            .live-secondary-btn {
+
+                width:
+                    100%;
+
+            }
+
+
+            .live-hero-side-bottom {
+
+                grid-template-columns:
+                    1fr;
+
+            }
+
+        }
+
+
+        /*
+        =========================================================
+        REDUCED MOTION
+        =========================================================
+        */
+
+        @media (
+            prefers-reduced-motion: reduce
+        ) {
+
+            *,
+
+            *::before,
+
+            *::after {
+
+                animation-duration:
+                    .01ms !important;
+
+                animation-iteration-count:
+                    1 !important;
+
+                transition-duration:
+                    .01ms !important;
+
+                scroll-behavior:
+                    auto !important;
+
+            }
+
+        }
+
+    </style>
 
 </head>
 
 
-<body class="live-exams-body">
+<body>
 
 
 <?php include 'includes/navbar.php'; ?>
 
 
-<main class="live-exams-pro">
-
-    <div class="container">
-
-
-        <!-- =================================================
-             HERO
-        ================================================== -->
-
-        <section class="live-exams-hero">
-
-            <div class="live-exams-hero-content">
-
-                <span class="live-exams-kicker">
-
-                    <i
-                        class="fa-solid fa-tower-broadcast"
-                    ></i>
-
-                    LIVE EXAMINATION CENTER
-
-                </span>
+<main
+    class="
+        live-premium-page
+    "
+>
 
 
-                <h1>
+    <!-- =====================================================
+         HERO
+    ====================================================== -->
 
-                    Compete live.
-                    <em>Perform your best.</em>
-
-                </h1>
-
-
-                <p>
-
-                    Join scheduled ExamSphere examinations,
-                    prepare before the clock starts and experience
-                    a structured real-time examination environment.
-
-                </p>
+    <section
+        class="
+            live-hero
+        "
+    >
 
 
-                <div class="live-hero-actions">
-
-                    <a
-                        href="#live-exam-list"
-                        class="live-hero-primary"
-                    >
-
-                        Explore live exams
-
-                        <i
-                            class="fa-solid fa-arrow-down"
-                        ></i>
-
-                    </a>
+        <div
+            class="
+                live-hero-content
+            "
+        >
 
 
-                    <?php if (
-                        !$hasSubscription
-                    ): ?>
-
-                        <a
-                            href="subscriptions.php"
-                            class="live-hero-secondary"
-                        >
-
-                            <i
-                                class="fa-solid fa-crown"
-                            ></i>
-
-                            Explore membership
-
-                        </a>
-
-                    <?php endif; ?>
-
-                </div>
-
-            </div>
-
-
-            <div class="live-hero-visual">
-
-                <div
-                    class="live-hero-orbit orbit-one"
-                ></div>
-
-                <div
-                    class="live-hero-orbit orbit-two"
-                ></div>
-
-
-                <div class="live-hero-core">
-
-                    <span>
-
-                        <i
-                            class="fa-solid fa-tower-broadcast"
-                        ></i>
-
-                    </span>
-
-                    <strong>
-                        LIVE
-                    </strong>
-
-                    <small>
-                        EXAMSPHERE
-                    </small>
-
-                </div>
-
-            </div>
-
-        </section>
-
-
-        <!-- =================================================
-             FLASH
-        ================================================== -->
-
-        <?php if (
-            $paymentMessage !== ''
-        ): ?>
-
-            <div
+            <span
                 class="
-                    live-exam-alert
-                    <?= live_exams_escape(
-                        $paymentType
-                    ) ?>
+                    live-kicker
                 "
             >
 
                 <i
                     class="
                         fa-solid
-                        <?= $paymentType === 'success'
+                        fa-tower-broadcast
+                    "
+                ></i>
+
+                PREMIUM LIVE ZONE
+
+            </span>
+
+
+            <h1
+                class="
+                    live-hero-title
+                "
+            >
+
+                Join live.
+
+                <span>
+                    Perform at your best.
+                </span>
+
+            </h1>
+
+
+            <p
+                class="
+                    live-hero-text
+                "
+            >
+
+                Take scheduled premium examinations in a secure
+                ExamSphere environment. Active subscribers can
+                join eligible live examinations during their
+                configured schedule.
+
+            </p>
+
+
+            <div
+                class="
+                    live-hero-pills
+                "
+            >
+
+
+                <span
+                    class="
+                        live-hero-pill
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-shield-halved
+                        "
+                    ></i>
+
+                    Verified Access
+
+                </span>
+
+
+                <span
+                    class="
+                        live-hero-pill
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-clock
+                        "
+                    ></i>
+
+                    Scheduled Exams
+
+                </span>
+
+
+                <span
+                    class="
+                        live-hero-pill
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-bolt
+                        "
+                    ></i>
+
+                    Live Performance
+
+                </span>
+
+
+                <span
+                    class="
+                        live-hero-pill
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-lock
+                        "
+                    ></i>
+
+                    Subscription Based
+
+                </span>
+
+
+            </div>
+
+
+        </div>
+
+
+        <div
+            class="
+                live-hero-side
+            "
+        >
+
+
+            <div
+                class="
+                    live-hero-side-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-satellite-dish
+                    "
+                ></i>
+
+            </div>
+
+
+            <small>
+                Live Exam Library
+            </small>
+
+
+            <strong>
+                <?= $renderExamCount; ?>
+            </strong>
+
+
+            <p>
+
+                Scheduled live examinations currently
+                available in your ExamSphere account.
+
+            </p>
+
+
+            <div
+                class="
+                    live-hero-side-bottom
+                "
+            >
+
+
+                <div
+                    class="
+                        live-side-stat
+                    "
+                >
+
+                    <span>
+                        Live Now
+                    </span>
+
+                    <strong>
+
+                        <?= $liveNowCount; ?>
+
+                    </strong>
+
+                </div>
+
+
+                <div
+                    class="
+                        live-side-stat
+                    "
+                >
+
+                    <span>
+                        Upcoming
+                    </span>
+
+                    <strong>
+
+                        <?= $upcomingCount; ?>
+
+                    </strong>
+
+                </div>
+
+
+            </div>
+
+
+            <div
+                class="
+                    live-subscription-alert
+                    <?= $hasActiveSubscription
+                        ? 'active'
+                        : '' ?>"
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        <?= $hasActiveSubscription
                             ? 'fa-circle-check'
-                            : (
-                                $paymentType === 'error'
-                                    ? 'fa-circle-exclamation'
-                                    : 'fa-circle-info'
-                            )
-                        ?>
+                            : 'fa-lock' ?>
                     "
                 ></i>
 
 
                 <span>
 
-                    <?= live_exams_escape(
-                        $paymentMessage
-                    ) ?>
-
-                </span>
-
-            </div>
-
-        <?php endif; ?>
-
-
-        <!-- =================================================
-             STATS
-        ================================================== -->
-
-        <section class="live-exam-stats">
-
-
-            <div class="live-exam-stat">
-
-                <span>
-
-                    <i
-                        class="fa-solid fa-calendar-days"
-                    ></i>
-
-                </span>
-
-                <div>
-
-                    <small>
-                        Upcoming
-                    </small>
-
-                    <strong>
-                        <?= $upcomingCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div class="live-exam-stat live-stat">
-
-                <span>
-
-                    <i
-                        class="fa-solid fa-tower-broadcast"
-                    ></i>
-
-                </span>
-
-                <div>
-
-                    <small>
-                        Live now
-                    </small>
-
-                    <strong>
-                        <?= $liveCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div class="live-exam-stat">
-
-                <span>
-
-                    <i
-                        class="fa-solid fa-chart-column"
-                    ></i>
-
-                </span>
-
-                <div>
-
-                    <small>
-                        Ended
-                    </small>
-
-                    <strong>
-                        <?= $completedCount ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-
-            <div class="live-exam-stat">
-
-                <span>
-
-                    <i
-                        class="fa-solid fa-shield-halved"
-                    ></i>
-
-                </span>
-
-                <div>
-
-                    <small>
-                        Your membership
-                    </small>
-
-                    <strong>
-                        <?= $hasSubscription
-                            ? 'Active'
-                            : 'Not active'
-                        ?>
-                    </strong>
-
-                </div>
-
-            </div>
-
-        </section>
-
-
-        <!-- =================================================
-             FILTER
-        ================================================== -->
-
-        <section class="live-exam-filter-panel">
-
-            <form
-                method="GET"
-                class="live-exam-filter-form"
-            >
-
-                <div class="live-exam-search">
-
-                    <i
-                        class="fa-solid fa-magnifying-glass"
-                    ></i>
-
-                    <input
-                        type="search"
-                        name="search"
-                        value="<?= live_exams_escape(
-                            $search
-                        ) ?>"
-                        placeholder="Search live exam or subject..."
-                    >
-
-                </div>
-
-
-                <div class="live-exam-view-tabs">
-
-
-                    <?php
-
-                    $querySearch =
-                        $search !== ''
-                            ? '&search=' .
-                                urlencode($search)
-                            : '';
-
+                    <?= $hasActiveSubscription
+                        ? 'Active subscription verified'
+                        : 'Active subscription required'
                     ?>
 
+                </span>
 
-                    <a
-                        href="live_exams.php?view=all<?= $querySearch ?>"
-                        class="<?= $view === 'all'
-                            ? 'active'
-                            : ''
-                        ?>"
+            </div>
+
+
+        </div>
+
+
+    </section>
+
+
+    <!-- =====================================================
+         SUMMARY
+    ====================================================== -->
+
+    <section
+        class="
+            live-summary-grid
+        "
+    >
+
+
+        <div
+            class="
+                live-summary-card
+            "
+        >
+
+            <div
+                class="
+                    live-summary-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-tower-broadcast
+                    "
+                ></i>
+
+            </div>
+
+
+            <div
+                class="
+                    live-summary-content
+                "
+            >
+
+                <span>
+                    Live Now
+                </span>
+
+
+                <strong>
+
+                    <?= $liveNowCount; ?>
+
+                </strong>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="
+                live-summary-card
+            "
+        >
+
+            <div
+                class="
+                    live-summary-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-calendar-days
+                    "
+                ></i>
+
+            </div>
+
+
+            <div
+                class="
+                    live-summary-content
+                "
+            >
+
+                <span>
+                    Upcoming
+                </span>
+
+
+                <strong>
+
+                    <?= $upcomingCount; ?>
+
+                </strong>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="
+                live-summary-card
+            "
+        >
+
+            <div
+                class="
+                    live-summary-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-play
+                    "
+                ></i>
+
+            </div>
+
+
+            <div
+                class="
+                    live-summary-content
+                "
+            >
+
+                <span>
+                    In Progress
+                </span>
+
+
+                <strong>
+
+                    <?= $inProgressCount; ?>
+
+                </strong>
+
+            </div>
+
+        </div>
+
+
+        <div
+            class="
+                live-summary-card
+            "
+        >
+
+            <div
+                class="
+                    live-summary-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-chart-column
+                    "
+                ></i>
+
+            </div>
+
+
+            <div
+                class="
+                    live-summary-content
+                "
+            >
+
+                <span>
+                    Attempted
+                </span>
+
+
+                <strong>
+
+                    <?= $attemptedCount; ?>
+
+                </strong>
+
+            </div>
+
+        </div>
+
+
+    </section>
+
+
+    <!-- =====================================================
+         TOOLBAR
+    ====================================================== -->
+
+    <section
+        class="
+            live-toolbar
+        "
+    >
+
+
+        <form
+            method="GET"
+            action="live_exams.php"
+            style="display:contents;"
+        >
+
+
+            <label
+                class="
+                    live-search
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-magnifying-glass
+                    "
+                ></i>
+
+
+                <input
+                    type="search"
+                    name="search"
+                    value="<?= live_escape(
+                        $search
+                    ); ?>"
+                    placeholder="Search live exam, subject or code..."
+                    autocomplete="off"
+                >
+
+            </label>
+
+
+            <label
+                class="
+                    live-subject
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-book-open
+                    "
+                ></i>
+
+
+                <select
+                    name="subject_id"
+                    aria-label="Filter by subject"
+                >
+
+                    <option
+                        value=""
                     >
-                        All
-                    </a>
+                        All Subjects
+                    </option>
 
 
-                    <a
-                        href="live_exams.php?view=upcoming<?= $querySearch ?>"
-                        class="<?= $view === 'upcoming'
-                            ? 'active'
-                            : ''
-                        ?>"
-                    >
-                        Upcoming
-                    </a>
+                    <?php foreach (
+                        $subjects
+                        as $subject
+                    ): ?>
 
 
-                    <a
-                        href="live_exams.php?view=live<?= $querySearch ?>"
-                        class="<?= $view === 'live'
-                            ? 'active'
-                            : ''
-                        ?>"
-                    >
-                        Live
-                    </a>
+                        <option
+                            value="<?= (int) $subject[
+                                'id'
+                            ]; ?>"
+                            <?= (
+                                $subjectId !== null
+                                &&
+                                $subjectId ===
+                                    (int) $subject[
+                                        'id'
+                                    ]
+                            )
+                                ? 'selected'
+                                : ''
+                            ?>
+                        >
+
+                            <?= live_escape(
+                                $subject[
+                                    'name'
+                                ]
+                            ); ?>
 
 
-                    <a
-                        href="live_exams.php?view=completed<?= $querySearch ?>"
-                        class="<?= $view === 'completed'
-                            ? 'active'
-                            : ''
-                        ?>"
-                    >
-                        Ended
-                    </a>
+                            <?php if (
+                                !empty(
+                                    $subject[
+                                        'code'
+                                    ]
+                                )
+                            ): ?>
 
-                </div>
+                                —
+                                <?= live_escape(
+                                    $subject[
+                                        'code'
+                                    ]
+                                ); ?>
+
+                            <?php endif; ?>
 
 
-                <button
-                    type="submit"
-                    class="live-exam-filter-button"
+                        </option>
+
+
+                    <?php endforeach; ?>
+
+
+                </select>
+
+
+            </label>
+
+
+            <button
+                type="submit"
+                class="
+                    live-toolbar-button
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-filter
+                    "
+                ></i>
+
+                Apply Filter
+
+            </button>
+
+
+            <?php if (
+                $filterActive
+            ): ?>
+
+
+                <a
+                    href="live_exams.php"
+                    class="
+                        live-toolbar-button
+                        live-clear-button
+                    "
                 >
 
                     <i
-                        class="fa-solid fa-magnifying-glass"
+                        class="
+                            fa-solid
+                            fa-xmark
+                        "
                     ></i>
 
-                    Search
+                    Clear
 
-                </button>
-
-            </form>
-
-        </section>
+                </a>
 
 
-        <!-- =================================================
-             LIST HEADER
-        ================================================== -->
+            <?php endif; ?>
 
-        <section
-            id="live-exam-list"
-            class="live-exam-list-header"
-        >
 
-            <div>
+        </form>
 
-                <span>
-                    SCHEDULED EXAMINATIONS
-                </span>
 
-                <h2>
-                    Live exam center
-                </h2>
+    </section>
+
+
+    <!-- =====================================================
+         SECTION HEAD
+    ====================================================== -->
+
+    <section
+        class="
+            live-section-head
+        "
+    >
+
+
+        <div>
+
+
+            <div
+                class="
+                    live-section-kicker
+                "
+            >
+
+                <?= $filterActive
+                    ? 'Filtered Live Library'
+                    : 'Scheduled Live Library'
+                ?>
 
             </div>
 
 
-            <span class="live-exam-list-count">
+            <h2>
+                Choose your next live challenge
+            </h2>
 
-                <?= count($liveExams) ?>
 
-                <?= count($liveExams) === 1
-                    ? 'exam'
-                    : 'exams'
+            <p>
+
+                <?= $filterActive
+                    ? 'Live examinations matching your current filters.'
+                    : 'Published scheduled live examinations appear here automatically.'
+                ?>
+
+            </p>
+
+
+        </div>
+
+
+        <div
+            class="
+                live-result-count
+            "
+        >
+
+            <strong>
+
+                <?= $renderExamCount; ?>
+
+            </strong>
+
+
+            <span>
+
+                <?= $renderExamCount === 1
+                    ? 'exam available'
+                    : 'exams available'
                 ?>
 
             </span>
 
-        </section>
+        </div>
 
 
-        <!-- =================================================
-             EXAM LIST
-        ================================================== -->
-
-        <?php if (
-            !empty($liveExams)
-        ): ?>
-
-            <section class="live-exam-grid">
+    </section>
 
 
-                <?php foreach (
-                    $liveExams as $index => $exam
-                ): ?>
+    <!-- =====================================================
+         LIVE EXAMS
+    ====================================================== -->
+
+    <?php if (
+        !empty($exams)
+    ): ?>
 
 
-                    <?php
+        <section
+            class="
+                live-grid
+            "
+        >
 
-                    $examId =
-                        (int) $exam['id'];
 
-                    $state =
-                        (string) $exam['state'];
+            <?php foreach (
+                $exams
+                as $index => $exam
+            ): ?>
 
-                    $stateLabel =
-                        (string) $exam['state_label'];
 
-                    $number =
-                        str_pad(
-                            (string) (
-                                $index + 1
-                            ),
-                            2,
-                            '0',
-                            STR_PAD_LEFT
-                        );
+                <?php
 
-                    $startsAt =
+                $examId =
+                    (int) $exam[
+                        'id'
+                    ];
+
+
+                $questionCount =
+                    (int) $exam[
+                        'active_question_count'
+                    ];
+
+
+                $requiredCount =
+                    (int) $exam[
+                        'required_question_count'
+                    ];
+
+
+                $duration =
+                    max(
+                        0,
+                        (int) $exam[
+                            'duration_minutes'
+                        ]
+                    );
+
+
+                $marksPerQuestion =
+                    (float) $exam[
+                        'marks_per_question'
+                    ];
+
+
+                $totalMarks =
+                    (float) $exam[
+                        'dynamic_total_marks'
+                    ];
+
+
+                $passingMarks =
+                    (float) (
                         $exam[
-                            'starts_object'
-                        ];
-
-                    $endsAt =
-                        $exam[
-                            'ends_object'
-                        ];
-
-                    $paymentRequired =
-                        (bool) $exam[
-                            'requires_payment'
-                        ];
-
-                    $subscriptionRequired =
-                        (bool) $exam[
-                            'requires_subscription'
-                        ];
-
-                    $latestResult =
-                        $exam[
-                            'latest_result'
-                        ] ?? null;
-
-                    $accessMessage =
-                        (string) $exam[
-                            'access_message'
-                        ];
-
-                    ?>
+                            'passing_marks'
+                        ] ?? 0
+                    );
 
 
-                    <article
+                $start =
+                    $exam[
+                        'start_datetime'
+                    ];
+
+
+                $end =
+                    $exam[
+                        'end_datetime'
+                    ];
+
+
+                $state =
+                    (string) $exam[
+                        'state'
+                    ];
+
+
+                $stateLabel =
+                    live_state_label(
+                        $state
+                    );
+
+
+                $stateIcon =
+                    live_state_icon(
+                        $state
+                    );
+
+
+                $stateBadgeClass =
+                    live_state_badge_class(
+                        $state
+                    );
+
+
+                $latestResult =
+                    $exam[
+                        'latest_result'
+                    ] ?? null;
+
+
+                $activeAttempt =
+                    $exam[
+                        'active_attempt'
+                    ] ?? null;
+
+
+                $examReady =
+                    (bool) $exam[
+                        'exam_ready'
+                    ];
+
+
+                $description =
+                    trim(
+                        (string) (
+                            $exam[
+                                'description'
+                            ] ?? ''
+                        )
+                    );
+
+
+                if (
+                    $description === ''
+                ) {
+
+                    $description =
+                        'Join this scheduled premium examination and demonstrate your preparation.';
+
+                }
+
+
+                $cardNumber =
+                    str_pad(
+                        (string) (
+                            $index + 1
+                        ),
+                        2,
+                        '0',
+                        STR_PAD_LEFT
+                    );
+
+
+                $startText =
+                    $start !== null
+                        ? $start->format(
+                            'd M Y, h:i A'
+                        )
+                        : 'Available now';
+
+
+                $endText =
+                    $end !== null
+                        ? $end->format(
+                            'd M Y, h:i A'
+                        )
+                        : 'No fixed end time';
+
+
+                $accessGranted =
+                    $hasActiveSubscription;
+
+
+                ?>
+
+
+                <article
+                    class="
+                        live-exam-card
+                    "
+                    data-exam-id="<?= $examId; ?>"
+                >
+
+
+                    <!-- =================================================
+                         CARD TOP
+                    ================================================== -->
+
+                    <div
                         class="
-                            live-exam-card
-                            state-<?= live_exams_escape(
-                                $state
-                            ) ?>
+                            live-card-top
                         "
                     >
 
 
-                        <!-- TOP -->
+                        <span
+                            class="
+                                live-card-number
+                            "
+                        >
 
-                        <div class="live-exam-card-top">
+                            <?= live_escape(
+                                $cardNumber
+                            ); ?>
+
+                        </span>
+
+
+                        <div
+                            class="
+                                live-card-badges
+                            "
+                        >
+
 
                             <span
-                                class="live-exam-card-number"
-                            >
-
-                                <?= live_exams_escape(
-                                    $number
-                                ) ?>
-
-                            </span>
-
-
-                            <div class="live-exam-card-badges">
-
-                                <span
-                                    class="
-                                        live-state-pill
-                                        <?= live_exams_escape(
-                                            $state
-                                        ) ?>
-                                    "
-                                >
-
-                                    <?php if (
-                                        $state === 'live'
-                                    ): ?>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-circle
-                                            "
-                                        ></i>
-
-                                    <?php elseif (
-                                        $state === 'upcoming'
-                                    ): ?>
-
-                                        <i
-                                            class="
-                                                fa-regular
-                                                fa-clock
-                                            "
-                                        ></i>
-
-                                    <?php else: ?>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-check
-                                            "
-                                        ></i>
-
-                                    <?php endif; ?>
-
-
-                                    <?= live_exams_escape(
-                                        $stateLabel
-                                    ) ?>
-
-                                </span>
-
-
-                                <?php if (
-                                    $paymentRequired
-                                ): ?>
-
-                                    <span
-                                        class="
-                                            live-access-pill
-                                            payment
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-indian-rupee-sign
-                                            "
-                                        ></i>
-
-                                        Payment
-
-                                    </span>
-
-
-                                <?php elseif (
-                                    $subscriptionRequired
-                                ): ?>
-
-                                    <span
-                                        class="
-                                            live-access-pill
-                                            subscription
-                                        "
-                                    >
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-crown
-                                            "
-                                        ></i>
-
-                                        Membership
-
-                                    </span>
-
-
-                                <?php else: ?>
-
-                                    <span
-                                        class="
-                                            live-access-pill
-                                            free
-                                        "
-                                    >
-
-                                        Eligible
-
-                                    </span>
-
-                                <?php endif; ?>
-
-                            </div>
-
-                        </div>
-
-
-                        <!-- ICON -->
-
-                        <div class="live-exam-card-icon">
-
-                            <i
                                 class="
-                                    fa-solid
-                                    <?= $state === 'live'
-                                        ? 'fa-tower-broadcast'
-                                        : (
-                                            $state === 'completed'
-                                                ? 'fa-chart-column'
-                                                : 'fa-calendar-days'
-                                        )
-                                    ?>
-                                "
-                            ></i>
-
-                        </div>
-
-
-                        <!-- CONTENT -->
-
-                        <div class="live-exam-card-content">
-
-                            <span
-                                class="live-exam-subject"
-                            >
-
-                                <?= live_exams_escape(
-                                    $exam['subject_name']
-                                    ?: 'General'
-                                ) ?>
-
-
-                                <?php if (
-                                    !empty(
-                                        $exam['subject_code']
-                                    )
-                                ): ?>
-
-                                    <small>
-
-                                        •
-
-                                        <?= live_exams_escape(
-                                            $exam['subject_code']
-                                        ) ?>
-
-                                    </small>
-
-                                <?php endif; ?>
-
-                            </span>
-
-
-                            <h3>
-
-                                <?= live_exams_escape(
-                                    $exam['title']
-                                ) ?>
-
-                            </h3>
-
-
-                            <p>
-
-                                <?= live_exams_escape(
-                                    $exam['description']
-                                    ?: 'A scheduled ExamSphere live examination.'
-                                ) ?>
-
-                            </p>
-
-                        </div>
-
-
-                        <!-- META -->
-
-                        <div class="live-exam-meta">
-
-                            <span>
-
-                                <i
-                                    class="fa-regular fa-clock"
-                                ></i>
-
-                                <?= (int) (
-                                    $exam[
-                                        'duration_minutes'
-                                    ]
-                                ) ?>
-
-                                min
-
-                            </span>
-
-
-                            <span>
-
-                                <i
-                                    class="fa-solid fa-list-check"
-                                ></i>
-
-                                <?= (int) (
-                                    $exam[
-                                        'active_question_count'
-                                    ]
-                                ) ?>
-
-                                questions
-
-                            </span>
-
-
-                            <span>
-
-                                <i
-                                    class="fa-solid fa-star"
-                                ></i>
-
-                                <?= live_exams_number(
-                                    $exam[
-                                        'total_marks'
-                                    ]
-                                ) ?>
-
-                                marks
-
-                            </span>
-
-                        </div>
-
-
-                        <!-- SCHEDULE -->
-
-                        <div class="live-exam-schedule">
-
-                            <div>
-
-                                <small>
-                                    Starts
-                                </small>
-
-
-                                <strong>
-
-                                    <?= $startsAt
-                                        ? live_exams_escape(
-                                            $startsAt->format(
-                                                'd M Y, h:i A'
-                                            )
-                                        )
-                                        : 'Schedule pending'
-                                    ?>
-
-                                </strong>
-
-                            </div>
-
-
-                            <?php if (
-                                $endsAt
-                            ): ?>
-
-                                <div>
-
-                                    <small>
-                                        Ends
-                                    </small>
-
-
-                                    <strong>
-
-                                        <?= live_exams_escape(
-                                            $endsAt->format(
-                                                'd M Y, h:i A'
-                                            )
-                                        ) ?>
-
-                                    </strong>
-
-                                </div>
-
-                            <?php endif; ?>
-
-                        </div>
-
-
-                        <!-- ACCESS MESSAGE -->
-
-                        <?php if (
-                            $accessMessage !== '' &&
-                            (
-                                $paymentRequired ||
-                                $subscriptionRequired
-                            )
-                        ): ?>
-
-                            <div
-                                class="
-                                    live-exam-access-message
+                                    live-card-badge
+                                    <?= $stateBadgeClass; ?>
                                 "
                             >
 
                                 <i
                                     class="
                                         fa-solid
-                                        fa-circle-info
+                                        <?= live_escape(
+                                            $stateIcon
+                                        ); ?>
                                     "
                                 ></i>
 
+                                <?= live_escape(
+                                    $stateLabel
+                                ); ?>
 
-                                <span>
-
-                                    <?= live_exams_escape(
-                                        $accessMessage
-                                    ) ?>
-
-                                </span>
-
-                            </div>
-
-                        <?php endif; ?>
+                            </span>
 
 
-                        <!-- ACTION -->
+                            <span
+                                class="
+                                    live-card-badge
+                                    live-badge-premium
+                                "
+                            >
 
-                        <div class="live-exam-card-action">
-
-
-                            <?php if (
-                                $paymentRequired
-                            ): ?>
-
-                                <div
-                                    id="payment-<?= $examId ?>"
-                                    class="live-payment-box"
-                                >
-
-                                    <div>
-
-                                        <span>
-
-                                            <i
-                                                class="
-                                                    fa-solid
-                                                    fa-lock
-                                                "
-                                            ></i>
-
-                                            Unlock live access
-
-                                        </span>
-
-
-                                        <strong>
-
-                                            ₹<?= live_exams_number(
-                                                $exam['exam_fee']
-                                            ) ?>
-
-                                        </strong>
-
-                                    </div>
-
-
-                                    <button
-                                        type="button"
-                                        class="live-exam-action-btn primary live-payment-button"
-                                        data-exam-id="<?= $examId ?>"
-                                        data-amount="<?= (int) round(((float) $exam['exam_fee']) * 100) ?>"
-                                        data-csrf="<?= live_exams_escape($csrfToken) ?>"
-                                        data-title="<?= live_exams_escape((string) $exam['title']) ?>"
-                                    >
-
-                                        <span>
-                                            <i class="fa-solid fa-credit-card"></i>
-                                            Continue to Razorpay
-                                        </span>
-
-                                        <i class="fa-solid fa-arrow-right"></i>
-
-                                    </button>
-
-                                </div>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $subscriptionRequired
-                            ): ?>
-
-                                <a
-                                    href="subscriptions.php"
+                                <i
                                     class="
-                                        live-exam-action-btn
-                                        primary
+                                        fa-solid
+                                        fa-lock
                                     "
-                                >
+                                ></i>
 
-                                    <span>
+                                Premium
 
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-crown
-                                            "
-                                        ></i>
+                            </span>
 
-                                        Activate subscription
-
-                                    </span>
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $exam['action_type'] === 'start'
-                            ): ?>
-
-                                <a
-                                    href="<?= live_exams_escape(
-                                        $exam['action_url']
-                                    ) ?>"
-                                    class="
-                                        live-exam-action-btn
-                                        primary
-                                    "
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-tower-broadcast
-                                            "
-                                        ></i>
-
-                                        Enter live exam
-
-                                    </span>
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $exam['action_type'] === 'resume'
-                            ): ?>
-
-                                <a
-                                    href="<?= live_exams_escape(
-                                        $exam['action_url']
-                                    ) ?>"
-                                    class="
-                                        live-exam-action-btn
-                                        primary
-                                    "
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-play
-                                            "
-                                        ></i>
-
-                                        Resume live exam
-
-                                    </span>
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $exam['action_type'] === 'result'
-                            ): ?>
-
-                                <a
-                                    href="<?= live_exams_escape(
-                                        $exam['action_url']
-                                    ) ?>"
-                                    class="
-                                        live-exam-action-btn
-                                        secondary
-                                    "
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-chart-column
-                                            "
-                                        ></i>
-
-                                        View result
-
-                                    </span>
-
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $exam['action_type'] === 'waiting'
-                            ): ?>
-
-                                <button
-                                    type="button"
-                                    class="
-                                        live-exam-action-btn
-                                        disabled
-                                    "
-                                    disabled
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-solid
-                                                fa-hourglass-half
-                                            "
-                                        ></i>
-
-                                        Waiting for activation
-
-                                    </span>
-
-                                </button>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php elseif (
-                                $state === 'completed'
-                            ): ?>
-
-                                <button
-                                    type="button"
-                                    class="
-                                        live-exam-action-btn
-                                        disabled
-                                    "
-                                    disabled
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-regular
-                                                fa-clock
-                                            "
-                                        ></i>
-
-                                        Exam ended
-
-                                    </span>
-
-                                </button>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-
-                            <?php else: ?>
-
-                                <button
-                                    type="button"
-                                    class="
-                                        live-exam-action-btn
-                                        disabled
-                                    "
-                                    disabled
-                                >
-
-                                    <span>
-
-                                        <i
-                                            class="
-                                                fa-regular
-                                                fa-clock
-                                            "
-                                        ></i>
-
-                                        Available at scheduled time
-
-                                    </span>
-
-                                </button>
-
-
-                                <a
-                                    href="exam-details.php?exam_id=<?= $examId ?>"
-                                    class="live-secondary-link"
-                                >
-
-                                    View exam details
-
-                                    <i
-                                        class="
-                                            fa-solid
-                                            fa-arrow-right
-                                        "
-                                    ></i>
-
-                                </a>
-
-                            <?php endif; ?>
 
                         </div>
 
-                    </article>
 
-                <?php endforeach; ?>
-
-            </section>
+                    </div>
 
 
-        <?php else: ?>
+                    <!-- =================================================
+                         ICON
+                    ================================================== -->
 
-
-            <!-- =================================================
-                 EMPTY
-            ================================================== -->
-
-            <section class="live-exam-empty">
-
-                <div class="live-exam-empty-icon">
-
-                    <i
+                    <div
                         class="
-                            fa-solid
-                            fa-calendar-xmark
-                        "
-                    ></i>
-
-                </div>
-
-
-                <span>
-                    NO LIVE EXAMS FOUND
-                </span>
-
-
-                <h2>
-
-                    There are no matching live
-                    examinations right now.
-
-                </h2>
-
-
-                <p>
-
-                    <?php if (
-                        $search !== '' ||
-                        $view !== 'all'
-                    ): ?>
-
-                        Try a different search or switch back
-                        to all live examinations.
-
-                    <?php else: ?>
-
-                        Once an administrator publishes a complete
-                        live examination, it will appear here automatically.
-
-                    <?php endif; ?>
-
-                </p>
-
-
-                <div class="live-empty-actions">
-
-
-                    <?php if (
-                        $search !== '' ||
-                        $view !== 'all'
-                    ): ?>
-
-                        <a
-                            href="live_exams.php"
-                            class="
-                                live-empty-btn
-                                secondary
-                            "
-                        >
-
-                            Show all
-
-                        </a>
-
-                    <?php endif; ?>
-
-
-                    <a
-                        href="practice_exams.php"
-                        class="
-                            live-empty-btn
-                            primary
+                            live-card-icon
+                            <?= $state === 'live'
+                                ? 'live'
+                                : '' ?>
                         "
                     >
-
-                        Practice meanwhile
 
                         <i
                             class="
                                 fa-solid
-                                fa-arrow-right
+                                <?= $state === 'live'
+                                    ? 'fa-tower-broadcast'
+                                    : 'fa-file-pen' ?>
                             "
                         ></i>
 
-                    </a>
-
-                </div>
-
-            </section>
+                    </div>
 
 
-        <?php endif; ?>
+                    <!-- =================================================
+                         CONTENT
+                    ================================================== -->
+
+                    <div
+                        class="
+                            live-card-content
+                        "
+                    >
 
 
-        <!-- =================================================
-             INFORMATION
-        ================================================== -->
+                        <div
+                            class="
+                                live-subject-label
+                            "
+                        >
 
-        <section class="live-exam-info-strip">
-
-            <div>
-
-                <i
-                    class="fa-solid fa-shield-halved"
-                ></i>
-
-
-                <span>
-
-                    <strong>
-                        Secure live access
-                    </strong>
-
-                    <small>
-
-                        ExamSphere validates your account and
-                        access before the examination begins.
-
-                    </small>
-
-                </span>
-
-            </div>
+                            <?= live_escape(
+                                $exam[
+                                    'subject_name'
+                                ]
+                            ); ?>
 
 
-            <div>
+                            <?php if (
+                                !empty(
+                                    $exam[
+                                        'subject_code'
+                                    ]
+                                )
+                            ): ?>
 
-                <i
-                    class="fa-solid fa-clock"
-                ></i>
+                                <small>
 
+                                    •
+                                    <?= live_escape(
+                                        $exam[
+                                            'subject_code'
+                                        ]
+                                    ); ?>
 
-                <span>
+                                </small>
 
-                    <strong>
-                        Respect the schedule
-                    </strong>
-
-                    <small>
-
-                        Join only while the examination's configured
-                        live window is active.
-
-                    </small>
-
-                </span>
-
-            </div>
+                            <?php endif; ?>
 
 
-            <div>
-
-                <i
-                    class="fa-solid fa-chart-line"
-                ></i>
+                        </div>
 
 
-                <span>
+                        <h3
+                            class="
+                                live-card-title
+                            "
+                        >
 
-                    <strong>
-                        Results are tracked
-                    </strong>
+                            <?= live_escape(
+                                $exam[
+                                    'title'
+                                ]
+                            ); ?>
 
-                    <small>
+                        </h3>
 
-                        Completed live attempts become part of
-                        your result and performance history.
 
-                    </small>
+                        <p
+                            class="
+                                live-card-description
+                            "
+                        >
 
-                </span>
+                            <?= live_escape(
+                                $description
+                            ); ?>
 
-            </div>
+                        </p>
+
+
+                    </div>
+
+
+                    <!-- =================================================
+                         META
+                    ================================================== -->
+
+                    <div
+                        class="
+                            live-meta
+                        "
+                    >
+
+
+                        <div
+                            class="
+                                live-meta-item
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-regular
+                                    fa-clock
+                                "
+                            ></i>
+
+
+                            <span>
+                                Duration
+                            </span>
+
+
+                            <strong>
+
+                                <?= $duration; ?>
+
+                                min
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="
+                                live-meta-item
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-list-check
+                                "
+                            ></i>
+
+
+                            <span>
+                                Questions
+                            </span>
+
+
+                            <strong>
+
+                                <?= $questionCount; ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="
+                                live-meta-item
+                            "
+                        >
+
+                            <i
+                                class="
+                                    fa-solid
+                                    fa-star
+                                "
+                            ></i>
+
+
+                            <span>
+                                Total Marks
+                            </span>
+
+
+                            <strong>
+
+                                <?= live_number(
+                                    $totalMarks
+                                ); ?>
+
+                            </strong>
+
+                        </div>
+
+
+                    </div>
+
+
+                    <!-- =================================================
+                         SCHEDULE
+                    ================================================== -->
+
+                    <div
+                        class="
+                            live-schedule
+                        "
+                    >
+
+
+                        <div
+                            class="
+                                live-schedule-row
+                            "
+                        >
+
+                            <span>
+
+                                <i
+                                    class="
+                                        fa-regular
+                                        fa-calendar
+                                    "
+                                ></i>
+
+                                Start
+
+                            </span>
+
+
+                            <strong>
+
+                                <?= live_escape(
+                                    $startText
+                                ); ?>
+
+                            </strong>
+
+                        </div>
+
+
+                        <div
+                            class="
+                                live-schedule-row
+                            "
+                        >
+
+                            <span>
+
+                                <i
+                                    class="
+                                        fa-regular
+                                        fa-calendar-check
+                                    "
+                                ></i>
+
+                                End
+
+                            </span>
+
+
+                            <strong>
+
+                                <?= live_escape(
+                                    $endText
+                                ); ?>
+
+                            </strong>
+
+                        </div>
+
+
+                    </div>
+
+
+                    <!-- =================================================
+                         ACCESS
+                    ================================================== -->
+
+                    <div
+                        class="
+                            live-access
+                        "
+                    >
+
+                        <div
+                            class="
+                                live-access-row
+                            "
+                        >
+
+                            <span
+                                class="
+                                    live-access-label
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-shield-halved
+                                    "
+                                ></i>
+
+                                Subscription Access
+
+                            </span>
+
+
+                            <span
+                                class="
+                                    live-access-value
+                                    <?= $accessGranted
+                                        ? 'granted'
+                                        : 'locked' ?>
+                                "
+                            >
+
+                                <?= $accessGranted
+                                    ? 'Verified'
+                                    : 'Required'
+                                ?>
+
+                            </span>
+
+                        </div>
+
+
+                    </div>
+
+
+                    <!-- =================================================
+                         RESULT
+                    ================================================== -->
+
+                    <?php if (
+                        $latestResult
+                    ): ?>
+
+
+                        <div
+                            class="
+                                live-result
+                            "
+                        >
+
+
+                            <div
+                                class="
+                                    live-result-row
+                                "
+                            >
+
+
+                                <span
+                                    class="
+                                        live-result-label
+                                    "
+                                >
+
+                                    Latest Result
+
+                                </span>
+
+
+                                <span
+                                    class="
+                                        live-result-score
+                                    "
+                                >
+
+                                    <?= live_number(
+                                        $latestResult[
+                                            'obtained_marks'
+                                        ] ?? 0
+                                    ); ?>
+
+                                    /
+
+                                    <?= live_number(
+                                        $latestResult[
+                                            'total_marks'
+                                        ] ?? $totalMarks
+                                    ); ?>
+
+                                    ·
+
+                                    <?= live_number(
+                                        $latestResult[
+                                            'percentage'
+                                        ] ?? 0
+                                    ); ?>%
+
+                                </span>
+
+
+                                <span
+                                    class="
+                                        live-result-grade
+                                    "
+                                >
+
+                                    <?= live_escape(
+                                        $latestResult[
+                                            'grade'
+                                        ] ?? '-'
+                                    ); ?>
+
+                                </span>
+
+
+                            </div>
+
+
+                        </div>
+
+
+                    <?php endif; ?>
+
+
+                    <!-- =================================================
+                         ACTION
+                    ================================================== -->
+
+                    <div
+                        class="
+                            live-card-action
+                        "
+                    >
+
+
+                        <?php if (
+                            $state === 'upcoming'
+                        ): ?>
+
+
+                            <div
+                                class="
+                                    live-ended-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-regular
+                                        fa-calendar
+                                    "
+                                ></i>
+
+                                Starts Soon
+
+                            </div>
+
+
+                            <?php if (
+                                $latestResult
+                            ): ?>
+
+
+                                <a
+                                    href="result.php?id=<?= (int) $latestResult[
+                                        'id'
+                                    ]; ?>"
+                                    class="
+                                        live-secondary-btn
+                                    "
+                                    title="View latest result"
+                                    aria-label="View latest result"
+                                >
+
+                                    <i
+                                        class="
+                                            fa-solid
+                                            fa-chart-column
+                                        "
+                                    ></i>
+
+                                </a>
+
+
+                            <?php endif; ?>
+
+
+                        <?php elseif (
+                            $state === 'completed'
+                        ): ?>
+
+
+                            <div
+                                class="
+                                    live-ended-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-circle-check
+                                    "
+                                ></i>
+
+                                Exam Ended
+
+                            </div>
+
+
+                            <?php if (
+                                $latestResult
+                            ): ?>
+
+
+                                <a
+                                    href="result.php?id=<?= (int) $latestResult[
+                                        'id'
+                                    ]; ?>"
+                                    class="
+                                        live-secondary-btn
+                                    "
+                                    title="View result"
+                                    aria-label="View result"
+                                >
+
+                                    <i
+                                        class="
+                                            fa-solid
+                                            fa-chart-column
+                                        "
+                                    ></i>
+
+                                </a>
+
+
+                            <?php endif; ?>
+
+
+                        <?php elseif (
+                            $state === 'cancelled'
+                        ): ?>
+
+
+                            <div
+                                class="
+                                    live-ended-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-ban
+                                    "
+                                ></i>
+
+                                Cancelled
+
+                            </div>
+
+
+                        <?php elseif (
+                            !$examReady
+                        ): ?>
+
+
+                            <div
+                                class="
+                                    live-ended-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-triangle-exclamation
+                                    "
+                                ></i>
+
+                                Exam Not Ready
+
+                            </div>
+
+
+                        <?php elseif (
+                            !$hasActiveSubscription
+                        ): ?>
+
+
+                            <a
+                                href="subscriptions.php"
+                                class="
+                                    live-lock-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-lock
+                                    "
+                                ></i>
+
+                                Subscription Required
+
+                            </a>
+
+
+                        <?php elseif (
+                            $activeAttempt
+                        ): ?>
+
+
+                            <a
+                                href="start_exam.php?id=<?= $examId; ?>"
+                                class="
+                                    live-primary-btn
+                                    olive
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-play
+                                    "
+                                ></i>
+
+                                Resume Live Exam
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+
+                            <?php if (
+                                $latestResult
+                            ): ?>
+
+
+                                <a
+                                    href="result.php?id=<?= (int) $latestResult[
+                                        'id'
+                                    ]; ?>"
+                                    class="
+                                        live-secondary-btn
+                                    "
+                                    title="View latest result"
+                                    aria-label="View latest result"
+                                >
+
+                                    <i
+                                        class="
+                                            fa-solid
+                                            fa-chart-column
+                                        "
+                                    ></i>
+
+                                </a>
+
+
+                            <?php endif; ?>
+
+
+                        <?php else: ?>
+
+
+                            <a
+                                href="start_exam.php?id=<?= $examId; ?>"
+                                class="
+                                    live-primary-btn
+                                "
+                            >
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-tower-broadcast
+                                    "
+                                ></i>
+
+                                Join Live Exam
+
+                                <i
+                                    class="
+                                        fa-solid
+                                        fa-arrow-right
+                                    "
+                                ></i>
+
+                            </a>
+
+
+                            <?php if (
+                                $latestResult
+                            ): ?>
+
+
+                                <a
+                                    href="result.php?id=<?= (int) $latestResult[
+                                        'id'
+                                    ]; ?>"
+                                    class="
+                                        live-secondary-btn
+                                    "
+                                    title="View latest result"
+                                    aria-label="View latest result"
+                                >
+
+                                    <i
+                                        class="
+                                            fa-solid
+                                            fa-chart-column
+                                        "
+                                    ></i>
+
+                                </a>
+
+
+                            <?php endif; ?>
+
+
+                        <?php endif; ?>
+
+
+                    </div>
+
+
+                </article>
+
+
+            <?php endforeach; ?>
+
 
         </section>
 
-    </div>
+
+    <?php else: ?>
+
+
+        <!-- =================================================
+             EMPTY STATE
+        ================================================== -->
+
+        <section
+            class="
+                live-empty
+            "
+        >
+
+
+            <div
+                class="
+                    live-empty-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-tower-broadcast
+                    "
+                ></i>
+
+            </div>
+
+
+            <div
+                class="
+                    live-empty-kicker
+                "
+            >
+
+                <?= $filterActive
+                    ? 'NO MATCHING LIVE EXAMS'
+                    : 'LIVE EXAM LIBRARY EMPTY'
+                ?>
+
+            </div>
+
+
+            <h3>
+
+                <?= $filterActive
+                    ? 'No matching live examinations found.'
+                    : 'No live examinations are scheduled yet.'
+                ?>
+
+            </h3>
+
+
+            <p>
+
+                <?php if (
+                    $filterActive
+                ): ?>
+
+                    Try another search term,
+                    select a different subject,
+                    or clear your current filters.
+
+                <?php else: ?>
+
+                    New scheduled live examinations
+                    published by Admin or Teacher will
+                    automatically appear here.
+
+                <?php endif; ?>
+
+
+            </p>
+
+
+            <?php if (
+                !$hasActiveSubscription
+            ): ?>
+
+
+                <a
+                    href="subscriptions.php"
+                    class="
+                        live-empty-btn
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-gem
+                        "
+                    ></i>
+
+                    View Subscription
+
+                </a>
+
+
+            <?php elseif (
+                $filterActive
+            ): ?>
+
+
+                <a
+                    href="live_exams.php"
+                    class="
+                        live-empty-btn
+                    "
+                >
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-rotate-left
+                        "
+                    ></i>
+
+                    Show All Exams
+
+                </a>
+
+
+            <?php endif; ?>
+
+
+        </section>
+
+
+    <?php endif; ?>
+
+
+    <!-- =====================================================
+         INFORMATION STRIP
+    ====================================================== -->
+
+    <section
+        class="
+            live-info-strip
+        "
+    >
+
+
+        <div
+            class="
+                live-info
+            "
+        >
+
+
+            <div
+                class="
+                    live-info-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-lock
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Subscription Protected
+                </strong>
+
+                <small>
+
+                    Only students with a valid
+                    active subscription can join
+                    premium live examinations.
+
+                </small>
+
+            </div>
+
+
+        </div>
+
+
+        <div
+            class="
+                live-info
+            "
+        >
+
+
+            <div
+                class="
+                    live-info-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-clock
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Scheduled Access
+                </strong>
+
+                <small>
+
+                    Live examinations become
+                    joinable only during their
+                    configured examination window.
+
+                </small>
+
+            </div>
+
+
+        </div>
+
+
+        <div
+            class="
+                live-info
+            "
+        >
+
+
+            <div
+                class="
+                    live-info-icon
+                "
+            >
+
+                <i
+                    class="
+                        fa-solid
+                        fa-chart-line
+                    "
+                ></i>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Same Exam Experience
+                </strong>
+
+                <small>
+
+                    Live exams use the same premium
+                    CBT examination interface as
+                    your practice exams.
+
+                </small>
+
+            </div>
+
+
+        </div>
+
+
+    </section>
+
 
 </main>
-
-
-<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const paymentButtons = document.querySelectorAll('.live-payment-button');
-
-    paymentButtons.forEach(function (button) {
-        button.addEventListener('click', async function () {
-            if (button.dataset.processing === '1') return;
-
-            const examId = button.dataset.examId || '';
-            const csrf = button.dataset.csrf || '';
-
-            button.dataset.processing = '1';
-            button.disabled = true;
-            button.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Preparing payment...</span>';
-
-            try {
-                const response = await fetch('ajax/create_live_exam_order.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: new URLSearchParams({
-                        exam_id: examId,
-                        csrf_token: csrf
-                    })
-                });
-
-                const data = await response.json();
-                if (!response.ok || !data.status) {
-                    throw new Error(data.message || 'Unable to start payment.');
-                }
-
-                if (typeof Razorpay === 'undefined') {
-                    throw new Error('Razorpay Checkout could not be loaded. Check your internet connection and try again.');
-                }
-
-                const rzp = new Razorpay({
-                    key: data.key_id,
-                    amount: data.amount,
-                    currency: data.currency,
-                    name: 'ExamSphere',
-                    description: data.exam_title,
-                    order_id: data.order_id,
-                    prefill: data.prefill || {},
-                    notes: data.notes || {},
-                    theme: {
-                        color: '#5D4037'
-                    },
-                    modal: {
-                        ondismiss: function () {
-                            button.dataset.processing = '0';
-                            button.disabled = false;
-                            button.innerHTML = '<span><i class="fa-solid fa-credit-card"></i> Continue to Razorpay</span><i class="fa-solid fa-arrow-right"></i>';
-                        }
-                    },
-                    handler: async function (paymentResponse) {
-                        button.innerHTML = '<span><i class="fa-solid fa-spinner fa-spin"></i> Verifying payment...</span>';
-
-                        try {
-                            const verifyResponse = await fetch('ajax/verify_live_exam_payment.php', {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                                    'X-Requested-With': 'XMLHttpRequest'
-                                },
-                                body: new URLSearchParams({
-                                    exam_id: examId,
-                                    csrf_token: csrf,
-                                    razorpay_order_id: paymentResponse.razorpay_order_id || '',
-                                    razorpay_payment_id: paymentResponse.razorpay_payment_id || '',
-                                    razorpay_signature: paymentResponse.razorpay_signature || ''
-                                })
-                            });
-
-                            const verifyData = await verifyResponse.json();
-                            if (!verifyResponse.ok || !verifyData.status) {
-                                throw new Error(verifyData.message || 'Payment verification failed.');
-                            }
-
-                            window.location.href = verifyData.redirect || ('live_exams.php#payment-' + examId);
-                        } catch (error) {
-                            alert(error.message || 'Payment verification failed.');
-                            button.dataset.processing = '0';
-                            button.disabled = false;
-                            button.innerHTML = '<span><i class="fa-solid fa-credit-card"></i> Continue to Razorpay</span><i class="fa-solid fa-arrow-right"></i>';
-                        }
-                    }
-                });
-
-                rzp.open();
-            } catch (error) {
-                alert(error.message || 'Unable to start payment.');
-                button.dataset.processing = '0';
-                button.disabled = false;
-                button.innerHTML = '<span><i class="fa-solid fa-credit-card"></i> Continue to Razorpay</span><i class="fa-solid fa-arrow-right"></i>';
-            }
-        });
-    });
-
-    if (window.location.hash.startsWith('#payment-')) {
-        const target = document.querySelector(window.location.hash);
-        if (target) {
-            setTimeout(function () {
-                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 150);
-        }
-    }
-});
-</script>
 
 
 </body>

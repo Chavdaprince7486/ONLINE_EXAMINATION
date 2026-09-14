@@ -5,32 +5,25 @@ declare(strict_types=1);
 
 /*
 |--------------------------------------------------------------------------
-| Result PDF Template
+| EXAMSPHERE RESULT PDF TEMPLATE
 |--------------------------------------------------------------------------
-|
-| Variables supplied by:
-|
+| Compatible with:
 | - student/ajax/download_result_pdf.php
 | - student/ajax/send_result_email.php
-|
 |--------------------------------------------------------------------------
 */
 
 
 /*
 |--------------------------------------------------------------------------
-| SAFE HELPERS
+| HELPERS
 |--------------------------------------------------------------------------
 */
 
-if (
-    !function_exists('pdf_escape')
-) {
+if (!function_exists('pdf_escape')) {
 
-    function pdf_escape(
-        mixed $value
-    ): string {
-
+    function pdf_escape(mixed $value): string
+    {
         return htmlspecialchars(
             (string) $value,
             ENT_QUOTES | ENT_SUBSTITUTE,
@@ -40,22 +33,18 @@ if (
 }
 
 
-if (
-    !function_exists('pdf_number')
-) {
+if (!function_exists('pdf_number')) {
 
-    function pdf_number(
-        mixed $value
-    ): string {
-
-        $number =
-            (float) $value;
-
+    function pdf_number(mixed $value): string
+    {
+        $number = round(
+            (float) $value,
+            2
+        );
 
         if (
             floor($number) === $number
         ) {
-
             return number_format(
                 $number,
                 0,
@@ -63,7 +52,6 @@ if (
                 ''
             );
         }
-
 
         return rtrim(
             rtrim(
@@ -81,21 +69,15 @@ if (
 }
 
 
-if (
-    !function_exists('pdf_date')
-) {
+if (!function_exists('pdf_date')) {
 
-    function pdf_date(
-        mixed $value
-    ): string {
-
+    function pdf_date(mixed $value): string
+    {
         if (
             empty($value)
         ) {
-
             return '-';
         }
-
 
         try {
 
@@ -117,218 +99,138 @@ if (
 
 /*
 |--------------------------------------------------------------------------
+| SOURCE DATA
+|--------------------------------------------------------------------------
+*/
+
+$result =
+    is_array(
+        $result ?? null
+    )
+        ? $result
+        : [];
+
+
+$questions =
+    is_array(
+        $questions ?? null
+    )
+        ? $questions
+        : [];
+
+
+/*
+|--------------------------------------------------------------------------
 | RESULT VALUES
 |--------------------------------------------------------------------------
 */
 
-$totalQuestions =
-    max(
-        0,
-        (int) (
-            $totalQuestions
-            ??
-            $result['total_questions']
-            ??
-            0
-        )
-    );
+$totalQuestions = max(
+    0,
+    (int) (
+        $result['total_questions']
+        ?? 0
+    )
+);
 
 
-$attemptedQuestions =
-    max(
-        0,
-        (int) (
-            $attemptedQuestions
-            ??
-            $result['attempted_questions']
-            ??
-            0
-        )
-    );
+$attemptedQuestions = max(
+    0,
+    (int) (
+        $result['attempted_questions']
+        ?? 0
+    )
+);
 
 
-$correctAnswers =
-    max(
-        0,
-        (int) (
-            $correctAnswers
-            ??
-            $result['correct_answers']
-            ??
-            0
-        )
-    );
+$correctAnswers = max(
+    0,
+    (int) (
+        $result['correct_answers']
+        ?? 0
+    )
+);
 
 
-$wrongAnswers =
-    max(
-        0,
-        (int) (
-            $wrongAnswers
-            ??
-            $result['wrong_answers']
-            ??
-            0
-        )
-    );
+$wrongAnswers = max(
+    0,
+    (int) (
+        $result['wrong_answers']
+        ?? 0
+    )
+);
 
 
-$unansweredQuestions =
-    max(
-        0,
-        (int) (
-            $unansweredQuestions
-            ??
-            $result['unanswered_questions']
-            ??
-            0
-        )
-    );
+$unansweredQuestions = max(
+    0,
+    (int) (
+        $result['unanswered_questions']
+        ?? 0
+    )
+);
 
 
-$totalMarks =
-    max(
-        0,
+$totalMarks = max(
+    0,
+    round(
         (float) (
-            $totalMarks
-            ??
             $result['total_marks']
-            ??
-            0
-        )
-    );
+            ?? 0
+        ),
+        2
+    )
+);
 
 
-$obtainedMarks =
-    max(
-        0,
-        min(
-            $totalMarks,
+$obtainedMarks = round(
+    (float) (
+        $result['obtained_marks']
+        ?? 0
+    ),
+    2
+);
+
+
+$obtainedMarks = max(
+    0,
+    min(
+        $totalMarks,
+        $obtainedMarks
+    )
+);
+
+
+$percentage = round(
+    (float) (
+        $result['percentage']
+        ?? 0
+    ),
+    2
+);
+
+
+$percentage = max(
+    0,
+    min(
+        100,
+        $percentage
+    )
+);
+
+
+$passingMarks = max(
+    0,
+    min(
+        $totalMarks,
+        round(
             (float) (
-                $obtainedMarks
-                ??
-                $result['obtained_marks']
-                ??
-                0
-            )
-        )
-    );
-
-
-$percentage =
-    max(
-        0,
-        min(
-            100,
-            (float) (
-                $percentage
-                ??
-                $result['percentage']
-                ??
-                0
-            )
-        )
-    );
-
-
-$passingMarks =
-    max(
-        0,
-        (float) (
-            $passingMarks
-            ??
-            $result['passing_marks']
-            ??
-            0
-        )
-    );
-
-
-$accuracy =
-    $attemptedQuestions > 0
-
-        ? round(
-            (
-                $correctAnswers
-                /
-                $attemptedQuestions
-            ) * 100,
+                $result['passing_marks']
+                ?? 0
+            ),
             2
         )
-
-        : 0;
-
-
-$attemptedPercent =
-    $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $attemptedQuestions
-                        /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
-        )
-        : 0;
-
-
-$correctPercent =
-    $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $correctAnswers
-                        /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
-        )
-        : 0;
-
-
-$wrongPercent =
-    $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $wrongAnswers
-                        /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
-        )
-        : 0;
-
-
-$unansweredPercent =
-    $totalQuestions > 0
-        ? min(
-            100,
-            max(
-                0,
-                round(
-                    (
-                        $unansweredQuestions
-                        /
-                        $totalQuestions
-                    ) * 100
-                )
-            )
-        )
-        : 0;
+    )
+);
 
 
 $grade =
@@ -340,20 +242,16 @@ $grade =
     );
 
 
-if (
-    $grade === ''
-) {
+if ($grade === '') {
 
     $grade =
         match (true) {
-
             $percentage >= 90 => 'A+',
             $percentage >= 80 => 'A',
             $percentage >= 70 => 'B+',
             $percentage >= 60 => 'B',
             $percentage >= 50 => 'C',
             $percentage >= 40 => 'D',
-
             default => 'F'
         };
 }
@@ -372,23 +270,11 @@ $isPassed =
     $resultStatus === 'Pass';
 
 
-$statusText =
-    $isPassed
-        ? 'PASS'
-        : 'FAIL';
-
-
-$statusColor =
-    $isPassed
-        ? '#556B2F'
-        : '#93483E';
-
-
-$statusBackground =
-    $isPassed
-        ? '#EEF4E5'
-        : '#F9ECE9';
-
+/*
+|--------------------------------------------------------------------------
+| EXAM / STUDENT
+|--------------------------------------------------------------------------
+*/
 
 $examTitle =
     trim(
@@ -399,29 +285,20 @@ $examTitle =
     );
 
 
-$subjectName =
-    trim(
-        (string) (
-            $result['subject_name']
-            ?? 'General'
-        )
-    );
-
-
-if (
-    $subjectName === ''
-) {
-
-    $subjectName =
-        'General';
-}
-
-
 $examType =
     trim(
         (string) (
             $result['exam_type']
             ?? 'Examination'
+        )
+    );
+
+
+$subjectName =
+    trim(
+        (string) (
+            $result['subject_name']
+            ?? 'General'
         )
     );
 
@@ -500,9 +377,15 @@ $startedAt =
 
 /*
 |--------------------------------------------------------------------------
-| TIME TAKEN
+| DATE / TIME
 |--------------------------------------------------------------------------
 */
+
+$formattedDate =
+    pdf_date(
+        $submittedAt
+    );
+
 
 $timeTakenSeconds =
     0;
@@ -545,15 +428,11 @@ if (
 
 
 $timeTakenMinutes =
-    $timeTakenMinutes
-    ??
-    (
-        $timeTakenSeconds > 0
-            ? (int) ceil(
-                $timeTakenSeconds / 60
-            )
-            : 0
-    );
+    $timeTakenSeconds > 0
+        ? (int) ceil(
+            $timeTakenSeconds / 60
+        )
+        : 0;
 
 
 if (
@@ -594,52 +473,238 @@ if (
 
 /*
 |--------------------------------------------------------------------------
-| RESULT DATE
+| PERCENTAGES
 |--------------------------------------------------------------------------
 */
 
-$formattedDate =
-    pdf_date(
-        $submittedAt
+$attemptedPercent =
+    $totalQuestions > 0
+        ? round(
+            (
+                $attemptedQuestions /
+                $totalQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+$correctPercent =
+    $totalQuestions > 0
+        ? round(
+            (
+                $correctAnswers /
+                $totalQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+$wrongPercent =
+    $totalQuestions > 0
+        ? round(
+            (
+                $wrongAnswers /
+                $totalQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+$unansweredPercent =
+    $totalQuestions > 0
+        ? round(
+            (
+                $unansweredQuestions /
+                $totalQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+$accuracy =
+    $attemptedQuestions > 0
+        ? round(
+            (
+                $correctAnswers /
+                $attemptedQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+$completion =
+    $totalQuestions > 0
+        ? round(
+            (
+                $attemptedQuestions /
+                $totalQuestions
+            ) * 100,
+            1
+        )
+        : 0;
+
+
+/*
+|--------------------------------------------------------------------------
+| PER QUESTION MARKS
+|--------------------------------------------------------------------------
+*/
+
+$marksPerQuestion =
+    null;
+
+
+$questionRows =
+    [];
+
+
+$seenQuestionIds =
+    [];
+
+
+foreach (
+    $questions as $question
+) {
+
+    $questionId =
+        (int) (
+            $question['question_id']
+            ??
+            $question['id']
+            ??
+            0
+        );
+
+
+    if (
+        $questionId <= 0
+    ) {
+        continue;
+    }
+
+
+    if (
+        isset(
+            $seenQuestionIds[
+                $questionId
+            ]
+        )
+    ) {
+        continue;
+    }
+
+
+    $seenQuestionIds[
+        $questionId
+    ] = true;
+
+
+    $questionMarks =
+        round(
+            (float) (
+                $question['marks']
+                ?? 0
+            ),
+            2
+        );
+
+
+    if (
+        $questionMarks > 0
+    ) {
+
+        if (
+            $marksPerQuestion === null
+        ) {
+
+            $marksPerQuestion =
+                $questionMarks;
+        }
+    }
+
+
+    $questionRows[] =
+        $question;
+}
+
+
+if (
+    $marksPerQuestion === null
+    &&
+    $totalQuestions > 0
+) {
+
+    $marksPerQuestion =
+        round(
+            $totalMarks /
+            $totalQuestions,
+            2
+        );
+}
+
+
+if (
+    $marksPerQuestion === null
+) {
+
+    $marksPerQuestion =
+        0;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| DYNAMIC TOTAL FORMULA
+|--------------------------------------------------------------------------
+*/
+
+$calculatedTotalMarks =
+    round(
+        $totalQuestions *
+        $marksPerQuestion,
+        2
     );
 
 
 /*
 |--------------------------------------------------------------------------
-| PERFORMANCE MESSAGE
+| RESULT MESSAGE
 |--------------------------------------------------------------------------
 */
 
-$remark =
+$statusText =
     $isPassed
+        ? 'PASS'
+        : 'FAIL';
 
+
+$statusColor =
+    $isPassed
+        ? '#556B2F'
+        : '#93483E';
+
+
+$statusBg =
+    $isPassed
+        ? '#EEF4E5'
+        : '#F8E9E6';
+
+
+$resultMessage =
+    $isPassed
         ? 'Congratulations! You passed the examination.'
-
         : 'Keep practising and continue improving your preparation.';
 
 
-$remarkText =
+$resultSubMessage =
     $isPassed
-
-        ? 'Your final score has met or exceeded the configured passing marks.'
-
-        : 'Review the detailed analysis and use the weak areas to guide your next practice sessions.';
-
-
-/*
-|--------------------------------------------------------------------------
-| SCORE POSITION
-|--------------------------------------------------------------------------
-*/
-
-$scorePosition =
-    min(
-        100,
-        max(
-            0,
-            $percentage
-        )
-    );
+        ? 'Your obtained marks meet or exceed the configured passing marks.'
+        : 'Use this analysis to identify weak areas and improve your next attempt.';
 
 
 /*
@@ -648,7 +713,11 @@ $scorePosition =
 |--------------------------------------------------------------------------
 */
 
-$possibleLogoPaths = [
+$logoSrc =
+    '';
+
+
+$logoCandidates = [
 
     dirname(
         __DIR__,
@@ -677,124 +746,54 @@ $possibleLogoPaths = [
 ];
 
 
-$logoSrc =
-    '';
-
-
 foreach (
-    $possibleLogoPaths
-    as $candidate
+    $logoCandidates as $candidate
 ) {
 
     if (
         is_file($candidate)
     ) {
 
-        $realLogo =
+        $real =
             realpath(
                 $candidate
             );
 
 
         if (
-            $realLogo !== false
+            $real !== false
         ) {
 
             $logoSrc =
                 str_replace(
                     '\\',
                     '/',
-                    $realLogo
+                    $real
                 );
-
 
             break;
         }
     }
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| QUESTION ANALYSIS
-|--------------------------------------------------------------------------
-*/
-
-$questionRows =
-    is_array(
-        $questions
-        ??
-        []
-    )
-        ? $questions
-        : [];
-
-
-$uniqueQuestionRows =
-    [];
-
-
-foreach (
-    $questionRows
-    as $question
-) {
-
-    $questionId =
-        (int) (
-            $question['question_id']
-            ??
-            0
-        );
-
-
-    if (
-        $questionId <= 0
-    ) {
-        continue;
-    }
-
-
-    if (
-        isset(
-            $uniqueQuestionRows[
-                $questionId
-            ]
-        )
-    ) {
-        continue;
-    }
-
-
-    $uniqueQuestionRows[
-        $questionId
-    ] =
-        $question;
-}
-
-
-$questionRows =
-    array_values(
-        $uniqueQuestionRows
-    );
-
-
 ?>
+
 
 <style>
 
 /*
 |--------------------------------------------------------------------------
-| PDF GLOBAL
+| GLOBAL
 |--------------------------------------------------------------------------
 */
 
 body {
 
-    color:
-        #333333;
-
     font-family:
         dejavusans;
+
+    color:
+        #332D29;
 
     font-size:
         8px;
@@ -806,25 +805,42 @@ body {
 
 table {
 
+    width:
+        100%;
+
     border-collapse:
         collapse;
 }
 
 
-.pdf-page {
+td {
+
+    vertical-align:
+        top;
+}
+
+
+.page {
 
     width:
         100%;
 }
 
 
+.muted {
+
+    color:
+        #756D67;
+}
+
+
 /*
 |--------------------------------------------------------------------------
-| HEADER
+| COVER / HEADER
 |--------------------------------------------------------------------------
 */
 
-.top-header {
+.header-table {
 
     width:
         100%;
@@ -834,56 +850,34 @@ table {
 }
 
 
-.brand-side {
+.logo-cell {
 
     width:
-        62%;
+        52px;
 
     vertical-align:
         middle;
-}
-
-
-.report-side {
-
-    width:
-        38%;
-
-    vertical-align:
-        top;
-
-    text-align:
-        right;
 }
 
 
 .logo {
 
     width:
-        38px;
+        42px;
 
     height:
-        38px;
+        42px;
+}
 
-    margin-right:
-        10px;
+
+.brand-cell {
 
     vertical-align:
         middle;
 }
 
 
-.brand-block {
-
-    display:
-        inline-block;
-
-    vertical-align:
-        middle;
-}
-
-
-.brand-name {
+.brand {
 
     color:
         #5D4037;
@@ -896,50 +890,55 @@ table {
 }
 
 
-.brand-line {
+.brand-sub {
 
     margin-top:
-        3px;
+        2px;
 
     color:
-        #7C7167;
-
-    font-size:
-        6px;
-
-    letter-spacing:
-        .7px;
-}
-
-
-.report-kicker {
-
-    color:
-        #556B2F;
+        #8A817A;
 
     font-size:
         7px;
+}
+
+
+.report-cell {
+
+    width:
+        180px;
+
+    text-align:
+        right;
+}
+
+
+.report-label {
+
+    color:
+        #8A817A;
+
+    font-size:
+        7px;
+
+    text-transform:
+        uppercase;
+}
+
+
+.report-id {
+
+    margin-top:
+        2px;
+
+    color:
+        #3E2723;
+
+    font-size:
+        12px;
 
     font-weight:
         bold;
-
-    letter-spacing:
-        1px;
-}
-
-
-.report-id,
-.report-attempt,
-.report-date {
-
-    margin-top:
-        4px;
-
-    color:
-        #777777;
-
-    font-size:
-        7px;
 }
 
 
@@ -949,55 +948,29 @@ table {
 |--------------------------------------------------------------------------
 */
 
-.hero-table {
-
-    width:
-        100%;
+.hero {
 
     margin-bottom:
-        15px;
+        14px;
+
+    padding:
+        14px 16px;
+
+    border-radius:
+        12px;
 
     background:
         #5D4037;
-}
-
-
-.hero-main {
-
-    width:
-        73%;
-
-    padding:
-        20px;
 
     color:
         #FFFFFF;
 }
 
 
-.hero-score {
-
-    width:
-        27%;
-
-    padding:
-        20px 15px;
-
-    text-align:
-        center;
+.hero-kicker {
 
     color:
-        #FFFFFF;
-
-    background:
-        #3E2723;
-}
-
-
-.hero-overline {
-
-    color:
-        #E2EFCF;
+        #E8DEC7;
 
     font-size:
         7px;
@@ -1005,92 +978,159 @@ table {
     font-weight:
         bold;
 
+    text-transform:
+        uppercase;
+
     letter-spacing:
-        1.2px;
+        1.1px;
 }
 
 
 .hero-title {
 
     margin-top:
-        5px;
+        4px;
 
     font-size:
-        20px;
+        18px;
 
     font-weight:
         bold;
-
-    line-height:
-        1.25;
 }
 
 
 .hero-meta {
 
     margin-top:
-        7px;
+        6px;
 
     color:
-        #F1EADF;
+        #F3EEE5;
 
     font-size:
         8px;
 }
 
 
-.hero-description {
+/*
+|--------------------------------------------------------------------------
+| STATUS
+|--------------------------------------------------------------------------
+*/
+
+.status-wrap {
 
     margin-top:
         10px;
-
-    color:
-        #EDE5DD;
-
-    font-size:
-        7px;
-
-    line-height:
-        1.6;
 }
 
 
-.score-caption {
+.status-badge {
+
+    display:
+        inline-block;
+
+    padding:
+        5px 12px;
+
+    border-radius:
+        12px;
+
+    background:
+        <?= $statusBg ?>;
 
     color:
-        #E1D5CD;
+        <?= $statusColor ?>;
 
     font-size:
-        7px;
+        9px;
 
     font-weight:
         bold;
 
+    text-transform:
+        uppercase;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| SCORE CARD
+|--------------------------------------------------------------------------
+*/
+
+.score-card {
+
+    margin-bottom:
+        12px;
+
+    padding:
+        14px;
+
+    border:
+        1px solid
+        #E5DED3;
+
+    border-radius:
+        12px;
+
+    background:
+        #FBF9F4;
+}
+
+
+.score-label {
+
+    color:
+        #81776F;
+
+    font-size:
+        7px;
+
+    text-transform:
+        uppercase;
+
     letter-spacing:
-        1px;
+        .7px;
 }
 
 
 .score-value {
 
     margin-top:
-        7px;
+        3px;
+
+    color:
+        #3E2723;
 
     font-size:
-        29px;
+        27px;
 
     font-weight:
         bold;
 }
 
 
-.score-status {
+.score-total {
 
-    margin-top:
-        6px;
+    color:
+        #857B74;
 
     font-size:
-        8px;
+        11px;
+
+    font-weight:
+        normal;
+}
+
+
+.score-percent {
+
+    color:
+        #556B2F;
+
+    font-size:
+        13px;
 
     font-weight:
         bold;
@@ -1103,27 +1143,209 @@ table {
 |--------------------------------------------------------------------------
 */
 
-.section-card {
+.section {
 
     margin-bottom:
-        14px;
+        12px;
+
+    page-break-inside:
+        avoid;
+}
+
+
+.section-title {
+
+    margin-bottom:
+        8px;
+
+    padding-bottom:
+        6px;
+
+    border-bottom:
+        1px solid
+        #DED7CE;
+
+    color:
+        #3E2723;
+
+    font-size:
+        10px;
+
+    font-weight:
+        bold;
+
+    text-transform:
+        uppercase;
+
+    letter-spacing:
+        .5px;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INFORMATION
+|--------------------------------------------------------------------------
+*/
+
+.info-table td {
+
+    width:
+        50%;
 
     padding:
-        14px;
+        5px 0;
+}
+
+
+.info-label {
+
+    color:
+        #827870;
+
+    font-size:
+        7px;
+
+    text-transform:
+        uppercase;
+}
+
+
+.info-value {
+
+    margin-top:
+        2px;
+
+    color:
+        #3E2723;
+
+    font-size:
+        8px;
+
+    font-weight:
+        bold;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| STAT GRID
+|--------------------------------------------------------------------------
+*/
+
+.stat-table td {
+
+    width:
+        25%;
+
+    padding-right:
+        6px;
+}
+
+
+.stat-table td:last-child {
+
+    padding-right:
+        0;
+}
+
+
+.stat {
+
+    min-height:
+        54px;
+
+    padding:
+        9px;
 
     border:
         1px solid
-        #E4DDD6;
+        #E6DED4;
+
+    border-radius:
+        10px;
 
     background:
         #FFFFFF;
 }
 
 
-.section-heading {
+.stat-label {
 
-    margin-bottom:
-        11px;
+    color:
+        #81776F;
+
+    font-size:
+        6.5px;
+
+    text-transform:
+        uppercase;
+}
+
+
+.stat-value {
+
+    margin-top:
+        4px;
+
+    color:
+        #3E2723;
+
+    font-size:
+        15px;
+
+    font-weight:
+        bold;
+}
+
+
+.stat-green .stat-value {
+
+    color:
+        #556B2F;
+}
+
+
+.stat-red .stat-value {
+
+    color:
+        #93483E;
+}
+
+
+.stat-olive .stat-value {
+
+    color:
+        #667D35;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FORMULA
+|--------------------------------------------------------------------------
+*/
+
+.formula {
+
+    margin:
+        8px 0 12px;
+
+    padding:
+        9px;
+
+    border:
+        1px solid
+        #DCD4C8;
+
+    border-radius:
+        9px;
+
+    background:
+        #F6F2E9;
+
+    text-align:
+        center;
 
     color:
         #5D4037;
@@ -1133,225 +1355,25 @@ table {
 
     font-weight:
         bold;
-
-    letter-spacing:
-        .8px;
 }
 
 
-.section-number {
+.formula small {
 
     display:
-        inline-block;
+        block;
 
-    width:
-        19px;
-
-    height:
-        17px;
-
-    margin-right:
-        6px;
-
-    padding-top:
-        2px;
-
-    border-radius:
-        5px;
-
-    color:
-        #FFFFFF;
-
-    background:
-        #556B2F;
-
-    text-align:
-        center;
-
-    font-size:
-        7px;
-
-    vertical-align:
-        middle;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| PROFILE
-|--------------------------------------------------------------------------
-*/
-
-.profile-grid {
-
-    width:
-        100%;
-}
-
-
-.profile-grid td {
-
-    width:
-        33.33%;
-
-    padding:
-        8px 10px;
-
-    border:
-        1px solid
-        #EEE8E1;
-
-    vertical-align:
-        top;
-}
-
-
-.label {
-
-    margin-bottom:
+    margin-top:
         3px;
 
     color:
-        #8A8179;
+        #81776F;
 
     font-size:
-        6px;
-
-    font-weight:
-        bold;
-
-    letter-spacing:
-        .8px;
-}
-
-
-.value {
-
-    color:
-        #3E2723;
-
-    font-size:
-        8px;
-
-    font-weight:
-        bold;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| SNAPSHOT
-|--------------------------------------------------------------------------
-*/
-
-.snapshot-table {
-
-    width:
-        100%;
-}
-
-
-.snapshot-table td {
-
-    width:
-        25%;
-
-    padding:
-        4px;
-}
-
-
-.snapshot-card {
-
-    min-height:
-        59px;
-
-    padding:
-        10px;
-
-    border:
-        1px solid
-        #E8E1D8;
-}
-
-
-.snapshot-card.olive {
-
-    background:
-        #EEF4E5;
-}
-
-
-.snapshot-card.green {
-
-    background:
-        #EEF7EF;
-}
-
-
-.snapshot-card.brown {
-
-    background:
-        #F6EFEB;
-}
-
-
-.snapshot-card.beige {
-
-    background:
-        #F5F5DC;
-}
-
-
-.snapshot-label {
-
-    color:
-        #7A736C;
-
-    font-size:
-        6px;
-
-    font-weight:
-        bold;
-
-    letter-spacing:
-        .7px;
-}
-
-
-.snapshot-value {
-
-    margin-top:
-        5px;
-
-    color:
-        #5D4037;
-
-    font-size:
-        17px;
-
-    font-weight:
-        bold;
-}
-
-
-.snapshot-value span {
-
-    color:
-        #877B72;
-
-    font-size:
-        8px;
+        6.5px;
 
     font-weight:
         normal;
-}
-
-
-.snapshot-value.dark {
-
-    color:
-        #333333;
 }
 
 
@@ -1361,218 +1383,110 @@ table {
 |--------------------------------------------------------------------------
 */
 
-.breakdown-table {
+.breakdown {
 
     width:
         100%;
 }
 
 
-.breakdown-table td {
+.breakdown-row td {
 
     padding:
-        6px 0;
+        5px 0;
 
-    border-bottom:
-        1px solid
-        #F0EBE5;
+    vertical-align:
+        middle;
 }
 
 
 .breakdown-name {
 
     width:
-        20%;
+        22%;
 
     color:
-        #5D4037;
+        #605851;
 
-    font-weight:
-        bold;
+    font-size:
+        7px;
 }
 
 
-.breakdown-track-cell {
+.breakdown-bar-cell {
 
     width:
-        62%;
+        58%;
 
     padding-left:
-        9px !important;
+        5px;
 
     padding-right:
-        9px !important;
-}
-
-
-.bar-track {
-
-    width:
-        100%;
-
-    height:
-        8px;
-
-    background:
-        #EDE8E2;
-}
-
-
-.bar-fill {
-
-    height:
         8px;
 }
 
 
-.bar-fill.attempted {
+.bar {
+
+    height:
+        7px;
 
     background:
-        #806A57;
+        #EBE5DA;
+
+    border-radius:
+        5px;
 }
 
 
-.bar-fill.correct {
+.bar-inner {
+
+    height:
+        7px;
+
+    border-radius:
+        5px;
+}
+
+
+.bar-attempted {
+
+    background:
+        #A58F5C;
+}
+
+
+.bar-correct {
 
     background:
         #556B2F;
 }
 
 
-.bar-fill.wrong {
+.bar-wrong {
 
     background:
         #93483E;
 }
 
 
-.bar-fill.unanswered {
+.bar-unanswered {
 
     background:
-        #A9A093;
+        #8D847B;
 }
 
 
 .breakdown-value {
 
     width:
-        18%;
-
-    color:
-        #3E2723;
+        20%;
 
     text-align:
         right;
 
-    font-weight:
-        bold;
-}
-
-
-.breakdown-value span {
-
     color:
-        #8B8178;
-
-    font-weight:
-        normal;
-}
-
-
-.total-row {
-
-    margin-top:
-        10px;
-
-    padding:
-        8px 10px;
-
-    background:
-        #F5F5DC;
-
-    color:
-        #5D4037;
-
-    font-size:
-        7px;
-
-    font-weight:
-        bold;
-}
-
-
-.total-row strong {
-
-    float:
-        right;
-
-    font-size:
-        10px;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| PAGE TWO
-|--------------------------------------------------------------------------
-*/
-
-.page-two-title {
-
-    margin-bottom:
-        13px;
-
-    padding-bottom:
-        10px;
-
-    border-bottom:
-        2px solid
-        #5D4037;
-}
-
-
-.small-kicker {
-
-    color:
-        #556B2F;
-
-    font-size:
-        6px;
-
-    font-weight:
-        bold;
-
-    letter-spacing:
-        1px;
-}
-
-
-.page-two-heading {
-
-    margin-top:
-        3px;
-
-    color:
-        #5D4037;
-
-    font-size:
-        17px;
-
-    font-weight:
-        bold;
-}
-
-
-.page-two-code {
-
-    float:
-        right;
-
-    margin-top:
-        -20px;
-
-    color:
-        #8A8179;
+        #3E2723;
 
     font-size:
         7px;
@@ -1588,73 +1502,53 @@ table {
 |--------------------------------------------------------------------------
 */
 
-.details-columns {
+.details {
 
-    width:
-        100%;
+    border:
+        1px solid
+        #E6DFD6;
+
+    border-radius:
+        10px;
+
+    overflow:
+        hidden;
 }
 
 
-.details-columns > tbody > tr > td {
-
-    width:
-        50%;
-
-    padding:
-        0 5px;
-    
-    vertical-align:
-        top;
-}
-
-
-.details-columns > tbody > tr > td:first-child {
-
-    padding-left:
-        0;
-}
-
-
-.details-columns > tbody > tr > td:last-child {
-
-    padding-right:
-        0;
-}
-
-
-.compact-card {
-
-    min-height:
-        220px;
-}
-
-
-.detail-table {
-
-    width:
-        100%;
-}
-
-
-.detail-table td {
-
-    padding:
-        7px 0;
+.details tr {
 
     border-bottom:
         1px solid
-        #EEE8E1;
+        #EEE8E0;
 }
 
 
-.detail-table td:first-child {
+.details tr:last-child {
+
+    border-bottom:
+        0;
+}
+
+
+.details td {
+
+    padding:
+        7px 9px;
+}
+
+
+.details td:first-child {
 
     color:
-        #7D746D;
+        #81776F;
+
+    width:
+        65%;
 }
 
 
-.detail-table td:last-child {
+.details td:last-child {
 
     color:
         #3E2723;
@@ -1667,129 +1561,46 @@ table {
 }
 
 
-.detail-table .green-value {
-
-    color:
-        #556B2F;
-}
-
-
 /*
 |--------------------------------------------------------------------------
-| REVIEW
+| FINAL REMARK
 |--------------------------------------------------------------------------
 */
 
-.review-table {
-
-    width:
-        100%;
-}
-
-
-.review-score {
-
-    width:
-        25%;
+.remark {
 
     padding:
-        15px;
+        11px 13px;
+
+    border-left:
+        3px solid
+        <?= $statusColor ?>;
 
     background:
-        #F5F5DC;
-
-    text-align:
-        center;
-
-    vertical-align:
-        middle;
+        #FAF8F3;
 }
 
 
-.review-main {
-
-    width:
-        75%;
-
-    padding:
-        15px;
-
-    vertical-align:
-        middle;
-}
-
-
-.review-score-label {
-
-    color:
-        #7B7169;
-
-    font-size:
-        6px;
-
-    font-weight:
-        bold;
-
-    letter-spacing:
-        .8px;
-}
-
-
-.review-score-value {
-
-    margin-top:
-        6px;
-
-    color:
-        #5D4037;
-
-    font-size:
-        22px;
-
-    font-weight:
-        bold;
-}
-
-
-.review-status {
-
-    display:
-        inline-block;
-
-    padding:
-        5px 8px;
-
-    font-size:
-        7px;
-
-    font-weight:
-        bold;
-}
-
-
-.review-title {
-
-    margin-top:
-        8px;
+.remark-title {
 
     color:
         #3E2723;
 
     font-size:
-        10px;
+        9px;
 
     font-weight:
         bold;
 }
 
 
-.review-text {
+.remark-text {
 
     margin-top:
-        5px;
+        4px;
 
     color:
-        #77706A;
+        #736B64;
 
     font-size:
         7px;
@@ -1801,408 +1612,9 @@ table {
 
 /*
 |--------------------------------------------------------------------------
-| SCORE POSITION
+| QUESTION ANALYSIS
 |--------------------------------------------------------------------------
 */
-
-.score-position {
-
-    width:
-        100%;
-}
-
-
-.score-position td {
-
-    vertical-align:
-        middle;
-}
-
-
-.score-position .position-label {
-
-    color:
-        #80766E;
-
-    font-size:
-        6px;
-
-    font-weight:
-        bold;
-}
-
-
-.position-number {
-
-    margin-top:
-        3px;
-
-    color:
-        #5D4037;
-
-    font-size:
-        15px;
-
-    font-weight:
-        bold;
-}
-
-
-.position-line-cell {
-
-    width:
-        65%;
-
-    padding:
-        0 15px;
-}
-
-
-.position-line {
-
-    width:
-        100%;
-
-    height:
-        9px;
-
-    background:
-        #EDE8E2;
-}
-
-
-.position-progress {
-
-    height:
-        9px;
-
-    background:
-        #556B2F;
-}
-
-
-.position-scale {
-
-    display:
-        table;
-
-    width:
-        100%;
-
-    margin-top:
-        4px;
-
-    color:
-        #8C837C;
-
-    font-size:
-        6px;
-}
-
-
-.position-scale span {
-
-    display:
-        table-cell;
-
-    width:
-        33.33%;
-
-    text-align:
-        left;
-}
-
-
-.position-scale span:nth-child(2) {
-
-    text-align:
-        center;
-}
-
-
-.position-scale span:last-child {
-
-    text-align:
-        right;
-}
-
-
-.grade-box {
-
-    width:
-        18%;
-
-    padding:
-        10px;
-
-    background:
-        #3E2723;
-
-    text-align:
-        center;
-}
-
-
-.grade-label {
-
-    color:
-        #D9CEC7;
-
-    font-size:
-        6px;
-
-    font-weight:
-        bold;
-}
-
-
-.grade-value {
-
-    margin-top:
-        3px;
-
-    color:
-        #FFFFFF;
-
-    font-size:
-        19px;
-
-    font-weight:
-        bold;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| DESCRIPTION
-|--------------------------------------------------------------------------
-*/
-
-.exam-description {
-
-    padding:
-        11px;
-
-    background:
-        #FAF8F4;
-
-    color:
-        #5F5954;
-
-    font-size:
-        8px;
-
-    line-height:
-        1.7;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| FINAL BANNER
-|--------------------------------------------------------------------------
-*/
-
-.final-banner {
-
-    margin-top:
-        13px;
-
-    padding:
-        13px;
-
-    page-break-inside:
-        avoid;
-}
-
-
-.final-banner.pass {
-
-    background:
-        #EEF4E5;
-
-    border:
-        1px solid
-        #D8E6C5;
-}
-
-
-.final-banner.fail {
-
-    background:
-        #F9ECE9;
-
-    border:
-        1px solid
-        #EBD4CF;
-}
-
-
-.final-banner table {
-
-    width:
-        100%;
-}
-
-
-.final-icon {
-
-    width:
-        34px;
-
-    height:
-        34px;
-
-    color:
-        #FFFFFF;
-
-    background:
-        #556B2F;
-
-    text-align:
-        center;
-
-    font-size:
-        17px;
-
-    font-weight:
-        bold;
-}
-
-
-.fail .final-icon {
-
-    background:
-        #93483E;
-}
-
-
-.final-title {
-
-    padding-left:
-        10px;
-
-    color:
-        #3E2723;
-
-    font-size:
-        9px;
-
-    font-weight:
-        bold;
-}
-
-
-.final-text {
-
-    padding:
-        4px 10px 0;
-
-    color:
-        #756D66;
-
-    font-size:
-        7px;
-
-    line-height:
-        1.5;
-}
-
-
-.final-grade {
-
-    width:
-        70px;
-
-    color:
-        #5D4037;
-
-    text-align:
-        right;
-
-    font-size:
-        20px;
-
-    font-weight:
-        bold;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| FOOTER
-|--------------------------------------------------------------------------
-*/
-
-.pdf-footer {
-
-    margin-top:
-        16px;
-
-    padding-top:
-        10px;
-
-    border-top:
-        1px solid
-        #DDD5CD;
-
-    color:
-        #817870;
-
-    font-size:
-        6px;
-}
-
-
-.pdf-footer table {
-
-    width:
-        100%;
-}
-
-
-.pdf-footer strong {
-
-    color:
-        #5D4037;
-}
-
-
-.footer-right {
-
-    text-align:
-        right;
-}
-
-
-.footer-note {
-
-    margin-top:
-        7px;
-
-    color:
-        #99918A;
-
-    text-align:
-        center;
-
-    line-height:
-        1.5;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| QUESTION DETAIL
-|--------------------------------------------------------------------------
-*/
-
-.question-list {
-
-    width:
-        100%;
-}
-
 
 .question-card {
 
@@ -2214,7 +1626,10 @@ table {
 
     border:
         1px solid
-        #E8E1D8;
+        #E5DED5;
+
+    border-radius:
+        8px;
 
     page-break-inside:
         avoid;
@@ -2241,11 +1656,24 @@ table {
 
     border-left:
         3px solid
-        #A9A093;
+        #8D847B;
 }
 
 
-.question-card-title {
+.question-head {
+
+    width:
+        100%;
+
+    margin-bottom:
+        5px;
+}
+
+
+.question-number {
+
+    width:
+        65%;
 
     color:
         #3E2723;
@@ -2255,1552 +1683,1297 @@ table {
 
     font-weight:
         bold;
-
-    line-height:
-        1.6;
 }
 
 
-.answer-detail {
+.question-marks {
 
-    margin-top:
-        5px;
+    width:
+        35%;
+
+    text-align:
+        right;
 
     color:
-        #66615C;
+        #556B2F;
 
     font-size:
         7px;
+
+    font-weight:
+        bold;
 }
 
 
-.answer-detail strong {
+.question-text {
+
+    color:
+        #312B27;
+
+    font-size:
+        8px;
+
+    font-weight:
+        bold;
+
+    line-height:
+        1.55;
+}
+
+
+.answer-line {
+
+    margin-top:
+        4px;
+
+    color:
+        #716963;
+
+    font-size:
+        7px;
+
+    line-height:
+        1.45;
+}
+
+
+.answer-line strong {
 
     color:
         #5D4037;
 }
 
 
-.explanation-box {
+.explanation {
 
     margin-top:
         6px;
 
     padding:
-        7px;
+        6px 8px;
 
     background:
-        #F8F6F1;
+        #F7F4EE;
 
     color:
-        #66615C;
+        #716963;
 
     font-size:
-        7px;
+        6.8px;
 
     line-height:
-        1.6;
+        1.55;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| FOOTER NOTE
+|--------------------------------------------------------------------------
+*/
+
+.footer-note {
+
+    margin-top:
+        14px;
+
+    padding-top:
+        8px;
+
+    border-top:
+        1px solid
+        #E5DED5;
+
+    color:
+        #948B83;
+
+    font-size:
+        6.5px;
+
+    text-align:
+        center;
 }
 
 </style>
 
 
-<div class="pdf-page">
+<div class="page">
 
 
-<!-- =====================================================
-     HEADER
-====================================================== -->
+    <!-- ======================================================
+         HEADER
+    ======================================================= -->
 
-<table
-    class="top-header"
-    cellpadding="0"
-    cellspacing="0"
->
+    <table class="header-table">
 
-<tr>
+        <tr>
 
-<td class="brand-side">
+            <?php if (
+                $logoSrc !== ''
+            ): ?>
 
+                <td class="logo-cell">
 
-<?php if (
-    $logoSrc !== ''
-): ?>
+                    <img
+                        src="<?= pdf_escape(
+                            $logoSrc
+                        ); ?>"
+                        class="logo"
+                        alt="ExamSphere"
+                    >
 
-<img
-    src="<?= pdf_escape(
-        $logoSrc
-    ); ?>"
-    class="logo"
-    alt="ExamSphere"
->
+                </td>
 
-<?php endif; ?>
+            <?php endif; ?>
 
 
-<div class="brand-block">
+            <td class="brand-cell">
 
-    <div class="brand-name">
-        ExamSphere
-    </div>
+                <div class="brand">
+                    ExamSphere
+                </div>
 
+                <div class="brand-sub">
+                    Online Examination System
+                </div>
 
-    <div class="brand-line">
-
-        SMART ASSESSMENT
-        ·
-        SEAMLESS LEARNING
-        ·
-        REAL RESULTS
-
-    </div>
-
-</div>
-
-</td>
+            </td>
 
 
-<td class="report-side">
+            <td class="report-cell">
 
-    <div class="report-kicker">
-        OFFICIAL RESULT REPORT
-    </div>
+                <div class="report-label">
+                    Result Report
+                </div>
 
+                <div class="report-id">
 
-    <div class="report-id">
+                    #<?= (int) $resultId; ?>
 
-        Result #
+                </div>
 
-        <?= $resultId; ?>
+            </td>
 
-    </div>
+        </tr>
 
-
-    <div class="report-attempt">
-
-        Attempt #
-
-        <?= $attemptId; ?>
-
-    </div>
+    </table>
 
 
-    <div class="report-date">
+    <!-- ======================================================
+         HERO
+    ======================================================= -->
 
-        <?= pdf_escape(
-            $formattedDate
-        ); ?>
+    <div class="hero">
 
-    </div>
-
-</td>
-
-</tr>
-
-</table>
-
-
-<!-- =====================================================
-     HERO
-====================================================== -->
-
-<table
-    class="hero-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td class="hero-main">
-
-    <div class="hero-overline">
-
-        EXAMSPHERE PERFORMANCE REPORT
-
-    </div>
-
-
-    <div class="hero-title">
-
-        <?= pdf_escape(
-            $examTitle
-        ); ?>
-
-    </div>
-
-
-    <div class="hero-meta">
-
-        <?= pdf_escape(
-            $subjectName
-        ); ?>
-
-
-        <?php if (
-            !empty(
-                $result['subject_code']
-            )
-        ): ?>
-
-            ·
+        <div class="hero-kicker">
 
             <?= pdf_escape(
-                $result['subject_code']
+                $examType
             ); ?>
 
-        <?php endif; ?>
+            Examination
+
+        </div>
 
 
-        ·
+        <div class="hero-title">
 
-        <?= pdf_escape(
-            $examType
-        ); ?>
+            <?= pdf_escape(
+                $examTitle
+            ); ?>
 
-    </div>
-
-
-    <div class="hero-description">
-
-        Completed examination performance report
-        generated from your authenticated ExamSphere account.
-
-    </div>
-
-</td>
+        </div>
 
 
-<td class="hero-score">
+        <div class="hero-meta">
 
-    <div class="score-caption">
-        FINAL SCORE
-    </div>
+            <?= pdf_escape(
+                $subjectName
+            ); ?>
+
+            &nbsp;&nbsp;•&nbsp;&nbsp;
+
+            <?= pdf_escape(
+                $formattedDate
+            ); ?>
+
+        </div>
 
 
-    <div class="score-value">
+        <div class="status-wrap">
 
-        <?= pdf_number(
-            $percentage
-        ); ?>%
+            <span class="status-badge">
 
-    </div>
+                <?= pdf_escape(
+                    $statusText
+                ); ?>
 
+            </span>
 
-    <div
-        class="score-status"
-        style="
-            color:<?= $isPassed
-                ? '#E2EFCF'
-                : '#F4D9D4'
-            ?>;
-        "
-    >
-
-        <?= pdf_escape(
-            $statusText
-        ); ?>
-
-        · Grade
-
-        <?= pdf_escape(
-            $grade
-        ); ?>
+        </div>
 
     </div>
 
-</td>
 
-</tr>
+    <!-- ======================================================
+         FINAL SCORE
+    ======================================================= -->
 
-</table>
+    <div class="section">
 
+        <div class="section-title">
+            Final Score
+        </div>
 
-<!-- =====================================================
-     STUDENT PROFILE
-====================================================== -->
 
-<div class="section-card">
+        <div class="score-card">
 
-<div class="section-heading">
+            <div class="score-label">
+                Obtained Marks
+            </div>
 
-    <span class="section-number">
-        01
-    </span>
 
-    STUDENT PROFILE
+            <div class="score-value">
 
-</div>
+                <?= pdf_number(
+                    $obtainedMarks
+                ); ?>
 
+                <span class="score-total">
 
-<table
-    class="profile-grid"
-    cellpadding="0"
-    cellspacing="0"
->
+                    /
 
-<tr>
+                    <?= pdf_number(
+                        $totalMarks
+                    ); ?>
 
-<td>
+                </span>
 
-    <div class="label">
-        STUDENT NAME
-    </div>
+            </div>
 
-    <div class="value">
 
-        <?= pdf_escape(
-            $studentName
-        ); ?>
+            <div class="score-percent">
 
-    </div>
+                <?= pdf_number(
+                    $percentage
+                ); ?>
 
-</td>
+                %
 
 
-<td>
+                &nbsp;&nbsp;•&nbsp;&nbsp;
 
-    <div class="label">
-        STUDENT CODE
-    </div>
 
-    <div class="value">
+                Grade:
 
-        <?= pdf_escape(
-            $studentCode
-        ); ?>
+                <?= pdf_escape(
+                    $grade
+                ); ?>
 
-    </div>
+            </div>
 
-</td>
+        </div>
 
 
-<td>
+        <div class="formula">
 
-    <div class="label">
-        EXAM TYPE
-    </div>
+            <?= $totalQuestions; ?>
 
-    <div class="value">
+            Questions
 
-        <?= pdf_escape(
-            $examType
-        ); ?>
+            ×
 
-    </div>
+            <?= pdf_number(
+                $marksPerQuestion
+            ); ?>
 
-</td>
+            Mark/Question
 
-</tr>
-
-
-<tr>
-
-<td>
-
-    <div class="label">
-        EMAIL
-    </div>
-
-    <div class="value">
-
-        <?= pdf_escape(
-            $email
-        ); ?>
-
-    </div>
-
-</td>
-
-
-<td>
-
-    <div class="label">
-        SUBJECT
-    </div>
-
-    <div class="value">
-
-        <?= pdf_escape(
-            $subjectName
-        ); ?>
-
-    </div>
-
-</td>
-
-
-<td>
-
-    <div class="label">
-        RESULT DATE
-    </div>
-
-    <div class="value">
-
-        <?= pdf_escape(
-            $formattedDate
-        ); ?>
-
-    </div>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-<!-- =====================================================
-     PERFORMANCE SNAPSHOT
-====================================================== -->
-
-<div class="section-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-        02
-    </span>
-
-    PERFORMANCE SNAPSHOT
-
-</div>
-
-
-<table
-    class="snapshot-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-
-<div class="snapshot-card olive">
-
-    <div class="snapshot-label">
-        OBTAINED MARKS
-    </div>
-
-
-    <div class="snapshot-value">
-
-        <?= pdf_number(
-            $obtainedMarks
-        ); ?>
-
-
-        <span>
-
-            /
+            =
 
             <?= pdf_number(
                 $totalMarks
             ); ?>
 
-        </span>
+            Total Marks
+
+
+            <small>
+
+                Dynamic total marks calculated from the final question configuration.
+
+            </small>
+
+        </div>
 
     </div>
 
-</div>
 
-</td>
+    <!-- ======================================================
+         STUDENT + EXAM DETAILS
+    ======================================================= -->
+
+    <div class="section">
+
+        <div class="section-title">
+
+            Student & Examination Details
+
+        </div>
 
 
-<td>
+        <table class="info-table">
 
-<div class="snapshot-card green">
+            <tr>
 
-    <div class="snapshot-label">
-        CORRECT
+                <td>
+
+                    <div class="info-label">
+                        Student Name
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= pdf_escape(
+                            $studentName
+                        ); ?>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="info-label">
+                        Student Code
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= pdf_escape(
+                            $studentCode
+                        ); ?>
+
+                    </div>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+
+                    <div class="info-label">
+                        Email
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= pdf_escape(
+                            $email
+                        ); ?>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="info-label">
+                        Examination Type
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= pdf_escape(
+                            $examType
+                        ); ?>
+
+                    </div>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+
+                    <div class="info-label">
+                        Duration
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= $durationMinutes; ?>
+
+                        minutes
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="info-label">
+                        Time Taken
+                    </div>
+
+                    <div class="info-value">
+
+                        <?= pdf_escape(
+                            $timeTakenText
+                        ); ?>
+
+                    </div>
+
+                </td>
+
+            </tr>
+
+        </table>
+
     </div>
 
 
-    <div class="snapshot-value">
+    <!-- ======================================================
+         PERFORMANCE SNAPSHOT
+    ======================================================= -->
 
-        <?= $correctAnswers; ?>
+    <div class="section">
 
-    </div>
+        <div class="section-title">
 
-</div>
+            Performance Snapshot
 
-</td>
-
-
-<td>
-
-<div class="snapshot-card brown">
-
-    <div class="snapshot-label">
-        WRONG
-    </div>
+        </div>
 
 
-    <div class="snapshot-value">
+        <table class="stat-table">
 
-        <?= $wrongAnswers; ?>
-
-    </div>
-
-</div>
-
-</td>
+            <tr>
 
 
-<td>
+                <td>
 
-<div class="snapshot-card beige">
+                    <div class="stat stat-olive">
 
-    <div class="snapshot-label">
-        ACCURACY
-    </div>
+                        <div class="stat-label">
+                            Total Questions
+                        </div>
 
+                        <div class="stat-value">
 
-    <div class="snapshot-value dark">
+                            <?= $totalQuestions; ?>
 
-        <?= pdf_number(
-            $accuracy
-        ); ?>%
+                        </div>
 
-    </div>
+                    </div>
 
-</div>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
+                </td>
 
 
-<!-- =====================================================
-     QUESTION BREAKDOWN
-====================================================== -->
+                <td>
 
-<div class="section-card">
+                    <div class="stat stat-green">
 
-<div class="section-heading">
+                        <div class="stat-label">
+                            Attempted
+                        </div>
 
-    <span class="section-number">
-        03
-    </span>
+                        <div class="stat-value">
 
-    QUESTION BREAKDOWN
+                            <?= $attemptedQuestions; ?>
 
-</div>
+                        </div>
 
+                    </div>
 
-<table
-    class="breakdown-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td class="breakdown-name">
-    Attempted
-</td>
+                </td>
 
 
-<td class="breakdown-track-cell">
+                <td>
 
-    <div class="bar-track">
+                    <div class="stat stat-green">
 
-        <div
-            class="bar-fill attempted"
+                        <div class="stat-label">
+                            Correct
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= $correctAnswers; ?>
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="stat stat-red">
+
+                        <div class="stat-label">
+                            Wrong
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= $wrongAnswers; ?>
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+            </tr>
+
+        </table>
+
+
+        <table
+            class="stat-table"
             style="
-                width:<?= $attemptedPercent; ?>%;
-            "
-        ></div>
-
-    </div>
-
-</td>
-
-
-<td class="breakdown-value">
-
-    <?= $attemptedQuestions; ?>
-
-    <span>
-        (<?= $attemptedPercent; ?>%)
-    </span>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td class="breakdown-name">
-    Correct
-</td>
-
-
-<td class="breakdown-track-cell">
-
-    <div class="bar-track">
-
-        <div
-            class="bar-fill correct"
-            style="
-                width:<?= $correctPercent; ?>%;
-            "
-        ></div>
-
-    </div>
-
-</td>
-
-
-<td class="breakdown-value">
-
-    <?= $correctAnswers; ?>
-
-    <span>
-        (<?= $correctPercent; ?>%)
-    </span>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td class="breakdown-name">
-    Wrong
-</td>
-
-
-<td class="breakdown-track-cell">
-
-    <div class="bar-track">
-
-        <div
-            class="bar-fill wrong"
-            style="
-                width:<?= $wrongPercent; ?>%;
-            "
-        ></div>
-
-    </div>
-
-</td>
-
-
-<td class="breakdown-value">
-
-    <?= $wrongAnswers; ?>
-
-    <span>
-        (<?= $wrongPercent; ?>%)
-    </span>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td class="breakdown-name">
-    Unanswered
-</td>
-
-
-<td class="breakdown-track-cell">
-
-    <div class="bar-track">
-
-        <div
-            class="bar-fill unanswered"
-            style="
-                width:<?= $unansweredPercent; ?>%;
-            "
-        ></div>
-
-    </div>
-
-</td>
-
-
-<td class="breakdown-value">
-
-    <?= $unansweredQuestions; ?>
-
-    <span>
-        (<?= $unansweredPercent; ?>%)
-    </span>
-
-</td>
-
-</tr>
-
-</table>
-
-
-<div class="total-row">
-
-    <span>
-        TOTAL QUESTIONS
-    </span>
-
-
-    <strong>
-
-        <?= $totalQuestions; ?>
-
-    </strong>
-
-</div>
-
-</div>
-
-
-<!-- =====================================================
-     PAGE TWO
-====================================================== -->
-
-<pagebreak />
-
-
-<div class="page-two-title">
-
-    <div class="small-kicker">
-
-        EXAMSPHERE RESULT DETAILS
-
-    </div>
-
-
-    <div class="page-two-heading">
-
-        Detailed Performance Report
-
-    </div>
-
-
-    <div class="page-two-code">
-
-        RESULT #
-
-        <?= $resultId; ?>
-
-    </div>
-
-</div>
-
-
-<!-- =====================================================
-     MARKING + EXAM DETAILS
-====================================================== -->
-
-<table
-    class="details-columns"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-
-
-<div class="section-card compact-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-        04
-    </span>
-
-    MARKING DETAILS
-
-</div>
-
-
-<table
-    class="detail-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-    Total Marks
-</td>
-
-<td>
-
-    <?= pdf_number(
-        $totalMarks
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Obtained Marks
-</td>
-
-<td class="green-value">
-
-    <?= pdf_number(
-        $obtainedMarks
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Passing Marks
-</td>
-
-<td>
-
-    <?= pdf_number(
-        $passingMarks
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Correct Answers
-</td>
-
-<td>
-
-    <?= $correctAnswers; ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Wrong Answers
-</td>
-
-<td>
-
-    <?= $wrongAnswers; ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Unanswered
-</td>
-
-<td>
-
-    <?= $unansweredQuestions; ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Negative Marking
-</td>
-
-<td>
-
-    <?= $negativeMarking === 1
-        ? 'Enabled'
-        : 'Disabled'
-    ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Final Result
-</td>
-
-<td
-    style="
-        color:<?= $statusColor; ?>;
-        font-weight:bold;
-    "
->
-
-    <?= pdf_escape(
-        $statusText
-    ); ?>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-</td>
-
-
-<td>
-
-
-<div class="section-card compact-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-        05
-    </span>
-
-    EXAM DETAILS
-
-</div>
-
-
-<table
-    class="detail-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-    Examination
-</td>
-
-<td>
-
-    <?= pdf_escape(
-        $examTitle
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Subject
-</td>
-
-<td>
-
-    <?= pdf_escape(
-        $subjectName
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Exam Type
-</td>
-
-<td>
-
-    <?= pdf_escape(
-        $examType
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Questions
-</td>
-
-<td>
-
-    <?= $totalQuestions; ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Exam Duration
-</td>
-
-<td>
-
-    <?= $durationMinutes; ?>
-
-    min
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Time Taken
-</td>
-
-<td>
-
-    <?= pdf_escape(
-        $timeTakenText
-    ); ?>
-
-</td>
-
-</tr>
-
-
-<tr>
-
-<td>
-    Attempt Number
-</td>
-
-<td>
-
-    #
-
-    <?= $attemptId; ?>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-</td>
-
-</tr>
-
-</table>
-
-
-<!-- =====================================================
-     PERFORMANCE REVIEW
-====================================================== -->
-
-<div class="section-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-        06
-    </span>
-
-    PERFORMANCE REVIEW
-
-</div>
-
-
-<table
-    class="review-table"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td class="review-score">
-
-    <div class="review-score-label">
-        PERCENTAGE
-    </div>
-
-
-    <div class="review-score-value">
-
-        <?= pdf_number(
-            $percentage
-        ); ?>%
-
-    </div>
-
-</td>
-
-
-<td class="review-main">
-
-    <div
-        class="review-status"
-        style="
-            color:<?= $statusColor; ?>;
-            background:<?= $statusBackground; ?>;
-        "
-    >
-
-        <?= pdf_escape(
-            $statusText
-        ); ?>
-
-        · Grade
-
-        <?= pdf_escape(
-            $grade
-        ); ?>
-
-    </div>
-
-
-    <div class="review-title">
-
-        <?= pdf_escape(
-            $remark
-        ); ?>
-
-    </div>
-
-
-    <div class="review-text">
-
-        <?= pdf_escape(
-            $remarkText
-        ); ?>
-
-    </div>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-<!-- =====================================================
-     SCORE POSITION
-====================================================== -->
-
-<div class="section-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-        07
-    </span>
-
-    SCORE POSITION
-
-</div>
-
-
-<table
-    class="score-position"
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-
-    <div class="position-label">
-        YOUR SCORE
-    </div>
-
-
-    <div class="position-number">
-
-        <?= pdf_number(
-            $percentage
-        ); ?>%
-
-    </div>
-
-</td>
-
-
-<td class="position-line-cell">
-
-    <div class="position-line">
-
-        <div
-            class="position-progress"
-            style="
-                width:<?= $scorePosition; ?>%;
-            "
-        ></div>
-
-    </div>
-
-
-    <div class="position-scale">
-
-        <span>
-            0%
-        </span>
-
-        <span>
-            50%
-        </span>
-
-        <span>
-            100%
-        </span>
-
-    </div>
-
-</td>
-
-
-<td class="grade-box">
-
-    <div class="grade-label">
-        GRADE
-    </div>
-
-
-    <div class="grade-value">
-
-        <?= pdf_escape(
-            $grade
-        ); ?>
-
-    </div>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-<!-- =====================================================
-     QUESTION-WISE SUMMARY
-====================================================== -->
-
-<?php if (
-    !empty(
-        $questionRows
-    )
-): ?>
-
-<pagebreak />
-
-
-<div class="page-two-title">
-
-    <div class="small-kicker">
-
-        EXAMSPHERE DETAILED REVIEW
-
-    </div>
-
-
-    <div class="page-two-heading">
-
-        Question-wise Analysis
-
-    </div>
-
-</div>
-
-
-<div class="section-card">
-
-    <div class="section-heading">
-
-        <span class="section-number">
-            08
-        </span>
-
-        ANSWER ANALYSIS
-
-    </div>
-
-
-    <table
-        class="question-list"
-        cellpadding="0"
-        cellspacing="0"
-    >
-
-
-    <?php foreach (
-        $questionRows
-        as $index => $question
-    ): ?>
-
-
-        <?php
-
-        $selectedAnswer =
-            strtoupper(
-                trim(
-                    (string) (
-                        $question[
-                            'selected_answer'
-                        ]
-                        ??
-                        ''
-                    )
-                )
-            );
-
-
-        $correctAnswer =
-            strtoupper(
-                trim(
-                    (string) (
-                        $question[
-                            'correct_answer'
-                        ]
-                        ??
-                        ''
-                    )
-                )
-            );
-
-
-        $isAnswered =
-            in_array(
-                $selectedAnswer,
-                [
-                    'A',
-                    'B',
-                    'C',
-                    'D'
-                ],
-                true
-            );
-
-
-        $isCorrect =
-            (int) (
-                $question[
-                    'is_correct'
-                ]
-                ??
-                0
-            ) === 1;
-
-
-        $questionStatus =
-            (string) (
-                $question[
-                    'question_status'
-                ]
-                ??
-                ''
-            );
-
-
-        $marksAwarded =
-            (float) (
-                $question[
-                    'marks_awarded'
-                ]
-                ??
-                0
-            );
-
-
-        $questionClass =
-            $isCorrect
-
-                ? 'correct'
-
-                : (
-                    $isAnswered
-                        ? 'wrong'
-                        : 'unanswered'
-                );
-
-
-        $optionsMap = [
-
-            'A' =>
-                (string) (
-                    $question[
-                        'option_a'
-                    ]
-                    ??
-                    ''
-                ),
-
-            'B' =>
-                (string) (
-                    $question[
-                        'option_b'
-                    ]
-                    ??
-                    ''
-                ),
-
-            'C' =>
-                (string) (
-                    $question[
-                        'option_c'
-                    ]
-                    ??
-                    ''
-                ),
-
-            'D' =>
-                (string) (
-                    $question[
-                        'option_d'
-                    ]
-                    ??
-                    ''
-                )
-
-        ];
-
-
-        $selectedText =
-            $isAnswered
-                ? (
-                    $optionsMap[
-                        $selectedAnswer
-                    ]
-                    ??
-                    ''
-                )
-                : 'Not answered';
-
-
-        $correctText =
-            isset(
-                $optionsMap[
-                    $correctAnswer
-                ]
-            )
-                ? $optionsMap[
-                    $correctAnswer
-                ]
-                : '';
-
-
-        ?>
-
-
-        <tr>
-
-        <td>
-
-        <div
-            class="
-                question-card
-                <?= $questionClass; ?>
+                margin-top:7px;
             "
         >
 
-            <div class="question-card-title">
+            <tr>
 
-                Q<?= $index + 1; ?>.
+
+                <td>
+
+                    <div class="stat">
+
+                        <div class="stat-label">
+                            Unanswered
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= $unansweredQuestions; ?>
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="stat stat-green">
+
+                        <div class="stat-label">
+                            Accuracy
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= pdf_number(
+                                $accuracy
+                            ); ?>%
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="stat stat-olive">
+
+                        <div class="stat-label">
+                            Completion
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= pdf_number(
+                                $completion
+                            ); ?>%
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+                <td>
+
+                    <div class="stat">
+
+                        <div class="stat-label">
+                            Passing Marks
+                        </div>
+
+                        <div class="stat-value">
+
+                            <?= pdf_number(
+                                $passingMarks
+                            ); ?>
+
+                        </div>
+
+                    </div>
+
+                </td>
+
+
+            </tr>
+
+        </table>
+
+    </div>
+
+
+    <!-- ======================================================
+         QUESTION BREAKDOWN
+    ======================================================= -->
+
+    <div class="section">
+
+        <div class="section-title">
+
+            Question Breakdown
+
+        </div>
+
+
+        <table class="breakdown">
+
+
+            <tr class="breakdown-row">
+
+                <td class="breakdown-name">
+                    Attempted
+                </td>
+
+
+                <td class="breakdown-bar-cell">
+
+                    <div class="bar">
+
+                        <div
+                            class="
+                                bar-inner
+                                bar-attempted
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $attemptedPercent
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </td>
+
+
+                <td class="breakdown-value">
+
+                    <?= $attemptedQuestions; ?>
+
+                    (<?= pdf_number(
+                        $attemptedPercent
+                    ); ?>%)
+
+                </td>
+
+            </tr>
+
+
+            <tr class="breakdown-row">
+
+                <td class="breakdown-name">
+                    Correct
+                </td>
+
+
+                <td class="breakdown-bar-cell">
+
+                    <div class="bar">
+
+                        <div
+                            class="
+                                bar-inner
+                                bar-correct
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $correctPercent
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </td>
+
+
+                <td class="breakdown-value">
+
+                    <?= $correctAnswers; ?>
+
+                    (<?= pdf_number(
+                        $correctPercent
+                    ); ?>%)
+
+                </td>
+
+            </tr>
+
+
+            <tr class="breakdown-row">
+
+                <td class="breakdown-name">
+                    Wrong
+                </td>
+
+
+                <td class="breakdown-bar-cell">
+
+                    <div class="bar">
+
+                        <div
+                            class="
+                                bar-inner
+                                bar-wrong
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $wrongPercent
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </td>
+
+
+                <td class="breakdown-value">
+
+                    <?= $wrongAnswers; ?>
+
+                    (<?= pdf_number(
+                        $wrongPercent
+                    ); ?>%)
+
+                </td>
+
+            </tr>
+
+
+            <tr class="breakdown-row">
+
+                <td class="breakdown-name">
+                    Unanswered
+                </td>
+
+
+                <td class="breakdown-bar-cell">
+
+                    <div class="bar">
+
+                        <div
+                            class="
+                                bar-inner
+                                bar-unanswered
+                            "
+                            style="
+                                width:<?= max(
+                                    0,
+                                    min(
+                                        100,
+                                        $unansweredPercent
+                                    )
+                                ); ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                </td>
+
+
+                <td class="breakdown-value">
+
+                    <?= $unansweredQuestions; ?>
+
+                    (<?= pdf_number(
+                        $unansweredPercent
+                    ); ?>%)
+
+                </td>
+
+            </tr>
+
+
+        </table>
+
+    </div>
+
+
+    <!-- ======================================================
+         MARKING DETAILS
+    ======================================================= -->
+
+    <div class="section">
+
+        <div class="section-title">
+
+            Marking Details
+
+        </div>
+
+
+        <table class="details">
+
+            <tr>
+
+                <td>
+                    Total Questions
+                </td>
+
+                <td>
+
+                    <?= $totalQuestions; ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Marks Per Question
+                </td>
+
+                <td>
+
+                    <?= pdf_number(
+                        $marksPerQuestion
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Total Marks
+                </td>
+
+                <td>
+
+                    <?= pdf_number(
+                        $totalMarks
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Obtained Marks
+                </td>
+
+                <td>
+
+                    <?= pdf_number(
+                        $obtainedMarks
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Passing Marks
+                </td>
+
+                <td>
+
+                    <?= pdf_number(
+                        $passingMarks
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Negative Marking
+                </td>
+
+                <td>
+
+                    <?= $negativeMarking === 1
+                        ? 'Enabled'
+                        : 'None'
+                    ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Grade
+                </td>
+
+                <td>
+
+                    <?= pdf_escape(
+                        $grade
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+
+            <tr>
+
+                <td>
+                    Result Status
+                </td>
+
+                <td>
+
+                    <?= pdf_escape(
+                        $statusText
+                    ); ?>
+
+                </td>
+
+            </tr>
+
+        </table>
+
+    </div>
+
+
+    <!-- ======================================================
+         FINAL REMARK
+    ======================================================= -->
+
+    <div class="section">
+
+        <div class="section-title">
+
+            Final Assessment
+
+        </div>
+
+
+        <div class="remark">
+
+            <div class="remark-title">
 
                 <?= pdf_escape(
-                    $question[
-                        'question_text'
-                    ]
-                    ??
-                    ''
+                    $resultMessage
                 ); ?>
 
             </div>
 
 
-            <div class="answer-detail">
-
-                <strong>
-                    Your answer:
-                </strong>
-
-
-                <?= $isAnswered
-                    ? pdf_escape(
-                        $selectedAnswer .
-                        ' — ' .
-                        $selectedText
-                    )
-                    : 'Not answered'
-                ?>
-
-            </div>
-
-
-            <div class="answer-detail">
-
-                <strong>
-                    Correct answer:
-                </strong>
-
+            <div class="remark-text">
 
                 <?= pdf_escape(
-                    $correctAnswer
-                    . (
-                        $correctText !== ''
-                            ? ' — ' . $correctText
-                            : ''
-                    )
+                    $resultSubMessage
                 ); ?>
 
             </div>
 
+        </div>
 
-            <div class="answer-detail">
-
-                <strong>
-                    Status:
-                </strong>
+    </div>
 
 
-                <?= pdf_escape(
+    <!-- ======================================================
+         QUESTION-WISE ANALYSIS
+    ======================================================= -->
+
+    <?php if (
+        !empty(
+            $questionRows
+        )
+    ): ?>
+
+
+        <pagebreak />
+
+
+        <div class="section">
+
+            <div class="section-title">
+
+                Question-wise Analysis
+
+            </div>
+
+
+            <?php foreach (
+                $questionRows
+                as $index => $question
+            ): ?>
+
+
+                <?php
+
+                $questionId =
+                    (int) (
+                        $question[
+                            'question_id'
+                        ]
+                        ??
+                        $question[
+                            'id'
+                        ]
+                        ??
+                        0
+                    );
+
+
+                $questionText =
+                    trim(
+                        (string) (
+                            $question[
+                                'question_text'
+                            ]
+                            ??
+                            ''
+                        )
+                    );
+
+
+                $questionMarks =
+                    round(
+                        (float) (
+                            $question[
+                                'marks'
+                            ]
+                            ??
+                            0
+                        ),
+                        2
+                    );
+
+
+                $selectedAnswer =
+                    strtoupper(
+                        trim(
+                            (string) (
+                                $question[
+                                    'selected_answer'
+                                ]
+                                ??
+                                ''
+                            )
+                        )
+                    );
+
+
+                $correctAnswer =
+                    strtoupper(
+                        trim(
+                            (string) (
+                                $question[
+                                    'correct_answer'
+                                ]
+                                ??
+                                ''
+                            )
+                        )
+                    );
+
+
+                $questionStatus =
+                    trim(
+                        (string) (
+                            $question[
+                                'question_status'
+                            ]
+                            ??
+                            ''
+                        )
+                    );
+
+
+                $marksAwarded =
+                    round(
+                        (float) (
+                            $question[
+                                'marks_awarded'
+                            ]
+                            ??
+                            0
+                        ),
+                        2
+                    );
+
+
+                $isAnswered =
+                    in_array(
+                        $selectedAnswer,
+                        [
+                            'A',
+                            'B',
+                            'C',
+                            'D'
+                        ],
+                        true
+                    );
+
+
+                $isCorrect =
+                    (int) (
+                        $question[
+                            'is_correct'
+                        ]
+                        ??
+                        0
+                    ) === 1;
+
+
+                $questionClass =
+                    $isCorrect
+                        ? 'correct'
+                        : (
+                            $isAnswered
+                                ? 'wrong'
+                                : 'unanswered'
+                        );
+
+
+                $optionMap = [
+
+                    'A' =>
+                        trim(
+                            (string) (
+                                $question[
+                                    'option_a'
+                                ]
+                                ??
+                                ''
+                            )
+                        ),
+
+                    'B' =>
+                        trim(
+                            (string) (
+                                $question[
+                                    'option_b'
+                                ]
+                                ??
+                                ''
+                            )
+                        ),
+
+                    'C' =>
+                        trim(
+                            (string) (
+                                $question[
+                                    'option_c'
+                                ]
+                                ??
+                                ''
+                            )
+                        ),
+
+                    'D' =>
+                        trim(
+                            (string) (
+                                $question[
+                                    'option_d'
+                                ]
+                                ??
+                                ''
+                            )
+                        )
+
+                ];
+
+
+                $selectedText =
+                    $isAnswered
+                        ? (
+                            $optionMap[
+                                $selectedAnswer
+                            ]
+                            ??
+                            ''
+                        )
+                        : 'Not answered';
+
+
+                $correctText =
+                    $correctAnswer !== ''
+                        ? (
+                            $optionMap[
+                                $correctAnswer
+                            ]
+                            ??
+                            ''
+                        )
+                        : '';
+
+
+                $explanation =
+                    trim(
+                        (string) (
+                            $question[
+                                'explanation'
+                            ]
+                            ??
+                            ''
+                        )
+                    );
+
+
+                $status =
                     $questionStatus !== ''
                         ? $questionStatus
                         : (
@@ -3811,257 +2984,176 @@ table {
                                         ? 'Answered'
                                         : 'Not Answered'
                                 )
-                        )
-                ); ?>
+                        );
 
-            </div>
-
-
-            <div class="answer-detail">
-
-                <strong>
-                    Marks awarded:
-                </strong>
+                ?>
 
 
-                <?= pdf_number(
-                    $marksAwarded
-                ); ?>
+                <div
+                    class="
+                        question-card
+                        <?= $questionClass; ?>
+                    "
+                >
 
-            </div>
+                    <table
+                        class="question-head"
+                    >
 
+                        <tr>
 
-            <?php if (
-                trim(
-                    (string) (
-                        $question[
-                            'explanation'
-                        ]
-                        ??
-                        ''
-                    )
-                ) !== ''
-            ): ?>
+                            <td
+                                class="question-number"
+                            >
 
-                <div class="explanation-box">
+                                Question
+                                <?= $index + 1; ?>
 
-                    <strong>
-
-                        Explanation:
-
-                    </strong>
+                            </td>
 
 
-                    <br>
+                            <td
+                                class="question-marks"
+                            >
+
+                                <?= pdf_number(
+                                    $questionMarks
+                                ); ?>
+
+                                marks
+
+                            </td>
+
+                        </tr>
+
+                    </table>
 
 
-                    <?= pdf_escape(
-                        $question[
-                            'explanation'
-                        ]
-                    ); ?>
+                    <div class="question-text">
+
+                        <?= pdf_escape(
+                            $questionText
+                        ); ?>
+
+                    </div>
+
+
+                    <div class="answer-line">
+
+                        <strong>
+                            Your Answer:
+                        </strong>
+
+                        <?= $isAnswered
+                            ? pdf_escape(
+                                $selectedAnswer
+                                .
+                                ' — '
+                                .
+                                $selectedText
+                            )
+                            : 'Not answered'
+                        ?>
+
+                    </div>
+
+
+                    <div class="answer-line">
+
+                        <strong>
+                            Correct Answer:
+                        </strong>
+
+                        <?= $correctAnswer !== ''
+                            ? pdf_escape(
+                                $correctAnswer
+                                .
+                                (
+                                    $correctText !== ''
+                                        ? ' — ' .
+                                          $correctText
+                                        : ''
+                                )
+                            )
+                            : '-'
+                        ?>
+
+                    </div>
+
+
+                    <div class="answer-line">
+
+                        <strong>
+                            Status:
+                        </strong>
+
+                        <?= pdf_escape(
+                            $status
+                        ); ?>
+
+                    </div>
+
+
+                    <div class="answer-line">
+
+                        <strong>
+                            Marks Awarded:
+                        </strong>
+
+                        <?= pdf_number(
+                            $marksAwarded
+                        ); ?>
+
+                        /
+
+                        <?= pdf_number(
+                            $questionMarks
+                        ); ?>
+
+                    </div>
+
+
+                    <?php if (
+                        $explanation !== ''
+                    ): ?>
+
+                        <div class="explanation">
+
+                            <strong>
+                                Explanation:
+                            </strong>
+
+                            <?= pdf_escape(
+                                $explanation
+                            ); ?>
+
+                        </div>
+
+                    <?php endif; ?>
 
                 </div>
 
-            <?php endif; ?>
+
+            <?php endforeach; ?>
 
 
         </div>
 
-        </td>
-
-        </tr>
+    <?php endif; ?>
 
 
-    <?php endforeach; ?>
+    <!-- ======================================================
+         FOOTER NOTE
+    ======================================================= -->
 
+    <div class="footer-note">
 
-    </table>
-
-</div>
-
-<?php endif; ?>
-
-
-<!-- =====================================================
-     ABOUT EXAM
-====================================================== -->
-
-<?php if (
-    trim(
-        (string) (
-            $result[
-                'exam_description'
-            ]
-            ??
-            ''
-        )
-    ) !== ''
-): ?>
-
-<div class="section-card">
-
-<div class="section-heading">
-
-    <span class="section-number">
-
-        09
-
-    </span>
-
-    ABOUT THIS EXAM
-
-</div>
-
-
-<div class="exam-description">
-
-    <?= nl2br(
-        pdf_escape(
-            $result[
-                'exam_description'
-            ]
-        )
-    ); ?>
-
-</div>
-
-</div>
-
-<?php endif; ?>
-
-
-<!-- =====================================================
-     FINAL BANNER
-====================================================== -->
-
-<div
-    class="
-        final-banner
-        <?= $isPassed
-            ? 'pass'
-            : 'fail'
-        ?>
-    "
->
-
-<table
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td class="final-icon">
-
-    <?= $isPassed
-        ? '✓'
-        : '!'
-    ?>
-
-</td>
-
-
-<td>
-
-    <div class="final-title">
-
-        <?= pdf_escape(
-            $statusText
-        ); ?>
-
-        ·
-
-        <?= pdf_escape(
-            $remark
-        ); ?>
+        This result report was generated by
+        ExamSphere Online Examination System.
+        Final marks shown above are based on the
+        finalized examination result and configured
+        question-wise marks.
 
     </div>
-
-
-    <div class="final-text">
-
-        <?= pdf_escape(
-            $remarkText
-        ); ?>
-
-    </div>
-
-</td>
-
-
-<td class="final-grade">
-
-    <?= pdf_escape(
-        $grade
-    ); ?>
-
-</td>
-
-</tr>
-
-</table>
-
-</div>
-
-
-<!-- =====================================================
-     FOOTER
-====================================================== -->
-
-<div class="pdf-footer">
-
-<table
-    cellpadding="0"
-    cellspacing="0"
->
-
-<tr>
-
-<td>
-
-    <strong>
-        ExamSphere
-    </strong>
-
-
-    <br>
-
-
-    Secure Examination Platform
-
-</td>
-
-
-<td class="footer-right">
-
-    Result #
-
-    <?= $resultId; ?>
-
-
-    <br>
-
-
-    Attempt #
-
-    <?= $attemptId; ?>
-
-</td>
-
-</tr>
-
-</table>
-
-
-<div class="footer-note">
-
-    This report is generated from the finalized examination
-    result stored for the authenticated student account.
-
-</div>
-
-</div>
-
 
 </div>

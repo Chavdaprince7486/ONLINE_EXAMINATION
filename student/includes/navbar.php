@@ -1,202 +1,467 @@
 <?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../config/session.php';
 require_once __DIR__ . '/../../config/config.php';
-require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../config/functions.php';
 
-require_role('student');
+if (
+    empty($_SESSION['user_id']) ||
+    ($_SESSION['user_role'] ?? '') !== 'student'
+) {
+    header('Location: ../auth/login.php');
+    exit;
+}
 
-$current_page = basename($_SERVER['PHP_SELF']);
-
+$currentPage = basename($_SERVER['PHP_SELF']);
+$studentId = (int) $_SESSION['user_id'];
+$studentName = (string) ($_SESSION['user_name'] ?? 'Student');
 $studentPhoto = '../assets/images/default-user.png';
 
-if (isset($conn)) {
-    try {
-        $photoStatement = $conn->prepare(
-            'SELECT profile_photo FROM students WHERE id = ? LIMIT 1'
-        );
-        $photoStatement->execute([(int) $_SESSION['user_id']]);
-        $photoName = (string) $photoStatement->fetchColumn();
+try {
+    $statement = $conn->prepare('SELECT full_name, profile_photo FROM students WHERE id = ? AND status = \'Active\' LIMIT 1');
+    $statement->execute([$studentId]);
+    $studentNav = $statement->fetch(PDO::FETCH_ASSOC);
 
-        if (
-            $photoName !== '' &&
-            file_exists('../uploads/students/' . $photoName)
-        ) {
-            $studentPhoto = '../uploads/students/' . rawurlencode($photoName);
+    if (!$studentNav) {
+        $_SESSION = [];
+
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+
+            setcookie(
+                session_name(),
+                '',
+                time() - 42000,
+                $params['path'] ?? '/',
+                $params['domain'] ?? '',
+                (bool)($params['secure'] ?? false),
+                (bool)($params['httponly'] ?? true)
+            );
         }
-    } catch (Throwable $exception) {
-        error_log('Student navbar photo load failed: ' . $exception->getMessage());
+
+        session_destroy();
+
+        header('Location: ../auth/login.php');
+        exit;
     }
+
+    $studentName = trim(
+        (string)($studentNav['full_name'] ?? $studentName)
+    ) ?: 'Student';
+
+    $photoName = trim(
+        (string)($studentNav['profile_photo'] ?? '')
+    );
+
+    $photoFile =
+        dirname(__DIR__, 2) .
+        '/uploads/students/' .
+        $photoName;
+
+    if (
+        $photoName !== '' &&
+        is_file($photoFile)
+    ) {
+        $studentPhoto =
+            '../uploads/students/' .
+            rawurlencode($photoName);
+    }
+
+} catch (Throwable $exception) {
+
+    error_log(
+        'Student navbar load failed: ' .
+        $exception->getMessage()
+    );
 }
+
+$navItems = [
+    ['dashboard.php', 'fa-house', 'Dashboard'],
+    ['practice_exams.php', 'fa-file-pen', 'My Exams'],
+    ['results.php', 'fa-chart-column', 'Results'],
+    ['performance.php', 'fa-chart-line', 'Performance'],
+    ['live_exams.php', 'fa-tower-broadcast', 'Live Exams'],
+    ['materials.php', 'fa-book-open', 'Materials'],
+    ['leaderboard.php', 'fa-ranking-star', 'Leaderboard'],
+    ['subscriptions.php', 'fa-gem', 'Plans'],
+];
 ?>
 
-<link rel="stylesheet" href="assets/css/student-nav.css">
-<script src="assets/js/student-nav.js" defer></script>
+<link
+    rel="stylesheet"
+    href="assets/css/student-nav.css"
+>
 
-<nav class="navbar">
+<script>
+window.EXAMSPHERE_CSRF_TOKEN =
+    <?php
+    echo json_encode(
+        csrf_token(),
+        JSON_HEX_TAG |
+        JSON_HEX_AMP |
+        JSON_HEX_APOS |
+        JSON_HEX_QUOT
+    );
+    ?>;
+</script>
 
-    <div class="nav-left">
+<script
+    src="assets/js/student-nav.js"
+    defer
+></script>
 
-        <div class="logo">
 
-            <img src="../assets/images/exam_logo.png" alt="ExamSphere">
+<nav
+    class="student-navbar"
+    aria-label="Student navigation"
+>
 
-            <div>
+    <div class="student-nav-inner">
 
-                <h2>ExamSphere</h2>
 
-                <span>Smart • Secure • Success</span>
+        <a
+            class="student-brand"
+            href="dashboard.php"
+            aria-label="ExamSphere Dashboard"
+        >
 
-            </div>
+            <img
+                src="../assets/images/exam_logo.png"
+                alt="ExamSphere"
+            >
+
+            <span
+                class="student-brand-copy"
+            >
+
+                <strong>
+                    ExamSphere
+                </strong>
+
+                <small>
+                    Smart · Secure · Success
+                </small>
+
+            </span>
+
+        </a>
+
+
+        <button
+            class="student-nav-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="studentNavMenu"
+            aria-label="Open navigation"
+        >
+
+            <i
+                class="fa-solid fa-bars"
+            ></i>
+
+        </button>
+
+
+        <div
+            class="student-nav-menu"
+            id="studentNavMenu"
+        >
+
+            <?php foreach (
+                $navItems
+                as [$page, $icon, $label]
+            ): ?>
+
+                <a
+                    class="<?= $currentPage === $page
+                        ? 'is-active'
+                        : '' ?>"
+                    href="<?= htmlspecialchars(
+                        $page,
+                        ENT_QUOTES,
+                        'UTF-8'
+                    ) ?>"
+                >
+
+                    <i
+                        class="fa-solid <?= htmlspecialchars(
+                            $icon,
+                            ENT_QUOTES,
+                            'UTF-8'
+                        ) ?>"
+                    ></i>
+
+                    <span>
+                        <?= htmlspecialchars(
+                            $label,
+                            ENT_QUOTES,
+                            'UTF-8'
+                        ) ?>
+                    </span>
+
+                </a>
+
+            <?php endforeach; ?>
+
+
+            <a
+                href="../index.php"
+            >
+
+                <i
+                    class="fa-solid fa-house-chimney"
+                ></i>
+
+                <span>
+                    Home
+                </span>
+
+            </a>
 
         </div>
 
-    </div>
 
-    <ul class="nav-menu">
+        <div
+            class="student-nav-actions"
+        >
 
-        <li class="<?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>">
-            <a href="dashboard.php">
-                <i class="fa-solid fa-house"></i>
-                Dashboard
-            </a>
-        </li>
 
-        <li class="<?php echo ($current_page == 'practice_exams.php') ? 'active' : ''; ?>">
-            <a href="practice_exams.php">
-                <i class="fa-solid fa-file-pen"></i>
-                My Exams
-            </a>
-        </li>
+            <!-- =================================================
+                 NOTIFICATION
+            ================================================== -->
 
-        <li class="<?php echo ($current_page == 'results.php') ? 'active' : ''; ?>">
-            <a href="results.php">
-                <i class="fa-solid fa-chart-column"></i>
-                Results
-            </a>
-        </li>
+            <button
+                class="student-notification-btn"
+                type="button"
+                id="notificationBell"
+                aria-label="Notifications"
+                aria-expanded="false"
+            >
 
-        <li class="<?php echo ($current_page == 'live_exams.php') ? 'active' : ''; ?>">
-            <a href="live_exams.php">
-                <i class="fa-solid fa-tower-broadcast"></i>
-                Live Exams
-            </a>
-        </li>
+                <i
+                    class="fa-regular fa-bell"
+                ></i>
 
-        <li class="<?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>">
-            <a href="profile.php">
-                <i class="fa-solid fa-user"></i>
-                Profile
-            </a>
-        </li>
+                <span
+                    class="notification-count"
+                    id="notificationCount"
+                    hidden
+                >
+                    0
+                </span>
 
-        <li class="<?php echo ($current_page == 'leaderboard.php') ? 'active' : ''; ?>">
-            <a href="leaderboard.php">
-                <i class="fa-solid fa-ranking-star"></i>
-                Leaderboard
-            </a>
-        </li>
+            </button>
 
-        <li><a href="../index.php"><i class="fa-solid fa-house-chimney"></i> Home</a></li>
 
-        <li class="<?php echo ($current_page == 'subscriptions.php') ? 'active' : ''; ?>">
-            <a href="subscriptions.php">
-                <i class="fa-solid fa-gem"></i>
-                Plans
-            </a>
-        </li>
+            <div
+                class="student-notification-panel"
+                id="notificationDropdown"
+                hidden
+            >
 
-        <li class="<?php echo ($current_page == 'materials.php') ? 'active' : ''; ?>">
-            <a href="materials.php">
-                <i class="fa-solid fa-book-open"></i>
-                Materials
-            </a>
-        </li>
+                <div
+                    class="student-notification-head"
+                >
 
-    </ul>
+                    <div>
 
-        <div class="nav-right">
+                        <strong>
+                            Notifications
+                        </strong>
 
-        <!-- Notification -->
+                        <small>
+                            Latest account updates
+                        </small>
 
-<div class="notification"
-     id="notificationBell"
-     title="Notifications">
+                    </div>
 
-    <i class="fa-regular fa-bell"></i>
+                    <a
+                        href="profile.php"
+                    >
+                        Profile
+                    </a>
 
-    <span class="notification-count"
-          id="notificationCount">
+                </div>
 
-        <?php
-        echo isset($_SESSION['notification_count'])
-            ? (int)$_SESSION['notification_count']
-            : 0;
-        ?>
 
-    </span>
+                <div
+                    class="student-notification-body"
+                    id="notificationBody"
+                >
 
-    <!-- Notification Dropdown -->
+                    <div
+                        class="
+                            student-notification-empty
+                        "
+                    >
 
-    <div class="notification-dropdown"
-         id="notificationDropdown">
+                        <i
+                            class="
+                                fa-solid
+                                fa-spinner
+                                fa-spin
+                            "
+                        ></i>
 
-        <div class="notification-header">
+                        Loading…
 
-            <h4>
+                    </div>
 
-                Notifications
-
-            </h4>
-
-            <a href="profile.php">
-
-                My Profile
-
-            </a>
-
-        </div>
-
-        <div class="notification-body"
-             id="notificationBody">
-
-            <div class="notification-loading">
-
-                <i class="fa-solid fa-spinner fa-spin"></i>
-
-                Loading Notifications...
+                </div>
 
             </div>
 
+
+            <!-- =================================================
+                 STUDENT ACCOUNT
+            ================================================== -->
+
+            <details
+                class="student-account"
+            >
+
+                <summary>
+
+                    <img
+                        src="<?= htmlspecialchars(
+                            $studentPhoto,
+                            ENT_QUOTES |
+                            ENT_SUBSTITUTE,
+                            'UTF-8'
+                        ) ?>"
+                        alt="Student profile"
+                    >
+
+
+                    <span>
+
+                        <strong>
+
+                            <?= htmlspecialchars(
+                                $studentName,
+                                ENT_QUOTES |
+                                ENT_SUBSTITUTE,
+                                'UTF-8'
+                            ) ?>
+
+                        </strong>
+
+
+                        <small>
+                            Student
+                        </small>
+
+                    </span>
+
+
+                    <i
+                        class="
+                            fa-solid
+                            fa-chevron-down
+                        "
+                    ></i>
+
+                </summary>
+
+
+                <div
+                    class="student-account-menu"
+                >
+
+
+                    <a
+                        href="profile.php"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-user
+                            "
+                        ></i>
+
+                        My profile
+
+                    </a>
+
+
+                    <!-- =================================================
+                         ONLY NEW OPTION
+                    ================================================== -->
+
+                    <a
+                        href="profile.php?change_password=1"
+                        data-change-password-link
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-key
+                            "
+                        ></i>
+
+                        Change Password
+
+                    </a>
+
+
+                    <a
+                        href="settings.php"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-gear
+                            "
+                        ></i>
+
+                        Settings
+
+                    </a>
+
+
+                    <a
+                        href="../index.php"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-house
+                            "
+                        ></i>
+
+                        Home page
+
+                    </a>
+
+
+                    <a
+                        class="is-danger"
+                        href="../auth/logout.php"
+                    >
+
+                        <i
+                            class="
+                                fa-solid
+                                fa-right-from-bracket
+                            "
+                        ></i>
+
+                        Logout
+
+                    </a>
+
+
+                </div>
+
+            </details>
+
+
         </div>
-
-    </div>
-
-</div>
-
-        <!-- Student Profile -->
-
-        <details class="student-account-menu">
-            <summary class="profile">
-
-            <img src="<?php echo htmlspecialchars($studentPhoto, ENT_QUOTES, 'UTF-8'); ?>" alt="Profile photo">
-
-            <div>
-
-                <h4>
-                    <?php
-                        echo isset($_SESSION['user_name'])
-                            ? htmlspecialchars($_SESSION['user_name'])
-                            : 'Student';
-                    ?>
-                </h4>
-
-                <span>Student</span>
-
-            </div>
-
-            <i class="fa-solid fa-angle-down"></i>
-            </summary>
-            <div class="account-dropdown"><a href="profile.php"><i class="fa-solid fa-user"></i> My profile</a><a href="../index.php"><i class="fa-solid fa-house"></i> Home page</a><a class="account-logout" href="../auth/logout.php" onclick="return confirm('Are you sure you want to logout?');"><i class="fa-solid fa-right-from-bracket"></i> Logout</a></div>
-        </details>
 
     </div>
 
