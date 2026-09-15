@@ -862,6 +862,21 @@ try {
 */
 
 if (
+    $examType === 'Live' &&
+    $examStatus === 'Upcoming' &&
+    $startsAt === null
+) {
+
+    start_exam_error(
+        'This Live Exam has not been scheduled yet.',
+        403,
+        'live_exams.php',
+        'Back to Live Exams'
+    );
+}
+
+
+if (
     $startsAt !== null &&
     $now < $startsAt
 ) {

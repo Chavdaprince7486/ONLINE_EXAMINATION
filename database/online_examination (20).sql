@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Sep 13, 2026 at 09:35 PM
+-- Generation Time: Sep 15, 2026 at 11:49 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -42,7 +42,7 @@ CREATE TABLE `admins` (
 --
 
 INSERT INTO `admins` (`id`, `full_name`, `email`, `password`, `status`, `last_login`, `created_at`) VALUES
-(1, 'Chavda Prince', 'chavdaprince7486@gmail.com', '$2y$10$y2vxMoiQjBO38mSPUjSf..cerJl2Vy06ojibgi8SXNwtcuVsIPhiK', 'Active', '2026-09-13 23:16:31', '2026-09-13 13:57:24');
+(1, 'Chavda Prince', 'chavdaprince7486@gmail.com', '$2y$10$y2vxMoiQjBO38mSPUjSf..cerJl2Vy06ojibgi8SXNwtcuVsIPhiK', 'Active', '2026-09-15 13:34:11', '2026-09-13 13:57:24');
 
 -- --------------------------------------------------------
 
@@ -126,7 +126,27 @@ INSERT INTO `answers` (`id`, `attempt_id`, `question_id`, `selected_answer`, `qu
 (57, 3, 17, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-13 19:17:31'),
 (58, 3, 18, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-13 19:17:31'),
 (59, 3, 19, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-13 19:17:31'),
-(60, 3, 20, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-13 19:17:31');
+(60, 3, 20, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-13 19:17:31'),
+(61, 4, 1, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-14 19:23:22'),
+(62, 4, 2, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(63, 4, 3, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(64, 4, 4, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(65, 4, 5, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(66, 4, 6, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(67, 4, 7, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(68, 4, 8, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(69, 4, 9, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(70, 4, 10, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(71, 4, 11, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(72, 4, 12, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(73, 4, 13, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(74, 4, 14, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(75, 4, 15, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(76, 4, 16, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(77, 4, 17, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(78, 4, 18, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(79, 4, 19, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21'),
+(80, 4, 20, NULL, 'Not Answered', NULL, 0, 0.00, '2026-09-15 09:47:21');
 
 -- --------------------------------------------------------
 
@@ -221,7 +241,8 @@ CREATE TABLE `exam_attempts` (
 INSERT INTO `exam_attempts` (`id`, `student_id`, `exam_id`, `started_at`, `server_deadline`, `submitted_at`, `last_activity_at`, `status`, `obtained_marks`, `percentage`) VALUES
 (1, 1, 1, '2026-09-14 00:24:28', '2026-09-13 21:24:28', '2026-09-14 00:42:12', '2026-09-14 00:42:12', 'Submitted', 0.00, 0.00),
 (2, 1, 1, '2026-09-14 00:44:05', '2026-09-13 21:44:05', '2026-09-14 00:46:19', '2026-09-14 00:46:19', 'Submitted', 5.00, 25.00),
-(3, 1, 1, '2026-09-14 00:47:28', '2026-09-13 21:47:28', '2026-09-14 00:47:31', '2026-09-14 00:47:31', 'Submitted', 0.00, 0.00);
+(3, 1, 1, '2026-09-14 00:47:28', '2026-09-13 21:47:28', '2026-09-14 00:47:31', '2026-09-14 00:47:31', 'Submitted', 0.00, 0.00),
+(4, 1, 1, '2026-09-15 00:53:22', '2026-09-14 21:53:22', '2026-09-15 15:17:21', '2026-09-15 15:17:21', 'Auto Submitted', 0.00, 0.00);
 
 -- --------------------------------------------------------
 
@@ -391,7 +412,8 @@ CREATE TABLE `results` (
 INSERT INTO `results` (`id`, `attempt_id`, `student_id`, `exam_id`, `total_questions`, `attempted_questions`, `correct_answers`, `wrong_answers`, `unanswered_questions`, `total_marks`, `obtained_marks`, `percentage`, `grade`, `result_status`, `created_at`) VALUES
 (1, 1, 1, 1, 20, 0, 0, 0, 20, 20.00, 0.00, 0.00, 'F', 'Fail', '2026-09-13 19:12:12'),
 (2, 2, 1, 1, 20, 14, 5, 9, 6, 20.00, 5.00, 25.00, 'F', 'Fail', '2026-09-13 19:16:19'),
-(3, 3, 1, 1, 20, 0, 0, 0, 20, 20.00, 0.00, 0.00, 'F', 'Fail', '2026-09-13 19:17:31');
+(3, 3, 1, 1, 20, 0, 0, 0, 20, 20.00, 0.00, 0.00, 'F', 'Fail', '2026-09-13 19:17:31'),
+(4, 4, 1, 1, 20, 0, 0, 0, 20, 20.00, 0.00, 0.00, 'F', 'Fail', '2026-09-15 09:47:21');
 
 -- --------------------------------------------------------
 
@@ -424,7 +446,7 @@ CREATE TABLE `students` (
 --
 
 INSERT INTO `students` (`id`, `student_code`, `full_name`, `email`, `mobile`, `gender`, `dob`, `address`, `city`, `state`, `pincode`, `password`, `profile_photo`, `email_verified`, `status`, `last_login`, `created_at`) VALUES
-(1, 'STU00001', 'Chavda Prince', 'chavdaprince7485@gmail.com', '9088987654', 'Male', '2021-09-09', 'cdscsdcds', 'dccdc', 'cdscsd', '545544', '$2y$10$asOEEb66jkTl50oDJ5HXvef4OHGGCvtNKUd3.CTTPi6UDS/oFYXeC', NULL, 'Yes', 'Active', '2026-09-14 00:24:13', '2026-09-13 14:04:39');
+(1, 'STU00001', 'Chavda Prince', 'chavdaprince7485@gmail.com', '9088987654', 'Male', '2021-09-09', 'cdscsdcdsuytd', 'dccdc', 'cdscsd', '545544', '$2y$10$asOEEb66jkTl50oDJ5HXvef4OHGGCvtNKUd3.CTTPi6UDS/oFYXeC', 'STU00001_1_bbe8f6d899e6ee52.jpg', 'Yes', 'Active', '2026-09-15 14:16:22', '2026-09-13 14:04:39');
 
 -- --------------------------------------------------------
 
@@ -443,6 +465,14 @@ CREATE TABLE `study_materials` (
   `status` enum('Active','Inactive') NOT NULL DEFAULT 'Active',
   `uploaded_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `study_materials`
+--
+
+INSERT INTO `study_materials` (`id`, `subject_id`, `teacher_id`, `title`, `description`, `file_path`, `access_type`, `status`, `uploaded_at`) VALUES
+(1, 1, 1, 'Cyber Security', 'skjbkdabca', 'uploads/materials/material_3f3d3bd3b6ccbd7093a793ffbb9c2f05.pdf', 'Public', 'Active', '2026-09-15 06:22:32'),
+(2, 1, 1, 'IMP Cyber', 'xadxsa', 'uploads/materials/material_5cc4078395ee715a0a63887a291ed906.pdf', 'Subscription Only', 'Active', '2026-09-15 06:28:12');
 
 -- --------------------------------------------------------
 
@@ -465,7 +495,7 @@ CREATE TABLE `subjects` (
 --
 
 INSERT INTO `subjects` (`id`, `category_id`, `name`, `code`, `description`, `status`, `created_at`) VALUES
-(1, 8, 'Maths', '1', 'cwjdhcjdc', 'Active', '2026-09-13 13:58:28');
+(1, 8, 'Maths', '3', 'cwjdhcjdc', 'Active', '2026-09-13 13:58:28');
 
 -- --------------------------------------------------------
 
@@ -482,6 +512,13 @@ CREATE TABLE `subscriptions` (
   `status` enum('Active','Expired','Cancelled') NOT NULL DEFAULT 'Active',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `subscriptions`
+--
+
+INSERT INTO `subscriptions` (`id`, `student_id`, `plan_id`, `start_date`, `end_date`, `status`, `created_at`) VALUES
+(1, 1, 4, '2026-09-15', '2026-10-14', 'Active', '2026-09-15 06:12:46');
 
 -- --------------------------------------------------------
 
@@ -539,7 +576,28 @@ CREATE TABLE `subscription_plans` (
 INSERT INTO `subscription_plans` (`id`, `name`, `duration_months`, `price`, `description`, `benefits`, `status`, `created_at`) VALUES
 (1, '1 Month', 1, 99.00, 'Flexible one-month access.', 'Important study materials; subscription-enabled live exams', 'Active', '2026-09-13 13:52:11'),
 (2, '3 Months', 3, 249.00, 'A practical semester preparation plan.', 'Important study materials; subscription-enabled live exams', 'Active', '2026-09-13 13:52:11'),
-(3, '6 Months', 6, 449.00, 'Best value for continuous preparation.', 'Important study materials; subscription-enabled live exams', 'Active', '2026-09-13 13:52:11');
+(3, '6 Months', 6, 449.00, 'Best value for continuous preparation.', 'Important study materials; subscription-enabled live exams', 'Active', '2026-09-13 13:52:11'),
+(4, '1 Month Trial', 1, 0.00, 'This Is For Testing', NULL, 'Active', '2026-09-15 05:45:08');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `subscription_requests`
+--
+
+CREATE TABLE `subscription_requests` (
+  `id` bigint(20) UNSIGNED NOT NULL,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `plan_id` int(10) UNSIGNED NOT NULL,
+  `amount` decimal(10,2) NOT NULL,
+  `request_type` enum('Trial','Paid') NOT NULL DEFAULT 'Paid',
+  `payment_screenshot` varchar(255) DEFAULT NULL,
+  `status` enum('Pending','Approved','Rejected','Cancelled') NOT NULL DEFAULT 'Pending',
+  `admin_id` int(10) UNSIGNED DEFAULT NULL,
+  `admin_note` text DEFAULT NULL,
+  `submitted_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `reviewed_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -571,7 +629,7 @@ CREATE TABLE `teachers` (
 --
 
 INSERT INTO `teachers` (`id`, `teacher_code`, `full_name`, `email`, `phone`, `mobile`, `gender`, `dob`, `qualification`, `experience`, `address`, `profile_photo`, `password`, `status`, `last_login`, `created_at`) VALUES
-(1, 'TCH00001', 'Vipul Baldha', 'vipulbaldha@gmail.com', '1231234321', '1231234321', 'Male', '2008-10-13', 'PHD', '15', 'ugyftdsrdrdtyugiop', '1789321349_6681235c80.jpg', '$2y$10$z9iv5EufYYFa9cl1ML37iOtIz.gzMNQUypvLU3.EeZ9aHv/0GsOoW', 'Active', '2026-09-13 23:13:02', '2026-09-13 17:42:29'),
+(1, 'TCH00001', 'Vipul Baldha', 'vipulbaldha@gmail.com', '1231234321', '1231234321', 'Male', '2008-10-13', 'PHD', '15', 'ugyftdsrdrdtyugiop', '1789321349_6681235c80.jpg', '$2y$10$R37QB93bX9GtoZPlmtCanOp4rPgQd03736tGld0kgjV6yEDF1UPkG', 'Active', '2026-09-15 13:34:47', '2026-09-13 17:42:29'),
 (2, 'TCH00002', 'dhruvita savaliya', 'dhruvitasavaliya123@gmail.com', '00092982882', '9939883898', 'Female', '2003-09-08', 'PHD', '10', 'efdwlekfj', '1789323521_db0fa5e5cd.jpg', '$2y$10$LOjPX5EE1n1j.HxwGXQbLOyENOulPZJ3nxziwZSoYWPvmd1BsrdvO', 'Active', NULL, '2026-09-13 18:18:41');
 
 -- --------------------------------------------------------
@@ -746,6 +804,16 @@ ALTER TABLE `subscription_plans`
   ADD UNIQUE KEY `name` (`name`);
 
 --
+-- Indexes for table `subscription_requests`
+--
+ALTER TABLE `subscription_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `fk_subscription_request_plan` (`plan_id`),
+  ADD KEY `fk_subscription_request_admin` (`admin_id`),
+  ADD KEY `idx_subscription_request_student` (`student_id`,`status`,`submitted_at`),
+  ADD KEY `idx_subscription_request_status` (`status`,`submitted_at`);
+
+--
 -- Indexes for table `teachers`
 --
 ALTER TABLE `teachers`
@@ -775,13 +843,13 @@ ALTER TABLE `admins`
 -- AUTO_INCREMENT for table `answers`
 --
 ALTER TABLE `answers`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=61;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=81;
 
 --
 -- AUTO_INCREMENT for table `categories`
 --
 ALTER TABLE `categories`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
 
 --
 -- AUTO_INCREMENT for table `exams`
@@ -793,7 +861,7 @@ ALTER TABLE `exams`
 -- AUTO_INCREMENT for table `exam_attempts`
 --
 ALTER TABLE `exam_attempts`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `live_exam_payments`
@@ -817,7 +885,7 @@ ALTER TABLE `questions`
 -- AUTO_INCREMENT for table `results`
 --
 ALTER TABLE `results`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT for table `students`
@@ -829,7 +897,7 @@ ALTER TABLE `students`
 -- AUTO_INCREMENT for table `study_materials`
 --
 ALTER TABLE `study_materials`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `subjects`
@@ -841,7 +909,7 @@ ALTER TABLE `subjects`
 -- AUTO_INCREMENT for table `subscriptions`
 --
 ALTER TABLE `subscriptions`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `subscription_payments`
@@ -853,7 +921,13 @@ ALTER TABLE `subscription_payments`
 -- AUTO_INCREMENT for table `subscription_plans`
 --
 ALTER TABLE `subscription_plans`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+
+--
+-- AUTO_INCREMENT for table `subscription_requests`
+--
+ALTER TABLE `subscription_requests`
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `teachers`
@@ -949,6 +1023,14 @@ ALTER TABLE `subscription_payments`
   ADD CONSTRAINT `fk_sp_plan` FOREIGN KEY (`plan_id`) REFERENCES `subscription_plans` (`id`),
   ADD CONSTRAINT `fk_sp_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`),
   ADD CONSTRAINT `fk_sp_subscription` FOREIGN KEY (`subscription_id`) REFERENCES `subscriptions` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `subscription_requests`
+--
+ALTER TABLE `subscription_requests`
+  ADD CONSTRAINT `fk_subscription_request_admin` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_subscription_request_plan` FOREIGN KEY (`plan_id`) REFERENCES `subscription_plans` (`id`),
+  ADD CONSTRAINT `fk_subscription_request_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`);
 
 --
 -- Constraints for table `topics`

@@ -40,6 +40,10 @@ $examType = trim(
     (string) ($_POST['exam_type'] ?? 'Practice')
 );
 
+$publicationStatus = trim(
+    (string) ($_POST['publication_status'] ?? 'Draft')
+);
+
 $questionCount = filter_var(
     $_POST['question_count'] ?? '',
     FILTER_VALIDATE_INT
@@ -74,7 +78,9 @@ $examFee = filter_var(
 );
 
 $subscriptionRequired =
-    isset($_POST['subscription_required']);
+    $examType === 'Live'
+        ? true
+        : isset($_POST['subscription_required']);
 
 $startsAtInput = trim(
     (string) ($_POST['starts_at'] ?? '')
@@ -310,6 +316,24 @@ if (
 
 
     elseif (
+        $examType === 'Live' &&
+        !in_array(
+            $publicationStatus,
+            [
+                'Draft',
+                'Upcoming',
+                'Running'
+            ],
+            true
+        )
+    ) {
+
+        $error =
+            'Invalid Live Exam publication status.';
+    }
+
+
+    elseif (
         $questionCount < 1 ||
         $questionCount > 65535
     ) {
@@ -503,11 +527,53 @@ if (
         $error === '' &&
         $examType === 'Live' &&
         $action === 'publish' &&
+        $publicationStatus !== 'Draft' &&
         $startsAt === null
     ) {
 
         $error =
-            'A Live exam requires a start date and time before publishing.';
+            'Upcoming and Running Live exams require a start date and time.';
+    }
+
+
+    if (
+        $error === '' &&
+        $examType === 'Live' &&
+        $action === 'publish' &&
+        $publicationStatus === 'Upcoming' &&
+        $startsAt !== null &&
+        strtotime($startsAt) <= time()
+    ) {
+
+        $error =
+            'Upcoming Live exams must have a future start date and time.';
+    }
+
+
+    if (
+        $error === '' &&
+        $examType === 'Live' &&
+        $action === 'publish' &&
+        $publicationStatus === 'Running' &&
+        $startsAt !== null &&
+        strtotime($startsAt) > time()
+    ) {
+
+        $error =
+            'Running Live exams must have a start time that is now or in the past.';
+    }
+
+
+    if (
+        $error === '' &&
+        $examType === 'Live' &&
+        $action === 'publish' &&
+        $publicationStatus === 'Running' &&
+        $endsAt === null
+    ) {
+
+        $error =
+            'Running Live exams require an end date and time.';
     }
 
 
@@ -1519,6 +1585,51 @@ Description
 </div>
 
 
+<div class="col-md-6">
+
+<label class="form-label">
+
+Live Exam Status
+
+</label>
+
+<select
+    class="form-select"
+    name="publication_status"
+    id="publicationStatus"
+    <?= $examType === 'Live' ? '' : 'disabled' ?>
+>
+
+<option
+    value="Draft"
+    <?= $publicationStatus === 'Draft' ? 'selected' : '' ?>
+>
+Draft
+</option>
+
+<option
+    value="Upcoming"
+    <?= $publicationStatus === 'Upcoming' ? 'selected' : '' ?>
+>
+Upcoming
+</option>
+
+<option
+    value="Running"
+    <?= $publicationStatus === 'Running' ? 'selected' : '' ?>
+>
+Running
+</option>
+
+</select>
+
+<div class="status-note mt-1">
+Draft stays hidden. Upcoming waits for the start time. Running is available immediately when its schedule is active.
+</div>
+
+</div>
+
+
 <div class="col-md-3">
 
 <label class="form-label">
@@ -1764,7 +1875,7 @@ Exam fee
     for="subscriptionRequired"
 >
 
-Require active subscription
+Require active subscription (Live exams always require an active subscription)
 
 </label>
 
@@ -2882,6 +2993,28 @@ Publish Exam
 </script>
 
 
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const type = document.getElementById('exam_type');
+    const status = document.getElementById('publicationStatus');
+    if (!type || !status) return;
+    const sync = () => {
+        const live = type.value === 'Live';
+        status.disabled = !live;
+        if (!live) status.value = 'Draft';
+
+        const subscription = document.getElementById('subscriptionRequired');
+        if (subscription) {
+            subscription.checked = live ? true : subscription.checked;
+            subscription.disabled = live;
+        }
+    };
+    sync();
+    const displayType = document.querySelector('[data-mirror=\"exam_type\"]');
+    displayType?.addEventListener('change', () => { type.value = displayType.value; sync(); });
+});
+</script>
 </body>
 
 </html>

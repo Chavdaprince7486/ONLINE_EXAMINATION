@@ -7,6 +7,7 @@ require_once '../config/config.php';
 require_once '../config/auth.php';
 require_once '../config/functions.php';
 require_once '../config/exam_validation.php';
+require_once '../config/notification_events.php';
 
 require_login('teacher');
 
@@ -382,6 +383,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 (int)$examId,
                 $teacherId
             ]);
+
+            examsphere_event_exam_updated(
+                $conn,
+                (int)$examId,
+                (string)$exam['title'],
+                $status
+            );
 
             $message =
                 'Examination status updated to ' .

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once "../../config/session.php";
 require_once "../../config/config.php";
+require_once "../../config/notification_events.php";
 
 if (
     empty($_SESSION['user_id']) ||
@@ -190,6 +191,14 @@ try {
     }
 
     $conn->commit();
+
+    examsphere_event_admin_academic(
+        $conn,
+        'category',
+        (int)$id,
+        (string)$lockedCategory['category_name'],
+        'deleted'
+    );
 
     $_SESSION['success'] =
         'Category "' .

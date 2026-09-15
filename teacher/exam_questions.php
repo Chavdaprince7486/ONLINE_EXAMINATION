@@ -7,6 +7,7 @@ require_once '../config/config.php';
 require_once '../config/auth.php';
 require_once '../config/functions.php';
 require_once '../config/exam_validation.php';
+require_once '../config/notification_events.php';
 
 require_login('teacher');
 
@@ -458,6 +459,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $conn->commit();
 
+            examsphere_event_exam_content_changed(
+                $conn,
+                (int)$examId,
+                (string)$exam['title'],
+                (string)$exam['status']
+            );
+
             $success =
                 count($newIds) .
                 ' question(s) added successfully.';
@@ -578,6 +586,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $conn->commit();
 
+            examsphere_event_exam_content_changed(
+                $conn,
+                (int)$examId,
+                (string)$exam['title'],
+                (string)$exam['status']
+            );
+
             $success =
                 'Question removed and positions normalized.';
 
@@ -661,6 +676,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $conn->commit();
 
+            examsphere_event_exam_content_changed(
+                $conn,
+                (int)$examId,
+                (string)$exam['title'],
+                (string)$exam['status']
+            );
+
             $success =
                 'Question order saved successfully.';
 
@@ -682,6 +704,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $deleteStmt->execute([
                 (int)$examId
             ]);
+
+            examsphere_event_exam_content_changed(
+                $conn,
+                (int)$examId,
+                (string)$exam['title'],
+                (string)$exam['status']
+            );
 
             $success =
                 'All questions were removed from this examination.';

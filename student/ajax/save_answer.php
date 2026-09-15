@@ -6,10 +6,25 @@ require_once '../../config/session.php';
 require_once '../../config/config.php';
 require_once '../../config/functions.php';
 
-header('Content-Type: application/json; charset=UTF-8');
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
 
+header(
+    'Content-Type: application/json; charset=UTF-8'
+);
+
+header(
+    'Cache-Control: no-store, no-cache, must-revalidate, max-age=0'
+);
+
+header(
+    'Pragma: no-cache'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| JSON RESPONSE
+|--------------------------------------------------------------------------
+*/
 
 function save_answer_response(
     bool $success,
@@ -23,8 +38,11 @@ function save_answer_response(
     echo json_encode(
         array_merge(
             [
-                'status' => $success,
-                'message' => $message
+                'status' =>
+                    $success,
+
+                'message' =>
+                    $message
             ],
             $data
         ),
@@ -37,7 +55,15 @@ function save_answer_response(
 }
 
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+/*
+|--------------------------------------------------------------------------
+| POST ONLY
+|--------------------------------------------------------------------------
+*/
+
+if (
+    $_SERVER['REQUEST_METHOD'] !== 'POST'
+) {
 
     save_answer_response(
         false,
@@ -48,9 +74,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| STUDENT AUTHENTICATION
+|--------------------------------------------------------------------------
+*/
+
 if (
     empty($_SESSION['user_id']) ||
-    ($_SESSION['user_role'] ?? '') !== 'student'
+    (
+        $_SESSION['user_role'] ?? ''
+    ) !== 'student'
 ) {
 
     save_answer_response(
@@ -62,17 +96,27 @@ if (
 }
 
 
-$studentId = (int) $_SESSION['user_id'];
+$studentId =
+    (int) $_SESSION['user_id'];
 
 
-$requestToken = trim(
-    (string) (
-        $_POST['csrf_token'] ?? ''
-    )
-);
+/*
+|--------------------------------------------------------------------------
+| CSRF
+|--------------------------------------------------------------------------
+*/
+
+$requestToken =
+    trim(
+        (string) (
+            $_POST['csrf_token'] ?? ''
+        )
+    );
 
 
-if ($requestToken === '') {
+if (
+    $requestToken === ''
+) {
 
     save_answer_response(
         false,
@@ -83,40 +127,66 @@ if ($requestToken === '') {
 }
 
 
-$csrfValid = false;
+$csrfValid =
+    false;
 
 
-$examCsrfToken = (string) (
-    $_SESSION['exam_csrf_token'] ?? ''
-);
+/*
+|--------------------------------------------------------------------------
+| EXAM TOKEN
+|--------------------------------------------------------------------------
+*/
 
-
-if ($examCsrfToken !== '') {
-
-    $csrfValid = hash_equals(
-        $examCsrfToken,
-        $requestToken
+$examCsrfToken =
+    (string) (
+        $_SESSION['exam_csrf_token'] ?? ''
     );
+
+
+if (
+    $examCsrfToken !== ''
+) {
+
+    $csrfValid =
+        hash_equals(
+            $examCsrfToken,
+            $requestToken
+        );
 }
 
 
-if (!$csrfValid) {
+/*
+|--------------------------------------------------------------------------
+| GLOBAL TOKEN FALLBACK
+|--------------------------------------------------------------------------
+*/
 
-    $globalCsrfToken = (string) (
-        $_SESSION['csrf_token'] ?? ''
-    );
+if (
+    !$csrfValid
+) {
 
-    if ($globalCsrfToken !== '') {
-
-        $csrfValid = hash_equals(
-            $globalCsrfToken,
-            $requestToken
+    $globalCsrfToken =
+        (string) (
+            $_SESSION['csrf_token'] ?? ''
         );
+
+
+    if (
+        $globalCsrfToken !== ''
+    ) {
+
+        $csrfValid =
+            hash_equals(
+                $globalCsrfToken,
+                $requestToken
+            );
     }
 }
 
 
-if (!$csrfValid) {
+if (
+    !$csrfValid
+) {
 
     save_answer_response(
         false,
@@ -127,30 +197,45 @@ if (!$csrfValid) {
 }
 
 
-$attemptId = filter_var(
-    $_POST['attempt_id'] ?? null,
-    FILTER_VALIDATE_INT
-);
+/*
+|--------------------------------------------------------------------------
+| INPUT
+|--------------------------------------------------------------------------
+*/
+
+$attemptId =
+    filter_var(
+        $_POST['attempt_id'] ?? null,
+        FILTER_VALIDATE_INT
+    );
 
 
-$questionId = filter_var(
-    $_POST['question_id'] ?? null,
-    FILTER_VALIDATE_INT
-);
+$questionId =
+    filter_var(
+        $_POST['question_id'] ?? null,
+        FILTER_VALIDATE_INT
+    );
 
 
-$selectedAnswer = strtoupper(
-    trim(
-        (string) (
-            $_POST['selected_answer']
-            ??
-            $_POST['answer']
-            ??
-            ''
+$selectedAnswer =
+    strtoupper(
+        trim(
+            (string) (
+                $_POST['selected_answer']
+                ??
+                $_POST['answer']
+                ??
+                ''
+            )
         )
-    )
-);
+    );
 
+
+/*
+|--------------------------------------------------------------------------
+| VALIDATE IDS
+|--------------------------------------------------------------------------
+*/
 
 if (
     $attemptId === false ||
@@ -182,6 +267,12 @@ if (
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| VALIDATE ANSWER OPTION
+|--------------------------------------------------------------------------
+*/
+
 if (
     !in_array(
         $selectedAnswer,
@@ -204,30 +295,56 @@ if (
 }
 
 
+/*
+|--------------------------------------------------------------------------
+| DATABASE TRANSACTION
+|--------------------------------------------------------------------------
+*/
+
 try {
 
     $conn->beginTransaction();
 
 
-    $attemptStatement = $conn->prepare("
-        SELECT
-            ea.id,
-            ea.student_id,
-            ea.exam_id,
-            ea.status,
-            ea.server_deadline,
-            e.status AS exam_status,
-            e.exam_type,
-            e.required_question_count
-        FROM exam_attempts ea
-        INNER JOIN exams e
-            ON e.id = ea.exam_id
-        WHERE
-            ea.id = ?
-            AND ea.student_id = ?
-        LIMIT 1
-        FOR UPDATE
-    ");
+    /*
+    |--------------------------------------------------------------------------
+    | LOAD + LOCK ATTEMPT
+    |--------------------------------------------------------------------------
+    */
+
+    $attemptStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                ea.id,
+                ea.student_id,
+                ea.exam_id,
+
+                ea.status,
+                ea.server_deadline,
+
+                e.status AS exam_status,
+                e.exam_type,
+
+                e.required_question_count
+
+            FROM exam_attempts ea
+
+            INNER JOIN exams e
+                ON e.id = ea.exam_id
+
+            WHERE
+
+                ea.id = ?
+
+                AND ea.student_id = ?
+
+            LIMIT 1
+
+            FOR UPDATE
+            "
+        );
 
 
     $attemptStatement->execute(
@@ -238,18 +355,27 @@ try {
     );
 
 
-    $attempt = $attemptStatement->fetch(
-        PDO::FETCH_ASSOC
-    );
+    $attempt =
+        $attemptStatement->fetch(
+            PDO::FETCH_ASSOC
+        );
 
 
-    if (!$attempt) {
+    if (
+        !$attempt
+    ) {
 
         throw new RuntimeException(
             'Examination attempt not found.'
         );
     }
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | OWNERSHIP
+    |--------------------------------------------------------------------------
+    */
 
     if (
         (int) $attempt['student_id']
@@ -263,6 +389,12 @@ try {
     }
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | ATTEMPT MUST BE STARTED
+    |--------------------------------------------------------------------------
+    */
+
     if (
         (string) $attempt['status']
         !==
@@ -275,26 +407,72 @@ try {
     }
 
 
-    if (
-        !in_array(
-            (string) $attempt['exam_status'],
-            [
-                'Active',
-                'Live'
-            ],
-            true
-        )
-    ) {
+    /*
+    |--------------------------------------------------------------------------
+    | EXAM MUST BE AVAILABLE
+    |--------------------------------------------------------------------------
+    */
 
+    $examType = trim(
+        (string) (
+            $attempt['exam_type'] ?? ''
+        )
+    );
+
+    $examStatus = trim(
+        (string) (
+            $attempt['exam_status'] ?? ''
+        )
+    );
+
+    /*
+     * A Live exam can be stored as Upcoming/Running while an already-started
+     * student attempt is in progress. The attempt's server deadline remains
+     * authoritative for expiry. Cancelled/Completed exams are still blocked.
+     */
+    if (
+        $examType === 'Live'
+    ) {
+        $liveExamStatuses = [
+            'Active',
+            'Live',
+            'Upcoming',
+            'Running',
+            'Scheduled'
+        ];
+
+        if (
+            !in_array(
+                $examStatus,
+                $liveExamStatuses,
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'This examination is no longer available.'
+            );
+        }
+    } elseif (
+        $examStatus !== 'Active'
+    ) {
         throw new RuntimeException(
             'This examination is no longer available.'
         );
     }
 
 
-    $requiredQuestionCount = (int) (
-        $attempt['required_question_count'] ?? 0
-    );
+    /*
+    |--------------------------------------------------------------------------
+    | REQUIRED QUESTIONS
+    |--------------------------------------------------------------------------
+    */
+
+    $requiredQuestionCount =
+        (int) (
+            $attempt[
+                'required_question_count'
+            ] ?? 0
+        );
 
 
     if (
@@ -302,13 +480,21 @@ try {
     ) {
 
         throw new RuntimeException(
-            'The examination question configuration is invalid.'
+            'The examination question count is invalid.'
         );
     }
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | SERVER DEADLINE
+    |--------------------------------------------------------------------------
+    */
+
     if (
-        empty($attempt['server_deadline'])
+        empty(
+            $attempt['server_deadline']
+        )
     ) {
 
         throw new RuntimeException(
@@ -319,9 +505,12 @@ try {
 
     try {
 
-        $deadline = new DateTimeImmutable(
-            (string) $attempt['server_deadline']
-        );
+        $deadline =
+            new DateTimeImmutable(
+                (string) $attempt[
+                    'server_deadline'
+                ]
+            );
 
     } catch (Throwable) {
 
@@ -331,52 +520,119 @@ try {
     }
 
 
-    $serverNow = new DateTimeImmutable();
+    $serverNow =
+        new DateTimeImmutable();
 
 
     /*
-     * Do not change the attempt status here when time expires.
-     * The canonical submit endpoint will perform the final submission
-     * and grading transaction.
-     */
+    |--------------------------------------------------------------------------
+    | EXPIRED EXAMINATION
+    |--------------------------------------------------------------------------
+    */
+
     if (
         $serverNow >= $deadline
     ) {
 
-        $conn->rollBack();
+        $expireStatement =
+            $conn->prepare(
+                "
+                UPDATE exam_attempts
+
+                SET
+
+                    status =
+                        'Auto Submitted',
+
+                    submitted_at =
+                        COALESCE(
+                            submitted_at,
+                            NOW()
+                        ),
+
+                    last_activity_at =
+                        NOW()
+
+                WHERE
+
+                    id = ?
+
+                    AND student_id = ?
+
+                    AND status = 'Started'
+                "
+            );
+
+
+        $expireStatement->execute(
+            [
+                (int) $attemptId,
+                $studentId
+            ]
+        );
+
+
+        $conn->commit();
+
 
         save_answer_response(
             false,
             'The examination time has expired.',
             [
-                'expired' => true,
-                'attempt_id' => (int) $attemptId,
-                'question_id' => (int) $questionId,
+                'expired' =>
+                    true,
+
+                'attempt_id' =>
+                    (int) $attemptId,
+
+                'question_id' =>
+                    (int) $questionId,
+
                 'server_time' =>
                     $serverNow->format(
                         DateTimeInterface::ATOM
                     ),
+
                 'server_deadline' =>
                     $deadline->format(
                         DateTimeInterface::ATOM
                     ),
-                'remaining_seconds' => 0
+
+                'remaining_seconds' =>
+                    0
             ],
             409
         );
     }
 
 
-    $questionCountStatement = $conn->prepare("
-        SELECT
-            COUNT(DISTINCT eq.question_id)
-        FROM exam_questions eq
-        INNER JOIN questions q
-            ON q.id = eq.question_id
-        WHERE
-            eq.exam_id = ?
-            AND q.status = 'Active'
-    ");
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFY CURRENT EXAM QUESTION COUNT
+    |--------------------------------------------------------------------------
+    */
+
+    $questionCountStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                COUNT(
+                    DISTINCT eq.question_id
+                )
+
+            FROM exam_questions eq
+
+            INNER JOIN questions q
+                ON q.id = eq.question_id
+
+            WHERE
+
+                eq.exam_id = ?
+
+                AND q.status = 'Active'
+            "
+        );
 
 
     $questionCountStatement->execute(
@@ -386,15 +642,15 @@ try {
     );
 
 
-    $activeQuestionCount = (int) (
-        $questionCountStatement->fetchColumn()
-    );
+    $activeQuestionCount =
+        (int) (
+            $questionCountStatement
+            ->fetchColumn()
+        );
 
 
     if (
-        $activeQuestionCount
-        !==
-        $requiredQuestionCount
+        $activeQuestionCount !== $requiredQuestionCount
     ) {
 
         throw new RuntimeException(
@@ -403,20 +659,37 @@ try {
     }
 
 
-    $questionStatement = $conn->prepare("
-        SELECT
-            q.id,
-            q.status,
-            q.marks
-        FROM exam_questions eq
-        INNER JOIN questions q
-            ON q.id = eq.question_id
-        WHERE
-            eq.exam_id = ?
-            AND eq.question_id = ?
-        LIMIT 1
-        FOR UPDATE
-    ");
+    /*
+    |--------------------------------------------------------------------------
+    | VERIFY QUESTION BELONGS TO EXAM
+    |--------------------------------------------------------------------------
+    */
+
+    $questionStatement =
+        $conn->prepare(
+            "
+            SELECT
+
+                q.id,
+                q.status,
+                q.marks
+
+            FROM exam_questions eq
+
+            INNER JOIN questions q
+                ON q.id = eq.question_id
+
+            WHERE
+
+                eq.exam_id = ?
+
+                AND eq.question_id = ?
+
+            LIMIT 1
+
+            FOR UPDATE
+            "
+        );
 
 
     $questionStatement->execute(
@@ -427,18 +700,27 @@ try {
     );
 
 
-    $question = $questionStatement->fetch(
-        PDO::FETCH_ASSOC
-    );
+    $question =
+        $questionStatement->fetch(
+            PDO::FETCH_ASSOC
+        );
 
 
-    if (!$question) {
+    if (
+        !$question
+    ) {
 
         throw new RuntimeException(
             'This question does not belong to the current examination.'
         );
     }
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | QUESTION MUST BE ACTIVE
+    |--------------------------------------------------------------------------
+    */
 
     if (
         (string) $question['status']
@@ -452,32 +734,37 @@ try {
     }
 
 
-    $questionMarks = (float) (
-        $question['marks'] ?? 0
-    );
+    /*
+    |--------------------------------------------------------------------------
+    | LOAD CURRENT ANSWER
+    |--------------------------------------------------------------------------
+    */
 
+    $answerStatement =
+        $conn->prepare(
+            "
+            SELECT
 
-    if ($questionMarks <= 0) {
+                id,
+                selected_answer,
+                question_status
 
-        throw new RuntimeException(
-            'This question has an invalid marks configuration.'
+            FROM answers
+
+            WHERE
+
+                attempt_id = ?
+
+                AND question_id = ?
+
+            ORDER BY
+                id DESC
+
+            LIMIT 1
+
+            FOR UPDATE
+            "
         );
-    }
-
-
-    $answerStatement = $conn->prepare("
-        SELECT
-            id,
-            selected_answer,
-            question_status
-        FROM answers
-        WHERE
-            attempt_id = ?
-            AND question_id = ?
-        ORDER BY id DESC
-        LIMIT 1
-        FOR UPDATE
-    ");
 
 
     $answerStatement->execute(
@@ -488,106 +775,192 @@ try {
     );
 
 
-    $answer = $answerStatement->fetch(
-        PDO::FETCH_ASSOC
-    );
+    $answer =
+        $answerStatement->fetch(
+            PDO::FETCH_ASSOC
+        );
 
 
-    $currentStatus = $answer
-        ? (string) (
-            $answer['question_status'] ?? ''
-        )
-        : 'Not Answered';
+    /*
+    |--------------------------------------------------------------------------
+    | CURRENT STATUS
+    |--------------------------------------------------------------------------
+    */
+
+    $currentStatus =
+        $answer
+
+            ? (string) (
+                $answer[
+                    'question_status'
+                ] ?? ''
+            )
+
+            : 'Not Answered';
 
 
-    $markedForReview = in_array(
-        $currentStatus,
-        [
-            'Marked for Review',
-            'Answered & Marked for Review'
-        ],
-        true
-    );
+    /*
+    |--------------------------------------------------------------------------
+    | PRESERVE REVIEW STATE
+    |--------------------------------------------------------------------------
+    */
+
+    $markedForReview =
+        in_array(
+            $currentStatus,
+            [
+                'Marked for Review',
+                'Answered & Marked for Review'
+            ],
+            true
+        );
 
 
-    $newStatus = $markedForReview
-        ? 'Answered & Marked for Review'
-        : 'Answered';
+    /*
+    |--------------------------------------------------------------------------
+    | FINAL STATUS
+    |--------------------------------------------------------------------------
+    */
+
+    $newStatus =
+        $markedForReview
+            ? 'Answered & Marked for Review'
+            : 'Answered';
 
 
-    if ($answer) {
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE EXISTING ANSWER
+    |--------------------------------------------------------------------------
+    */
 
-        $updateStatement = $conn->prepare("
-            UPDATE answers
-            SET
-                selected_answer = ?,
-                question_status = ?,
-                answered_at = NOW(),
-                is_correct = 0,
-                marks_awarded = 0
-            WHERE
-                id = ?
-                AND attempt_id = ?
-                AND question_id = ?
-        ");
+    if (
+        $answer
+    ) {
+
+        $updateStatement =
+            $conn->prepare(
+                "
+                UPDATE answers
+
+                SET
+
+                    selected_answer = ?,
+
+                    question_status = ?,
+
+                    answered_at = NOW(),
+
+                    is_correct = 0,
+
+                    marks_awarded = 0
+
+                WHERE
+
+                    id = ?
+
+                    AND attempt_id = ?
+
+                    AND question_id = ?
+                "
+            );
 
 
         $updateStatement->execute(
             [
                 $selectedAnswer,
+
                 $newStatus,
+
                 (int) $answer['id'],
+
                 (int) $attemptId,
+
                 (int) $questionId
             ]
         );
 
     } else {
 
-        $insertStatement = $conn->prepare("
-            INSERT INTO answers
-            (
-                attempt_id,
-                question_id,
-                selected_answer,
-                question_status,
-                answered_at,
-                is_correct,
-                marks_awarded
-            )
-            VALUES
-            (
-                ?,
-                ?,
-                ?,
-                ?,
-                NOW(),
-                0,
-                0
-            )
-        ");
+        /*
+        |--------------------------------------------------------------------------
+        | CREATE ANSWER
+        |--------------------------------------------------------------------------
+        */
+
+        $insertStatement =
+            $conn->prepare(
+                "
+                INSERT INTO answers
+                (
+                    attempt_id,
+                    question_id,
+
+                    selected_answer,
+                    question_status,
+
+                    answered_at,
+
+                    is_correct,
+                    marks_awarded
+                )
+
+                VALUES
+                (
+                    ?,
+                    ?,
+
+                    ?,
+                    ?,
+
+                    NOW(),
+
+                    0,
+                    0
+                )
+                "
+            );
 
 
         $insertStatement->execute(
             [
                 (int) $attemptId,
+
                 (int) $questionId,
+
                 $selectedAnswer,
+
                 $newStatus
             ]
         );
     }
 
 
-    $activityStatement = $conn->prepare("
-        UPDATE exam_attempts
-        SET
-            last_activity_at = NOW()
-        WHERE
-            id = ?
-            AND student_id = ?
-            AND status = 'Started'
-    ");
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE LAST ACTIVITY
+    |--------------------------------------------------------------------------
+    */
+
+    $activityStatement =
+        $conn->prepare(
+            "
+            UPDATE exam_attempts
+
+            SET
+
+                last_activity_at =
+                    NOW()
+
+            WHERE
+
+                id = ?
+
+                AND student_id = ?
+
+                AND status = 'Started'
+            "
+        );
 
 
     $activityStatement->execute(
@@ -598,8 +971,20 @@ try {
     );
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | COMMIT
+    |--------------------------------------------------------------------------
+    */
+
     $conn->commit();
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | SUCCESS RESPONSE
+    |--------------------------------------------------------------------------
+    */
 
     save_answer_response(
         true,
@@ -619,9 +1004,6 @@ try {
 
             'has_answer' =>
                 true,
-
-            'question_marks' =>
-                $questionMarks,
 
             'server_time' =>
                 $serverNow->format(
@@ -644,7 +1026,15 @@ try {
     );
 
 
-} catch (Throwable $exception) {
+} catch (
+    Throwable $exception
+) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | ROLLBACK
+    |--------------------------------------------------------------------------
+    */
 
     if (
         $conn->inTransaction()
@@ -654,11 +1044,23 @@ try {
     }
 
 
+    /*
+    |--------------------------------------------------------------------------
+    | LOG
+    |--------------------------------------------------------------------------
+    */
+
     error_log(
         'ExamSphere save answer failed: ' .
         $exception->getMessage()
     );
 
+
+    /*
+    |--------------------------------------------------------------------------
+    | SAFE USER MESSAGES
+    |--------------------------------------------------------------------------
+    */
 
     $safeMessages = [
 
@@ -670,7 +1072,7 @@ try {
 
         'This examination is no longer available.',
 
-        'The examination question configuration is invalid.',
+        'The examination must contain exactly 50 questions.',
 
         'Examination deadline is missing.',
 
@@ -682,34 +1084,28 @@ try {
 
         'This question does not belong to the current examination.',
 
-        'This question is no longer active.',
-
-        'This question has an invalid marks configuration.'
+        'This question is no longer active.'
 
     ];
 
 
-    $message = in_array(
-        $exception->getMessage(),
-        $safeMessages,
-        true
-    )
-        ? $exception->getMessage()
-        : 'Unable to save your answer. Please try again.';
-
-
-    $httpCode =
-        $exception->getMessage()
-        ===
-        'The examination time has expired.'
-            ? 409
-            : 400;
+    $userMessage =
+        in_array(
+            $exception->getMessage(),
+            $safeMessages,
+            true
+        )
+            ? $exception->getMessage()
+            : 'Unable to save your answer. Please try again.';
 
 
     save_answer_response(
         false,
-        $message,
+        $userMessage,
         [],
-        $httpCode
+        $exception->getMessage() ===
+            'The examination time has expired.'
+            ? 409
+            : 400
     );
 }

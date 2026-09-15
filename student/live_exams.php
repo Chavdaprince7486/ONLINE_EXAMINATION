@@ -462,6 +462,8 @@ try {
             e.exam_type =
                 'Live'
 
+            AND e.status NOT IN ('Draft', 'Cancelled', 'Completed')
+
             AND e.required_question_count >
                 0
     ";

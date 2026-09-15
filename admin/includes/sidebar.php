@@ -200,6 +200,22 @@ function admin_menu_active(
 
             </li>
 
+            <li class="<?= admin_menu_active(['notifications.php']) ? 'active' : '' ?>">
+
+    <a
+        href="/ONLINE_EXAMINATION/admin/notifications.php"
+    >
+
+        <i class="fa-solid fa-bell"></i>
+
+        <span>
+            Notifications
+        </span>
+
+    </a>
+
+</li>
+
 
             <!-- =================================================
                  ACADEMIC MANAGEMENT

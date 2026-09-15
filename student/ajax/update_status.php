@@ -516,17 +516,48 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    if (
-        !in_array(
-            (string) $attempt['exam_status'],
-            [
-                'Active',
-                'Live'
-            ],
-            true
+    $examType = trim(
+        (string) (
+            $attempt['exam_type'] ?? ''
         )
-    ) {
+    );
 
+    $examStatus = trim(
+        (string) (
+            $attempt['exam_status'] ?? ''
+        )
+    );
+
+    /*
+     * A Live exam can be stored as Upcoming/Running while an already-started
+     * student attempt is in progress. The attempt's server deadline remains
+     * authoritative for expiry. Cancelled/Completed exams are still blocked.
+     */
+    if (
+        $examType === 'Live'
+    ) {
+        $liveExamStatuses = [
+            'Active',
+            'Live',
+            'Upcoming',
+            'Running',
+            'Scheduled'
+        ];
+
+        if (
+            !in_array(
+                $examStatus,
+                $liveExamStatuses,
+                true
+            )
+        ) {
+            throw new RuntimeException(
+                'This examination is no longer available.'
+            );
+        }
+    } elseif (
+        $examStatus !== 'Active'
+    ) {
         throw new RuntimeException(
             'This examination is no longer available.'
         );

@@ -6,6 +6,7 @@ require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/auth.php';
 require_once '../config/functions.php';
+require_once '../config/notification_events.php';
 
 require_login('teacher');
 
@@ -534,6 +535,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $accessType
                 ]);
 
+                $materialId = (int)$conn->lastInsertId();
+
             } catch (Throwable $databaseException) {
 
                 if (
@@ -548,6 +551,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 throw $databaseException;
             }
+
+            examsphere_event_material(
+                $conn,
+                $materialId,
+                $title,
+                'added',
+                'Active'
+            );
 
             $message =
                 'Study material published successfully.';
@@ -808,6 +819,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
             }
 
+            examsphere_event_material(
+                $conn,
+                (int)$materialId,
+                $title,
+                'updated',
+                $statusValue
+            );
+
             $message =
                 'Study material updated successfully.';
 
@@ -883,6 +902,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 (int)$materialId,
                 $teacherId
             ]);
+
+            if ((string)$newStatus === 'Active') {
+                $materialTitleStatement = $conn->prepare(
+                    'SELECT title FROM study_materials WHERE id = ? AND teacher_id = ? LIMIT 1'
+                );
+                $materialTitleStatement->execute([(int)$materialId, $teacherId]);
+                $materialTitle = (string)($materialTitleStatement->fetchColumn() ?: 'Study material');
+
+                examsphere_event_material(
+                    $conn,
+                    (int)$materialId,
+                    $materialTitle,
+                    'activated',
+                    $newStatus
+                );
+            }
 
             $message =
                 'Material status changed to ' .

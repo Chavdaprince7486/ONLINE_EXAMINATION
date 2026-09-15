@@ -6,6 +6,7 @@ require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
 require_once '../config/auth.php';
+require_once '../config/notification_events.php';
 
 require_login('teacher');
 
@@ -15,6 +16,7 @@ $error = '';
 $success = '';
 $imported = 0;
 $skipped = 0;
+$firstImportedQuestionId = null;
 
 $subjects = [];
 
@@ -823,6 +825,10 @@ if (
                 ]);
 
                 $imported++;
+
+                if ($firstImportedQuestionId === null) {
+                    $firstImportedQuestionId = (int)$conn->lastInsertId();
+                }
             }
 
             if ($imported === 0) {
@@ -834,6 +840,19 @@ if (
             }
 
             $conn->commit();
+
+            $subjectNameStatement = $conn->prepare(
+                'SELECT name FROM subjects WHERE id = ? LIMIT 1'
+            );
+            $subjectNameStatement->execute([(int)$subjectId]);
+            $subjectName = (string)($subjectNameStatement->fetchColumn() ?: '');
+
+            examsphere_event_imported_questions(
+                $conn,
+                $subjectName,
+                (int)$imported,
+                $firstImportedQuestionId
+            );
 
             $success =
                 $imported .

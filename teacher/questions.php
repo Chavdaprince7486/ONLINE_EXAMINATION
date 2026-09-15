@@ -6,6 +6,7 @@ require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/auth.php';
 require_once '../config/functions.php';
+require_once '../config/notification_events.php';
 
 require_login('teacher');
 
@@ -973,6 +974,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $status
                     ]);
 
+                    $questionId = (int)$conn->lastInsertId();
+
+                    if ((string)$status === 'Active') {
+                        examsphere_event_teacher_content(
+                            $conn,
+                            'New Question Added',
+                            'A new question has been added to the teacher question bank on ExamSphere.',
+                            'question',
+                            $questionId
+                        );
+                    }
+
                     $message =
                         'Question added successfully.';
 
@@ -1056,6 +1069,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ) {
                         teacher_q_delete_image(
                             $oldImageFilename
+                        );
+                    }
+
+                    if ((string)$status === 'Active') {
+                        examsphere_event_teacher_content(
+                            $conn,
+                            'Question Updated',
+                            'A question in the teacher question bank has been updated. Please check the latest question content.',
+                            'question',
+                            (int)$questionId
                         );
                     }
 

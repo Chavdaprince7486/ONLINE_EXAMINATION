@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once "../../config/session.php";
 require_once "../../config/config.php";
+require_once "../../config/notification_events.php";
 
 if (
     empty($_SESSION['user_id']) ||
@@ -244,6 +245,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         : null,
                     $status
                 ]);
+
+                examsphere_event_admin_academic(
+                    $conn,
+                    'topic',
+                    (int)$conn->lastInsertId(),
+                    $name,
+                    'added'
+                );
 
                 $_SESSION['success'] =
                     'Topic "' .
