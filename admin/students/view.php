@@ -319,16 +319,7 @@ include "../includes/header.php";
         transition: .2s ease;
     }
 
-    .student-edit-btn {
-        background: #556b2f;
-        color: #fff;
-    }
 
-    .student-edit-btn:hover {
-        background: #455923;
-        color: #fff;
-        transform: translateY(-2px);
-    }
 
     .student-delete-btn {
         background: rgba(163,58,50,.08);
@@ -630,14 +621,7 @@ include "../includes/header.php";
 
                     <div class="student-profile-action">
 
-                        <a
-                            href="edit.php?id=<?= (int)$student['id'] ?>"
-                            class="student-edit-btn"
-                        >
-                            <i class="fa-solid fa-pen"></i>
-                            Edit
-                        </a>
-
+                        
                         <a
                             href="delete.php?id=<?= (int)$student['id'] ?>"
                             class="student-delete-btn"

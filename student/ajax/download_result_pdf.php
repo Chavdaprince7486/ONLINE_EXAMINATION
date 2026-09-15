@@ -23,11 +23,11 @@ if (
 
 $studentId = (int)$_SESSION['user_id'];
 
-$attemptId = filter_input(INPUT_GET, 'attempt_id', FILTER_VALIDATE_INT);
-
-if ($attemptId === false || $attemptId === null || $attemptId <= 0) {
-    $attemptId = filter_input(INPUT_POST, 'attempt_id', FILTER_VALIDATE_INT);
-}
+$attemptId = filter_input(
+    INPUT_GET,
+    'attempt_id',
+    FILTER_VALIDATE_INT
+);
 
 if ($attemptId === false || $attemptId === null || $attemptId <= 0) {
     http_response_code(400);
@@ -203,11 +203,11 @@ try {
         'default_font' => 'dejavusans'
     ]);
 
-    $css = '';
     if (is_file($cssFile)) {
-        $cssContents = file_get_contents($cssFile);
-        if ($cssContents !== false) {
-            $css = $cssContents;
+        $css = file_get_contents($cssFile);
+        if ($css !== false && $css !== '') {
+            // Apply the stylesheet as a real <style> block so mPDF never prints the CSS as visible text.
+            $mpdf->WriteHTML('<style>\n' . $css . '\n</style>');
         }
     }
 
@@ -215,15 +215,8 @@ try {
     require $templateFile;
     $html = ob_get_clean();
 
-    // Important: send one complete HTML document to mPDF.
-    // This avoids PDF outputting the raw CSS as visible text on older mPDF builds.
-    $document = '<!doctype html><html><head><meta charset="UTF-8"><style>'
-        . $css
-        . '</style></head><body>'
-        . $html
-        . '</body></html>';
-
-    $mpdf->WriteHTML($document);
+    // Render the report body after the stylesheet has been registered.
+    $mpdf->WriteHTML($html);
 
     $pdfPath = $tempDirectory . DIRECTORY_SEPARATOR . 'result_' . $attemptId . '.pdf';
 

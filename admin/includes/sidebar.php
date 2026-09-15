@@ -67,7 +67,7 @@ function admin_menu_active(
         >
 
             <img
-                src="../assets/images/exam_logo.png"
+                src="/ONLINE_EXAMINATION/admin/assets/images/exam_logo.png"
                 class="logo"
                 alt="ExamSphere"
             >

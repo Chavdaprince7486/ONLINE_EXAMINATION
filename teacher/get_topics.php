@@ -1,12 +1,12 @@
 <?php
+
 declare(strict_types=1);
 
 require_once '../config/session.php';
 require_once '../config/config.php';
 
-header(
-    'Content-Type: application/json; charset=UTF-8'
-);
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 if (
     empty($_SESSION['user_id']) ||
@@ -45,29 +45,15 @@ if (
 
 try {
 
-    $statement = $conn->prepare("
-        SELECT
-            id,
-            name
-        FROM topics
-        WHERE
-            subject_id = ?
-            AND status = 'Active'
-        ORDER BY
-            name ASC,
-            id ASC
-    ");
+    $statement = $conn->prepare("\n        SELECT\n            id,\n            name\n        FROM topics\n        WHERE\n            subject_id = ?\n            AND status = 'Active'\n        ORDER BY\n            name ASC,\n            id ASC\n    ");
 
     $statement->execute([
         (int)$subjectId
     ]);
 
     echo json_encode(
-        $statement->fetchAll(
-            PDO::FETCH_ASSOC
-        ),
-        JSON_UNESCAPED_UNICODE |
-        JSON_UNESCAPED_SLASHES
+        $statement->fetchAll(PDO::FETCH_ASSOC),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     );
 
 } catch (Throwable $exception) {

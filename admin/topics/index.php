@@ -439,7 +439,15 @@ include "../includes/header.php";
 
 </style>
 
-<div class="topic-page">
+<div class="dashboard-wrapper">
+
+    <?php include "../includes/sidebar.php"; ?>
+
+    <div class="main-content">
+
+        <?php include "../includes/navbar.php"; ?>
+
+        <main class="dashboard-content topic-page">
 
     <div class="topic-header">
 
@@ -794,6 +802,10 @@ include "../includes/header.php";
             </table>
 
         <?php endif; ?>
+
+    </div>
+
+        </main>
 
     </div>
 
