@@ -5,94 +5,72 @@ declare(strict_types=1);
 require_once '../config/session.php';
 require_once '../config/config.php';
 require_once '../config/functions.php';
+require_once '../config/auth.php';
 
-if (
-    empty($_SESSION['user_id']) ||
-    ($_SESSION['user_role'] ?? '') !== 'admin'
-) {
-    header('Location: ../auth/login.php');
-    exit;
-}
+require_login('student');
 
-$page_title = 'Subscription Management';
 
-$search = trim(
-    (string)($_GET['search'] ?? '')
+$studentId = (int)(
+    $_SESSION['user_id'] ?? 0
 );
-
-$status = trim(
-    (string)($_GET['status'] ?? '')
-);
-
-$allowedStatuses = [
-    'Active',
-    'Expired',
-    'Cancelled'
-];
-
-if (
-    $status !== '' &&
-    !in_array(
-        $status,
-        $allowedStatuses,
-        true
-    )
-) {
-    $status = '';
-}
-
-$conditions = [];
-$params = [];
 
 
 /*
 |--------------------------------------------------------------------------
-| STATUS FILTER
+| HELPERS
 |--------------------------------------------------------------------------
 */
 
-if ($status !== '') {
-
-    $conditions[] = 's.status = ?';
-
-    $params[] = $status;
+function plans_escape(mixed $value): string
+{
+    return htmlspecialchars(
+        (string)($value ?? ''),
+        ENT_QUOTES | ENT_SUBSTITUTE,
+        'UTF-8'
+    );
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| SEARCH
-|--------------------------------------------------------------------------
-*/
+function plans_date(mixed $value): string
+{
+    if (
+        $value === null ||
+        trim((string)$value) === ''
+    ) {
+        return '—';
+    }
 
-if ($search !== '') {
+    try {
+        return (
+            new DateTimeImmutable(
+                (string)$value
+            )
+        )->format('d M Y');
 
-    $conditions[] = '
-        (
-            st.full_name LIKE ?
-            OR st.email LIKE ?
-            OR p.name LIKE ?
-        )
-    ';
-
-    $searchValue = '%' . $search . '%';
-
-    $params[] = $searchValue;
-    $params[] = $searchValue;
-    $params[] = $searchValue;
+    } catch (Throwable) {
+        return '—';
+    }
 }
 
 
-$whereSql = '';
+function plans_status_class(
+    string $status
+): string {
 
-if (!empty($conditions)) {
+    return match ($status) {
 
-    $whereSql =
-        'WHERE ' .
-        implode(
-            ' AND ',
-            $conditions
-        );
+        'Active' =>
+            'status-active',
+
+        'Approved' =>
+            'status-approved',
+
+        'Rejected' =>
+            'status-rejected',
+
+        default =>
+            'status-pending'
+    };
 }
 
 
@@ -102,15 +80,54 @@ if (!empty($conditions)) {
 |--------------------------------------------------------------------------
 */
 
+$plans = [];
+
 $subscriptions = [];
 
-$totalSubscriptions = 0;
-$activeSubscriptions = 0;
-$expiredSubscriptions = 0;
-$cancelledSubscriptions = 0;
-$totalPlans = 0;
+$requests = [];
+
+$activeSubscription = null;
+
+$pageError = '';
+
 
 try {
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PLANS
+    |--------------------------------------------------------------------------
+    */
+
+    $plansStatement = $conn->query(
+        "
+        SELECT
+
+            id,
+            name,
+            duration_months,
+            price,
+            description,
+            benefits,
+            status
+
+        FROM subscription_plans
+
+        WHERE
+            status = 'Active'
+
+        ORDER BY
+            duration_months ASC,
+            id ASC
+        "
+    );
+
+
+    $plans = $plansStatement->fetchAll(
+        PDO::FETCH_ASSOC
+    );
+
 
     /*
     |--------------------------------------------------------------------------
@@ -121,40 +138,38 @@ try {
     $subscriptionStatement = $conn->prepare(
         "
         SELECT
+
             s.id,
-            s.student_id,
             s.plan_id,
             s.start_date,
             s.end_date,
             s.status,
-            s.created_at,
-
-            st.full_name,
-            st.email,
 
             p.name AS plan_name,
             p.duration_months,
-            p.price AS plan_price
+            p.price,
+            p.description,
+            p.benefits
 
         FROM subscriptions s
-
-        INNER JOIN students st
-            ON st.id = s.student_id
 
         INNER JOIN subscription_plans p
             ON p.id = s.plan_id
 
-        {$whereSql}
+        WHERE
+            s.student_id = ?
 
         ORDER BY
-            s.created_at DESC,
+            s.start_date DESC,
             s.id DESC
         "
     );
 
-    $subscriptionStatement->execute(
-        $params
-    );
+
+    $subscriptionStatement->execute([
+        $studentId
+    ]);
+
 
     $subscriptions =
         $subscriptionStatement->fetchAll(
@@ -164,1078 +179,2062 @@ try {
 
     /*
     |--------------------------------------------------------------------------
-    | COUNTS
+    | ACTIVE MEMBERSHIP
     |--------------------------------------------------------------------------
     */
 
-    $totalSubscriptions = (int)$conn
-        ->query(
-            "
-            SELECT COUNT(*)
-            FROM subscriptions
-            "
-        )
-        ->fetchColumn();
+    $today =
+        new DateTimeImmutable('today');
 
 
-    $activeSubscriptions = (int)$conn
-        ->query(
-            "
-            SELECT COUNT(*)
-            FROM subscriptions
-            WHERE status = 'Active'
-            "
-        )
-        ->fetchColumn();
+    foreach (
+        $subscriptions
+        as $subscription
+    ) {
+
+        if (
+
+            $subscription['status'] === 'Active'
+
+            &&
+
+            $subscription['start_date']
+                <=
+            $today->format('Y-m-d')
+
+            &&
+
+            $subscription['end_date']
+                >=
+            $today->format('Y-m-d')
+
+        ) {
+
+            $activeSubscription =
+                $subscription;
+
+            break;
+        }
+    }
 
 
-    $expiredSubscriptions = (int)$conn
-        ->query(
-            "
-            SELECT COUNT(*)
-            FROM subscriptions
-            WHERE status = 'Expired'
-            "
-        )
-        ->fetchColumn();
+    /*
+    |--------------------------------------------------------------------------
+    | REQUEST HISTORY
+    |--------------------------------------------------------------------------
+    */
+
+    $requestStatement = $conn->prepare(
+        "
+        SELECT
+
+            r.id,
+            r.plan_id,
+            r.amount,
+            r.request_type,
+            r.status,
+            r.admin_note,
+            r.submitted_at,
+            r.reviewed_at,
+
+            p.name AS plan_name,
+            p.duration_months
+
+        FROM subscription_requests r
+
+        INNER JOIN subscription_plans p
+            ON p.id = r.plan_id
+
+        WHERE
+            r.student_id = ?
+
+        ORDER BY
+            r.submitted_at DESC,
+            r.id DESC
+
+        LIMIT 10
+        "
+    );
 
 
-    $cancelledSubscriptions = (int)$conn
-        ->query(
-            "
-            SELECT COUNT(*)
-            FROM subscriptions
-            WHERE status = 'Cancelled'
-            "
-        )
-        ->fetchColumn();
+    $requestStatement->execute([
+        $studentId
+    ]);
 
 
-    $totalPlans = (int)$conn
-        ->query(
-            "
-            SELECT COUNT(*)
-            FROM subscription_plans
-            "
-        )
-        ->fetchColumn();
+    $requests =
+        $requestStatement->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
 
 } catch (Throwable $exception) {
 
     error_log(
-        'Subscription management page failed: ' .
+        'Student plans page failed: ' .
         $exception->getMessage()
     );
+
+    $pageError =
+        'Unable to load subscription plans right now.';
 }
+
+
+$csrf =
+    csrf_token();
 
 
 /*
 |--------------------------------------------------------------------------
-| HELPERS
+| ACTIVE ID
 |--------------------------------------------------------------------------
 */
 
-function subscription_management_escape(
-    $value
-): string {
-
-    return htmlspecialchars(
-        (string)$value,
-        ENT_QUOTES,
-        'UTF-8'
-    );
-}
-
-
-function subscription_management_date(
-    $value
-): string {
-
-    if (
-        $value === null ||
-        $value === ''
-    ) {
-        return '—';
-    }
-
-    $timestamp = strtotime(
-        (string)$value
-    );
-
-    if ($timestamp === false) {
-        return '—';
-    }
-
-    return date(
-        'd M Y',
-        $timestamp
-    );
-}
-
-
-function subscription_management_status_class(
-    string $status
-): string {
-
-    switch ($status) {
-
-        case 'Active':
-            return 'active';
-
-        case 'Expired':
-            return 'expired';
-
-        case 'Cancelled':
-            return 'cancelled';
-
-        default:
-            return 'cancelled';
-    }
-}
+$activePlanId = $activeSubscription
+    ? (int)$activeSubscription['plan_id']
+    : 0;
 
 
 /*
 |--------------------------------------------------------------------------
-| ADMIN SHELL
+| FLASH
 |--------------------------------------------------------------------------
 */
 
-require_once 'includes/header.php';
+$flashMessage =
+    trim(
+        (string)(
+            $_GET['message']
+            ?? ''
+        )
+    );
+
+
+$flashType =
+    trim(
+        (string)(
+            $_GET['type']
+            ?? ''
+        )
+    );
+
 
 ?>
 
+<!doctype html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+
+<meta
+    name="theme-color"
+    content="#F5F5DC"
+>
+
+
+<title>
+    Plans | ExamSphere
+</title>
+
+
+<link
+    rel="stylesheet"
+    href="../assets/css/main.css"
+>
+
+
+<link
+    rel="stylesheet"
+    href="assets/css/student-nav.css"
+>
+
+
+<link
+    rel="stylesheet"
+    href="
+        https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css
+    "
+>
+
+
+<link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+>
+
+
+<link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+>
+
+
+<link
+    href="
+        https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap
+    "
+    rel="stylesheet"
+>
+
+
 <style>
 
-.subscription-management-page {
+/* =========================================================
+   ROOT
+========================================================= */
 
-    --sm-brown: #5d4037;
-    --sm-dark: #3e2723;
-    --sm-olive: #556b2f;
-    --sm-olive-dark: #465b27;
-    --sm-muted: #766e69;
-    --sm-border: rgba(93, 64, 55, .12);
-    --sm-background: #f5f5dc;
+:root{
 
-    padding-bottom: 30px;
+    --plans-bg:#F5F5DC;
 
-}
+    --plans-white:#FFFFFF;
 
+    --plans-brown:#5D4037;
 
-/*
-|--------------------------------------------------------------------------
-| PAGE HEADER
-|--------------------------------------------------------------------------
-*/
+    --plans-brown-dark:#3E2723;
 
-.subscription-management-page .sm-header {
+    --plans-brown-soft:#F2E9E2;
 
-    display: flex;
+    --plans-olive:#556B2F;
 
-    align-items: flex-end;
+    --plans-olive-dark:#465923;
 
-    justify-content: space-between;
+    --plans-olive-soft:#ECF2E2;
 
-    gap: 20px;
+    --plans-gold:#A47B29;
 
-    margin-bottom: 22px;
+    --plans-gold-soft:#FFF2D7;
 
-}
+    --plans-muted:#766D65;
 
+    --plans-light:#968C83;
 
-.subscription-management-page .sm-kicker {
+    --plans-line:#E4DDD3;
 
-    display: inline-flex;
+    --plans-line-soft:#EEE8E0;
 
-    align-items: center;
+    --plans-red:#A84538;
 
-    gap: 7px;
-
-    color: var(--sm-olive);
-
-    font-size: 10px;
-
-    font-weight: 900;
-
-    letter-spacing: 1.5px;
-
-    text-transform: uppercase;
+    --plans-red-soft:#FBEAE7;
 
 }
 
 
-.subscription-management-page .sm-header h1 {
+/* =========================================================
+   PAGE
+========================================================= */
 
-    margin: 6px 0 5px;
+.student-plans-page{
 
-    color: var(--sm-dark);
+    width:100%;
 
-    font-size: 30px;
+    min-height:100vh;
 
-    font-weight: 900;
+    padding:
+        17px 0 65px !important;
 
-    line-height: 1.1;
+    margin:0 !important;
+
+    background:
+
+        radial-gradient(
+            circle at 4% 3%,
+            rgba(85,107,47,.065),
+            transparent 24%
+        ),
+
+        radial-gradient(
+            circle at 97% 8%,
+            rgba(93,64,55,.055),
+            transparent 24%
+        ),
+
+        linear-gradient(
+            180deg,
+            #FBFAF6 0%,
+            #F5F5DC 62%,
+            #EFEEE6 100%
+        );
 
 }
 
 
-.subscription-management-page .sm-header p {
+.student-plans-page section{
 
-    margin: 0;
+    padding:
+        0 !important;
 
-    color: var(--sm-muted);
-
-    font-size: 12px;
+    margin:
+        0 !important;
 
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| ASSIGN BUTTON
-|--------------------------------------------------------------------------
-*/
+.student-plans-container{
 
-.sm-assign-button {
+    width:
+        min(
+            1270px,
+            calc(
+                100% - 32px
+            )
+        );
 
-    min-height: 42px;
+    margin:
+        0 auto;
 
-    display: inline-flex;
+}
 
-    align-items: center;
 
-    justify-content: center;
+/* =========================================================
+   HERO
+========================================================= */
 
-    gap: 8px;
+.plans-hero{
 
-    padding: 0 15px;
+    position:relative;
 
-    border-radius: 11px;
+    overflow:hidden;
 
-    background: var(--sm-olive);
+    min-height:
+        245px;
 
-    color: #fff;
+    display:flex;
 
-    text-decoration: none;
+    align-items:center;
 
-    font-size: 10px;
+    justify-content:space-between;
 
-    font-weight: 800;
+    gap:35px;
+
+    padding:
+        31px 34px;
+
+    border:
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            .08
+        );
+
+    border-radius:
+        25px;
+
+    color:#fff;
+
+    background:
+
+        linear-gradient(
+            135deg,
+            #5D4037 0%,
+            #46312B 57%,
+            #556B2F 100%
+        );
 
     box-shadow:
-        0 10px 23px
-        rgba(85, 107, 47, .18);
-
-    transition: .2s ease;
-
-    white-space: nowrap;
-
-}
-
-
-.sm-assign-button:hover {
-
-    background: var(--sm-olive-dark);
-
-    color: #fff;
-
-    transform: translateY(-1px);
+        0
+        22px
+        55px
+        rgba(
+            62,
+            39,
+            35,
+            .15
+        );
 
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| STATS
-|--------------------------------------------------------------------------
-*/
+.plans-hero::before{
 
-.sm-stat-grid {
+    content:'';
 
-    display: grid;
+    position:absolute;
+
+    width:
+        420px;
+
+    height:
+        420px;
+
+    right:
+        -160px;
+
+    top:
+        -270px;
+
+    border:
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            .10
+        );
+
+    border-radius:
+        50%;
+
+}
+
+
+.plans-hero::after{
+
+    content:'';
+
+    position:absolute;
+
+    width:
+        240px;
+
+    height:
+        240px;
+
+    right:
+        80px;
+
+    bottom:
+        -185px;
+
+    border:
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            .07
+        );
+
+    border-radius:
+        50%;
+
+}
+
+
+.plans-hero-content{
+
+    position:relative;
+
+    z-index:3;
+
+    max-width:
+        850px;
+
+}
+
+
+.plans-hero-kicker{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    gap:
+        7px;
+
+    color:
+        #D6CC9F;
+
+    font-size:
+        7px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        1.25px;
+
+}
+
+
+.plans-hero-title{
+
+    margin:
+        10px 0 8px;
+
+    font-size:
+        clamp(
+            35px,
+            4.5vw,
+            51px
+        );
+
+    line-height:
+        .99;
+
+    letter-spacing:
+        -.055em;
+
+    font-weight:
+        900;
+
+}
+
+
+.plans-hero-title span{
+
+    color:
+        #D4E09F;
+
+}
+
+
+.plans-hero-text{
+
+    max-width:
+        740px;
+
+    margin:0;
+
+    color:
+        #DBD0C7;
+
+    font-size:
+        8.5px;
+
+    line-height:
+        1.75;
+
+}
+
+
+.plans-current-box{
+
+    position:relative;
+
+    z-index:3;
+
+    width:
+        300px;
+
+    flex:
+        0 0 300px;
+
+    padding:
+        17px;
+
+    border:
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            .11
+        );
+
+    border-radius:
+        17px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .06
+        );
+
+    backdrop-filter:
+        blur(8px);
+
+}
+
+
+.plans-current-top{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:
+        10px;
+
+}
+
+
+.plans-current-top span{
+
+    color:
+        #BFB3A9;
+
+    font-size:
+        6px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        1px;
+
+}
+
+
+.plans-current-status{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    gap:
+        5px;
+
+    padding:
+        4px 7px;
+
+    border-radius:
+        999px;
+
+    color:
+        #D9E5BB;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .07
+        );
+
+    font-size:
+        5.5px;
+
+    font-weight:
+        900;
+
+}
+
+
+.plans-current-status i{
+
+    font-size:
+        5px;
+
+}
+
+
+.plans-current-name{
+
+    margin-top:
+        11px;
+
+    color:#fff;
+
+    font-size:
+        16px;
+
+    font-weight:
+        900;
+
+}
+
+
+.plans-current-details{
+
+    display:grid;
 
     grid-template-columns:
-        repeat(4, minmax(0, 1fr));
+        1fr 1fr;
 
-    gap: 12px;
+    gap:
+        7px;
 
-    margin-bottom: 17px;
+    margin-top:
+        11px;
 
 }
 
 
-.sm-stat-card {
+.plans-current-detail{
 
-    position: relative;
+    padding:
+        8px;
 
-    overflow: hidden;
+    border:
+        1px solid
+        rgba(
+            255,
+            255,
+            255,
+            .09
+        );
 
-    padding: 16px;
+    border-radius:
+        9px;
 
     background:
-        rgba(255, 255, 255, .9);
-
-    border:
-        1px solid
-        var(--sm-border);
-
-    border-radius: 16px;
-
-    box-shadow:
-        0 10px 28px
-        rgba(62, 39, 35, .05);
+        rgba(
+            255,
+            255,
+            255,
+            .04
+        );
 
 }
 
 
-.sm-stat-card::after {
+.plans-current-detail span{
 
-    content: "";
+    display:block;
 
-    position: absolute;
+    color:
+        #AFA39A;
 
-    width: 85px;
+    font-size:
+        5px;
 
-    height: 85px;
+    font-weight:
+        700;
 
-    right: -42px;
+    text-transform:
+        uppercase;
 
-    top: -42px;
+}
 
-    border-radius: 50%;
+
+.plans-current-detail strong{
+
+    display:block;
+
+    margin-top:
+        3px;
+
+    color:#fff;
+
+    font-size:
+        7px;
+
+    font-weight:
+        900;
+
+}
+
+
+/* =========================================================
+   PAGE TITLE
+========================================================= */
+
+.plans-section-heading{
+
+    margin:
+        16px 0 11px;
+
+}
+
+
+.plans-section-heading > span{
+
+    display:block;
+
+    color:
+        var(--plans-olive);
+
+    font-size:
+        7px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        1.1px;
+
+}
+
+
+.plans-section-heading h2{
+
+    margin:
+        4px 0 3px;
+
+    color:
+        var(--plans-brown-dark);
+
+    font-size:
+        21px;
+
+    line-height:
+        1.15;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        -.025em;
+
+}
+
+
+.plans-section-heading p{
+
+    margin:0;
+
+    color:
+        var(--plans-muted);
+
+    font-size:
+        7px;
+
+    font-weight:
+        500;
+
+}
+
+
+/* =========================================================
+   FLASH
+========================================================= */
+
+.plans-alert{
+
+    margin-top:
+        10px;
+
+    padding:
+        11px 13px;
+
+    border-radius:
+        11px;
+
+    font-size:
+        7px;
+
+    line-height:
+        1.55;
+
+    font-weight:
+        700;
+
+}
+
+
+.plans-alert.success{
+
+    color:
+        var(--plans-olive-dark);
+
+    border:
+        1px solid
+        #DDE8CE;
 
     background:
-        rgba(85, 107, 47, .055);
+        var(--plans-olive-soft);
 
 }
 
 
-.sm-stat-label {
+.plans-alert.error{
 
-    color: var(--sm-muted);
-
-    font-size: 10px;
-
-}
-
-
-.sm-stat-value {
-
-    margin-top: 5px;
-
-    color: var(--sm-dark);
-
-    font-size: 25px;
-
-    font-weight: 900;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| FILTER
-|--------------------------------------------------------------------------
-*/
-
-.sm-filter {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 8px;
-
-    padding: 13px;
-
-    margin-bottom: 16px;
-
-    background: #fff;
+    color:
+        var(--plans-red);
 
     border:
         1px solid
-        var(--sm-border);
-
-    border-radius: 15px;
-
-}
-
-
-.sm-filter-input {
-
-    flex: 1;
-
-    min-width: 200px;
-
-    height: 40px;
-
-    border:
-        1px solid
-        rgba(93, 64, 55, .14);
-
-    border-radius: 10px;
-
-    padding: 0 12px;
-
-    outline: none;
-
-    color: var(--sm-dark);
-
-    background: #fff;
-
-    font-size: 11px;
-
-}
-
-
-.sm-filter-input:focus {
-
-    border-color: var(--sm-olive);
-
-    box-shadow:
-        0 0 0 4px
-        rgba(85, 107, 47, .07);
-
-}
-
-
-.sm-filter-select {
-
-    height: 40px;
-
-    min-width: 140px;
-
-    border:
-        1px solid
-        rgba(93, 64, 55, .14);
-
-    border-radius: 10px;
-
-    padding: 0 11px;
-
-    outline: none;
-
-    background: #fff;
-
-    color: var(--sm-dark);
-
-    font-size: 11px;
-
-}
-
-
-.sm-filter-btn,
-.sm-reset-btn {
-
-    height: 40px;
-
-    display: inline-flex;
-
-    align-items: center;
-
-    justify-content: center;
-
-    gap: 6px;
-
-    padding: 0 13px;
-
-    border-radius: 10px;
-
-    text-decoration: none;
-
-    font-size: 10px;
-
-    font-weight: 800;
-
-}
-
-
-.sm-filter-btn {
-
-    border: 0;
-
-    cursor: pointer;
-
-    background: var(--sm-brown);
-
-    color: #fff;
-
-}
-
-
-.sm-filter-btn:hover {
-
-    background: var(--sm-dark);
-
-}
-
-
-.sm-reset-btn {
+        #ECD0CA;
 
     background:
-        rgba(93, 64, 55, .07);
-
-    color: var(--sm-brown);
+        var(--plans-red-soft);
 
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| TABLE
-|--------------------------------------------------------------------------
-*/
+/* =========================================================
+   PLANS GRID
+========================================================= */
 
-.sm-table-wrap {
+.plans-grid{
 
-    overflow-x: auto;
+    display:grid;
 
-    background: #fff;
+    grid-template-columns:
+        repeat(
+            3,
+            minmax(
+                0,
+                1fr
+            )
+        );
+
+    gap:
+        12px;
+
+    align-items:
+        stretch;
+
+}
+
+
+/* =========================================================
+   CARD
+========================================================= */
+
+.plan-card{
+
+    position:relative;
+
+    overflow:hidden;
+
+    display:flex;
+
+    flex-direction:column;
+
+    min-height:
+        390px;
+
+    padding:
+        18px;
 
     border:
         1px solid
-        var(--sm-border);
+        var(--plans-line);
 
-    border-radius: 16px;
+    border-radius:
+        19px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .97
+        );
 
     box-shadow:
-        0 12px 30px
-        rgba(62, 39, 35, .04);
+        0
+        14px
+        36px
+        rgba(
+            62,
+            39,
+            35,
+            .045
+        );
+
+    transition:
+        transform .22s ease,
+        box-shadow .22s ease,
+        border-color .22s ease;
 
 }
 
 
-.sm-table {
+.plan-card::before{
 
-    width: 100%;
+    content:'';
 
-    min-width: 930px;
+    position:absolute;
 
-    border-collapse: collapse;
+    right:
+        -72px;
 
-}
+    top:
+        -78px;
 
+    width:
+        160px;
 
-.sm-table th {
+    height:
+        160px;
 
-    padding: 12px 10px;
+    border-radius:
+        50%;
 
-    background: #faf7f1;
-
-    border-bottom:
-        1px solid
-        #ebe4da;
-
-    color: #726860;
-
-    font-size: 8px;
-
-    font-weight: 900;
-
-    letter-spacing: .6px;
-
-    text-align: left;
-
-    text-transform: uppercase;
+    background:
+        rgba(
+            85,
+            107,
+            47,
+            .045
+        );
 
 }
 
 
-.sm-table td {
+.plan-card::after{
 
-    padding: 11px 10px;
+    content:'';
 
-    border-bottom:
-        1px solid
-        #f0ebe5;
+    position:absolute;
 
-    color: #403a36;
+    left:
+        23%;
 
-    font-size: 9px;
+    bottom:
+        -2px;
 
-    vertical-align: middle;
+    width:
+        46%;
 
-}
+    height:
+        4px;
 
+    border-radius:
+        999px;
 
-.sm-table tbody tr {
+    background:
+        var(--plans-olive);
 
-    transition: background .18s ease;
-
-}
-
-
-.sm-table tbody tr:hover {
-
-    background: #fdfbf7;
-
-}
-
-
-.sm-table tbody tr:last-child td {
-
-    border-bottom: 0;
+    opacity:
+        .85;
 
 }
 
 
-.sm-student-name {
+.plan-card:hover{
 
-    color: var(--sm-dark);
+    transform:
+        translateY(
+            -4px
+        );
 
-    font-weight: 800;
+    border-color:
+        #D8D0C4;
 
-}
-
-
-.sm-student-email {
-
-    margin-top: 2px;
-
-    color: var(--sm-muted);
-
-    font-size: 8px;
-
-}
-
-
-.sm-plan-name {
-
-    color: var(--sm-dark);
-
-    font-weight: 800;
+    box-shadow:
+        0
+        22px
+        50px
+        rgba(
+            62,
+            39,
+            35,
+            .085
+        );
 
 }
 
 
-.sm-plan-duration {
+.plan-card.trial{
 
-    margin-top: 2px;
+    border:
+        1.5px solid
+        #B6C48E;
 
-    color: var(--sm-muted);
-
-    font-size: 8px;
-
-}
-
-
-.sm-validity {
-
-    color: #5e5751;
-
-    font-size: 8px;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| STATUS BADGE
-|--------------------------------------------------------------------------
-*/
-
-.sm-status-badge {
-
-    display: inline-flex;
-
-    align-items: center;
-
-    gap: 5px;
-
-    padding: 5px 8px;
-
-    border-radius: 999px;
-
-    font-size: 8px;
-
-    font-weight: 900;
+    box-shadow:
+        0
+        18px
+        44px
+        rgba(
+            85,
+            107,
+            47,
+            .09
+        );
 
 }
 
 
-.sm-status-badge.active {
+.plan-card.trial::after{
 
-    color: #4e662c;
-
-    background: #edf3e6;
-
-}
-
-
-.sm-status-badge.expired {
-
-    color: #8a691e;
-
-    background: #fff3d9;
+    background:
+        var(--plans-olive);
 
 }
 
 
-.sm-status-badge.cancelled {
+.plan-card.active{
 
-    color: #9a514a;
-
-    background: #f8eae8;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| ACTIONS
-|--------------------------------------------------------------------------
-*/
-
-.sm-actions {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 5px;
+    border:
+        1.5px solid
+        #B4C68A;
 
 }
 
 
-.sm-action-button {
+.plan-card.active::after{
 
-    width: 30px;
+    background:
+        var(--plans-olive);
 
-    height: 30px;
+}
 
-    display: inline-flex;
 
-    align-items: center;
+/* =========================================================
+   BADGES
+========================================================= */
 
-    justify-content: center;
+.plan-badge{
 
-    border: 0;
+    position:absolute;
 
-    border-radius: 8px;
+    top:
+        12px;
 
-    background: #f6f2eb;
+    right:
+        12px;
 
-    color: var(--sm-brown);
+    z-index:3;
 
-    text-decoration: none;
+    display:inline-flex;
 
-    cursor: pointer;
+    align-items:center;
+
+    gap:
+        4px;
+
+    min-height:
+        20px;
+
+    padding:
+        0 7px;
+
+    border-radius:
+        999px;
+
+    color:
+        #fff;
+
+    background:
+        var(--plans-olive);
+
+    font-size:
+        5.7px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        .55px;
+
+}
+
+
+.plan-badge.trial-badge{
+
+    color:
+        var(--plans-olive);
+
+    background:
+        var(--plans-olive-soft);
+
+}
+
+
+.plan-badge.active-badge{
+
+    color:
+        var(--plans-olive-dark);
+
+    background:
+        #E5EED7;
+
+}
+
+
+/* =========================================================
+   CARD TOP
+========================================================= */
+
+.plan-number{
+
+    color:
+        #B0A69E;
+
+    font-size:
+        6px;
+
+    font-weight:
+        800;
+
+}
+
+
+.plan-icon{
+
+    width:
+        46px;
+
+    height:
+        46px;
+
+    display:grid;
+
+    place-items:center;
+
+    margin-top:
+        7px;
+
+    border-radius:
+        13px;
+
+    color:#fff;
+
+    background:
+        var(--plans-brown);
+
+    font-size:
+        13px;
+
+    box-shadow:
+        0
+        9px
+        18px
+        rgba(
+            93,
+            64,
+            55,
+            .14
+        );
+
+}
+
+
+.plan-card:nth-child(1)
+.plan-icon{
+
+    background:
+        var(--plans-olive);
+
+}
+
+
+.plan-card:nth-child(2)
+.plan-icon{
+
+    background:
+        var(--plans-brown);
+
+}
+
+
+.plan-card:nth-child(3)
+.plan-icon{
+
+    background:
+        #7A6031;
+
+}
+
+
+.plan-card:nth-child(4n)
+.plan-icon{
+
+    background:
+        var(--plans-brown);
+
+}
+
+
+/* =========================================================
+   CARD TITLE
+========================================================= */
+
+.plan-title{
+
+    margin:
+        15px 0 0;
+
+    color:
+        var(--plans-brown-dark);
+
+    font-size:
+        17px;
+
+    line-height:
+        1.15;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        -.02em;
+
+}
+
+
+/* =========================================================
+   PRICE
+========================================================= */
+
+.plan-price-line{
+
+    display:flex;
+
+    align-items:
+        baseline;
+
+    gap:
+        5px;
+
+    margin-top:
+        8px;
+
+}
+
+
+.plan-currency{
+
+    color:
+        var(--plans-olive);
+
+    font-size:
+        15px;
+
+    font-weight:
+        900;
+
+}
+
+
+.plan-price{
+
+    color:
+        var(--plans-brown-dark);
+
+    font-size:
+        31px;
+
+    line-height:
+        1;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        -.035em;
+
+}
+
+
+.plan-period{
+
+    color:
+        var(--plans-light);
+
+    font-size:
+        7px;
+
+    font-weight:
+        600;
+
+}
+
+
+.plan-free{
+
+    color:
+        var(--plans-olive);
+
+    font-size:
+        31px;
+
+    line-height:
+        1;
+
+    font-weight:
+        900;
+
+}
+
+
+/* =========================================================
+   DURATION
+========================================================= */
+
+.plan-duration{
+
+    margin-top:
+        3px;
+
+    color:
+        var(--plans-light);
+
+    font-size:
+        6.5px;
+
+    font-weight:
+        700;
+
+}
+
+
+/* =========================================================
+   DESCRIPTION
+========================================================= */
+
+.plan-description{
+
+    min-height:
+        42px;
+
+    margin:
+        12px 0 0;
+
+    color:
+        var(--plans-muted);
+
+    font-size:
+        7.4px;
+
+    line-height:
+        1.65;
+
+}
+
+
+/* =========================================================
+   APPROX RATE
+========================================================= */
+
+.plan-monthly-rate{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:
+        5px;
+
+    margin-top:
+        10px;
+
+    color:
+        var(--plans-olive);
+
+    font-size:
+        6.7px;
+
+    font-weight:
+        800;
+
+}
+
+
+.plan-monthly-rate i{
+
+    font-size:
+        7px;
+
+}
+
+
+/* =========================================================
+   DIVIDER
+========================================================= */
+
+.plan-divider{
+
+    height:
+        1px;
+
+    margin:
+        13px 0 10px;
+
+    background:
+        var(--plans-line-soft);
+
+}
+
+
+/* =========================================================
+   BENEFITS
+========================================================= */
+
+.plan-benefits{
+
+    display:grid;
+
+    gap:
+        7px;
+
+    margin:
+        0;
+
+    padding:
+        0;
+
+    list-style:none;
+
+}
+
+
+.plan-benefits li{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    gap:
+        6px;
+
+    color:
+        #69615B;
+
+    font-size:
+        6.7px;
+
+    line-height:
+        1.5;
+
+    font-weight:
+        500;
+
+}
+
+
+.plan-benefits li i{
+
+    margin-top:
+        2px;
+
+    color:
+        var(--plans-olive);
+
+    font-size:
+        6px;
+
+}
+
+
+/* =========================================================
+   BUTTON
+========================================================= */
+
+.plan-action{
+
+    position:relative;
+
+    z-index:4;
+
+    width:
+        100%;
+
+    min-height:
+        42px;
+
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:
+        7px;
+
+    margin-top:auto;
+
+    padding:
+        0 12px;
+
+    border:
+        0;
+
+    border-radius:
+        10px;
+
+    color:#fff;
+
+    background:
+        var(--plans-brown);
+
+    font-size:
+        7px;
+
+    font-weight:
+        900;
+
+    text-decoration:none;
+
+    cursor:pointer;
 
     transition:
         background .2s ease,
-        color .2s ease,
         transform .2s ease;
 
 }
 
 
-.sm-action-button:hover {
+.plan-action:hover{
 
-    background: var(--sm-brown);
+    color:#fff;
 
-    color: #fff;
+    background:
+        var(--plans-olive);
 
-    transform: translateY(-1px);
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| TOGGLE
-|--------------------------------------------------------------------------
-*/
-
-.sm-toggle-form {
-
-    margin: 0;
-
-    padding: 0;
+    transform:
+        translateY(
+            -1px
+        );
 
 }
 
 
-.sm-toggle-wrapper {
+.plan-action.trial{
 
-    display: inline-flex;
-
-    align-items: center;
-
-    gap: 5px;
+    background:
+        var(--plans-olive);
 
 }
 
 
-.sm-toggle {
+.plan-action.trial:hover{
 
-    position: relative;
-
-    display: inline-block;
-
-    width: 42px;
-
-    height: 24px;
+    background:
+        var(--plans-olive-dark);
 
 }
 
 
-.sm-toggle input {
+.plan-action.active-action{
 
-    position: absolute;
+    color:
+        var(--plans-olive-dark);
 
-    opacity: 0;
-
-    width: 0;
-
-    height: 0;
+    background:
+        var(--plans-olive-soft);
 
 }
 
 
-.sm-toggle-slider {
+.plan-action.active-action:hover{
 
-    position: absolute;
+    color:
+        var(--plans-olive-dark);
 
-    inset: 0;
+    background:
+        #E2ECD4;
 
-    border-radius: 999px;
+}
 
-    cursor: pointer;
 
-    background: #d5d0c8;
+/* =========================================================
+   FOOT NOTE
+========================================================= */
+
+.plans-foot-note{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    gap:
+        7px;
+
+    margin-top:
+        11px;
+
+    padding:
+        11px 13px;
+
+    border:
+        1px dashed
+        #D4CABE;
+
+    border-radius:
+        11px;
+
+    color:
+        var(--plans-muted);
+
+    background:
+        #FBF8F1;
+
+    font-size:
+        6.7px;
+
+    line-height:
+        1.6;
+
+}
+
+
+.plans-foot-note i{
+
+    margin-top:
+        2px;
+
+    color:
+        var(--plans-olive);
+
+}
+
+
+/* =========================================================
+   HISTORY
+========================================================= */
+
+.plans-history{
+
+    margin-top:
+        13px;
+
+    padding:
+        17px;
 
     border:
         1px solid
-        rgba(93, 64, 55, .14);
+        var(--plans-line);
 
-    transition:
-        background .25s ease,
-        box-shadow .25s ease;
-
-}
-
-
-.sm-toggle-slider::before {
-
-    content: "";
-
-    position: absolute;
-
-    width: 18px;
-
-    height: 18px;
-
-    top: 2px;
-
-    left: 2px;
-
-    border-radius: 50%;
-
-    background: #fff;
-
-    box-shadow:
-        0 2px 5px
-        rgba(0, 0, 0, .17);
-
-    transition:
-        transform .25s ease;
-
-}
-
-
-.sm-toggle input:checked
-+ .sm-toggle-slider {
+    border-radius:
+        18px;
 
     background:
-        var(--sm-olive);
-
-    border-color:
-        var(--sm-olive);
+        #fff;
 
     box-shadow:
-        0 5px 14px
-        rgba(85, 107, 47, .2);
+        0
+        11px
+        28px
+        rgba(
+            62,
+            39,
+            35,
+            .035
+        );
 
 }
 
 
-.sm-toggle input:checked
-+ .sm-toggle-slider::before {
+.plans-history-head{
 
-    transform:
-        translateX(18px);
+    display:flex;
 
-}
+    align-items:end;
 
+    justify-content:space-between;
 
-.sm-toggle input:focus-visible
-+ .sm-toggle-slider {
+    gap:
+        12px;
 
-    box-shadow:
-        0 0 0 4px
-        rgba(85, 107, 47, .14);
+    margin-bottom:
+        11px;
 
 }
 
 
-.sm-toggle-text {
+.plans-history-head span{
 
-    min-width: 21px;
-
-    font-size: 7px;
-
-    font-weight: 900;
-
-}
-
-
-.sm-toggle-on {
+    display:block;
 
     color:
-        var(--sm-olive);
+        var(--plans-olive);
+
+    font-size:
+        6px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        1px;
 
 }
 
 
-.sm-toggle-off {
+.plans-history-head h3{
+
+    margin:
+        4px 0 0;
 
     color:
-        #9a514a;
+        var(--plans-brown-dark);
+
+    font-size:
+        16px;
+
+    font-weight:
+        900;
 
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| EXPIRED TOGGLE
-|--------------------------------------------------------------------------
-*/
+.plans-history-wrap{
 
-.sm-toggle-expired {
-
-    opacity: .55;
+    overflow-x:
+        auto;
 
 }
 
 
-.sm-toggle-expired
-.sm-toggle-slider {
+.plans-history-table{
 
-    cursor: not-allowed;
+    width:
+        100%;
 
-}
+    min-width:
+        650px;
 
+    border-collapse:
+        separate;
 
-/*
-|--------------------------------------------------------------------------
-| EMPTY
-|--------------------------------------------------------------------------
-*/
-
-.sm-empty {
-
-    padding: 40px 20px;
-
-    text-align: center;
-
-    color: var(--sm-muted);
+    border-spacing:
+        0;
 
 }
 
 
-.sm-empty i {
+.plans-history-table th{
 
-    margin-bottom: 10px;
+    padding:
+        9px;
 
-    color: #a39990;
+    color:
+        #8E857D;
+
+    background:
+        #FAF8F3;
+
+    border-bottom:
+        1px solid
+        var(--plans-line);
+
+    font-size:
+        5.8px;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        .55px;
+
+    text-align:left;
+
+    text-transform:
+        uppercase;
 
 }
 
 
-.sm-empty-title {
+.plans-history-table td{
 
-    color: var(--sm-dark);
+    padding:
+        10px 9px;
 
-    font-size: 14px;
+    color:
+        var(--plans-muted);
 
-    font-weight: 900;
+    border-bottom:
+        1px solid
+        var(--plans-line-soft);
+
+    font-size:
+        6.8px;
+
+    font-weight:
+        600;
 
 }
 
 
-.sm-empty-text {
+.plans-history-table tr:last-child td{
 
-    margin-top: 4px;
-
-    font-size: 10px;
+    border-bottom:
+        0;
 
 }
 
 
-/*
-|--------------------------------------------------------------------------
-| MOBILE
-|--------------------------------------------------------------------------
-*/
+.request-badge{
 
-@media (max-width: 1050px) {
+    display:inline-flex;
 
-    .sm-stat-grid {
+    align-items:center;
+
+    min-height:
+        20px;
+
+    padding:
+        0 6px;
+
+    border-radius:
+        999px;
+
+    font-size:
+        5.7px;
+
+    font-weight:
+        900;
+
+}
+
+
+.status-pending{
+
+    color:
+        #8A651E;
+
+    background:
+        #FFF3D8;
+
+}
+
+
+.status-approved,
+.status-active{
+
+    color:
+        var(--plans-olive);
+
+    background:
+        var(--plans-olive-soft);
+
+}
+
+
+.status-rejected{
+
+    color:
+        var(--plans-red);
+
+    background:
+        var(--plans-red-soft);
+
+}
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media(max-width:1050px){
+
+    .plans-hero{
+
+        flex-direction:
+            column;
+
+        align-items:
+            flex-start;
+
+    }
+
+
+    .plans-current-box{
+
+        width:
+            100%;
+
+        max-width:
+            430px;
+
+    }
+
+
+    .plans-grid{
 
         grid-template-columns:
-            repeat(2, minmax(0, 1fr));
+            repeat(
+                2,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
 
     }
 
 }
 
 
-@media (max-width: 760px) {
+@media(max-width:650px){
 
-    .subscription-management-page
-    .sm-header {
+    .student-plans-page{
 
-        align-items: stretch;
-
-        flex-direction: column;
+        padding:
+            11px 0 45px !important;
 
     }
 
 
-    .sm-assign-button {
+    .student-plans-container{
 
-        width: 100%;
-
-    }
-
-
-    .sm-filter {
-
-        align-items: stretch;
-
-        flex-direction: column;
+        width:
+            calc(
+                100% - 14px
+            );
 
     }
 
 
-    .sm-filter-input,
-    .sm-filter-select,
-    .sm-filter-btn,
-    .sm-reset-btn {
+    .plans-hero{
 
-        width: 100%;
+        padding:
+            23px 18px;
 
-        min-width: 100%;
+        border-radius:
+            20px;
+
+    }
+
+
+    .plans-hero-title{
+
+        font-size:
+            31px;
+
+    }
+
+
+    .plans-hero-text{
+
+        font-size:
+            7.5px;
+
+    }
+
+
+    .plans-current-box{
+
+        max-width:
+            none;
+
+        padding:
+            14px;
+
+    }
+
+
+    .plans-section-heading h2{
+
+        font-size:
+            19px;
+
+    }
+
+
+    .plans-grid{
+
+        grid-template-columns:
+            1fr;
+
+    }
+
+
+    .plan-card{
+
+        min-height:
+            370px;
 
     }
 
 }
 
 
-@media (max-width: 520px) {
+@media(max-width:400px){
 
-    .sm-stat-grid {
+    .plans-current-details{
 
-        grid-template-columns: 1fr;
+        grid-template-columns:
+            1fr;
+
+    }
+
+
+    .plan-card{
+
+        min-height:
+            360px;
 
     }
 
@@ -1243,654 +2242,1340 @@ require_once 'includes/header.php';
 
 </style>
 
+</head>
 
-<div class="dashboard-wrapper">
 
+<body>
 
-    <!-- =========================================================
-         SIDEBAR
-         ========================================================= -->
 
-    <?php include "includes/sidebar.php"; ?>
+<?php include 'includes/navbar.php'; ?>
 
 
-    <div class="main-content">
+<main
+    class="
+        student-plans-page
+    "
+>
 
 
-        <!-- =====================================================
-             NAVBAR
-             ===================================================== -->
+<div
+    class="
+        student-plans-container
+    "
+>
 
-        <?php include "includes/navbar.php"; ?>
 
+<!-- =====================================================
+     HERO
+====================================================== -->
 
-        <main class="dashboard-content subscription-management-page">
+<section
+    class="
+        plans-hero
+    "
+>
 
 
-            <!-- =================================================
-                 HEADER
-                 ================================================= -->
+<div
+    class="
+        plans-hero-content
+    "
+>
 
-            <section class="sm-header">
 
-                <div>
+<div
+    class="
+        plans-hero-kicker
+    "
+>
 
-                    <div class="sm-kicker">
+<i
+    class="
+        fa-solid
+        fa-gem
+    "
+></i>
 
-                        <i class="fa-solid fa-gem"></i>
-
-                        ACCESS CONTROL
-
-                    </div>
-
-
-                    <h1>
-                        Subscription Management
-                    </h1>
-
-
-                    <p>
-                        Manage student memberships without any online payment gateway.
-                    </p>
-
-                </div>
-
-
-                <a
-                    href="subscriptions/add.php"
-                    class="sm-assign-button"
-                >
-
-                    <i class="fa-solid fa-plus"></i>
-
-                    Assign Subscription
-
-                </a>
-
-            </section>
-
-
-            <!-- =================================================
-                 STATS
-                 ================================================= -->
-
-            <section class="sm-stat-grid">
-
-
-                <div class="sm-stat-card">
-
-                    <div class="sm-stat-label">
-                        Total subscriptions
-                    </div>
-
-                    <div class="sm-stat-value">
-                        <?= $totalSubscriptions ?>
-                    </div>
-
-                </div>
-
-
-                <div class="sm-stat-card">
-
-                    <div class="sm-stat-label">
-                        Active
-                    </div>
-
-                    <div class="sm-stat-value">
-                        <?= $activeSubscriptions ?>
-                    </div>
-
-                </div>
-
-
-                <div class="sm-stat-card">
-
-                    <div class="sm-stat-label">
-                        Expired
-                    </div>
-
-                    <div class="sm-stat-value">
-                        <?= $expiredSubscriptions ?>
-                    </div>
-
-                </div>
-
-
-                <div class="sm-stat-card">
-
-                    <div class="sm-stat-label">
-                        Subscription plans
-                    </div>
-
-                    <div class="sm-stat-value">
-                        <?= $totalPlans ?>
-                    </div>
-
-                </div>
-
-
-            </section>
-
-
-            <!-- =================================================
-                 FILTER
-                 ================================================= -->
-
-            <form
-                method="get"
-                class="sm-filter"
-            >
-
-                <input
-                    type="search"
-                    name="search"
-                    class="sm-filter-input"
-                    value="<?= subscription_management_escape($search) ?>"
-                    placeholder="Search student, email or plan..."
-                >
-
-
-                <select
-                    name="status"
-                    class="sm-filter-select"
-                >
-
-                    <option value="">
-                        All statuses
-                    </option>
-
-                    <?php foreach ($allowedStatuses as $item): ?>
-
-                        <option
-                            value="<?= subscription_management_escape($item) ?>"
-                            <?= $status === $item
-                                ? 'selected'
-                                : '' ?>
-                        >
-
-                            <?= subscription_management_escape($item) ?>
-
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-
-                <button
-                    type="submit"
-                    class="sm-filter-btn sm-filter-btn"
-                >
-
-                    <i class="fa-solid fa-magnifying-glass"></i>
-
-                    Search
-
-                </button>
-
-
-                <a
-                    href="subscriptions.php"
-                    class="sm-reset-btn"
-                >
-
-                    Reset
-
-                </a>
-
-            </form>
-
-
-            <!-- =================================================
-                 TABLE
-                 ================================================= -->
-
-            <section class="sm-table-wrap">
-
-                <table class="sm-table">
-
-                    <thead>
-
-                        <tr>
-
-                            <th>
-                                Student
-                            </th>
-
-                            <th>
-                                Plan
-                            </th>
-
-                            <th>
-                                Validity
-                            </th>
-
-                            <th>
-                                Status
-                            </th>
-
-                            <th>
-                                Created
-                            </th>
-
-                            <th>
-                                Actions
-                            </th>
-
-                        </tr>
-
-                    </thead>
-
-
-                    <tbody>
-
-
-                        <?php if (empty($subscriptions)): ?>
-
-
-                            <tr>
-
-                                <td colspan="6">
-
-                                    <div class="sm-empty">
-
-                                        <i
-                                            class="
-                                                fa-regular
-                                                fa-folder-open
-                                                fa-2x
-                                            "
-                                        ></i>
-
-
-                                        <div class="sm-empty-title">
-                                            No subscription records found
-                                        </div>
-
-
-                                        <div class="sm-empty-text">
-                                            Try changing your search or filter.
-                                        </div>
-
-                                    </div>
-
-                                </td>
-
-                            </tr>
-
-
-                        <?php else: ?>
-
-
-                            <?php foreach ($subscriptions as $item): ?>
-
-                                <?php
-
-                                $itemStatus =
-                                    (string)$item['status'];
-
-                                $isActive =
-                                    $itemStatus === 'Active';
-
-                                $isExpired =
-                                    $itemStatus === 'Expired';
-
-                                ?>
-
-                                <tr>
-
-
-                                    <!-- STUDENT -->
-
-                                    <td>
-
-                                        <div
-                                            class="sm-student-name"
-                                        >
-
-                                            <?= subscription_management_escape(
-                                                $item['full_name']
-                                            ) ?>
-
-                                        </div>
-
-
-                                        <div
-                                            class="sm-student-email"
-                                        >
-
-                                            <?= subscription_management_escape(
-                                                $item['email']
-                                            ) ?>
-
-                                        </div>
-
-                                    </td>
-
-
-                                    <!-- PLAN -->
-
-                                    <td>
-
-                                        <div
-                                            class="sm-plan-name"
-                                        >
-
-                                            <?= subscription_management_escape(
-                                                $item['plan_name']
-                                            ) ?>
-
-                                        </div>
-
-
-                                        <div
-                                            class="sm-plan-duration"
-                                        >
-
-                                            <?= (int)$item['duration_months'] ?>
-
-                                            month(s)
-
-                                        </div>
-
-                                    </td>
-
-
-                                    <!-- VALIDITY -->
-
-                                    <td>
-
-                                        <div class="sm-validity">
-
-                                            <?= subscription_management_date(
-                                                $item['start_date']
-                                            ) ?>
-
-                                            →
-
-                                            <?= subscription_management_date(
-                                                $item['end_date']
-                                            ) ?>
-
-                                        </div>
-
-                                    </td>
-
-
-                                    <!-- STATUS -->
-
-                                    <td>
-
-                                        <span
-                                            class="
-                                                sm-status-badge
-                                                <?= subscription_management_status_class(
-                                                    $itemStatus
-                                                ) ?>
-                                            "
-                                        >
-
-                                            <i
-                                                class="
-                                                    fa-solid
-                                                    <?= $isActive
-                                                        ? 'fa-circle-check'
-                                                        : ($isExpired
-                                                            ? 'fa-clock'
-                                                            : 'fa-ban') ?>
-                                                "
-                                            ></i>
-
-
-                                            <?= subscription_management_escape(
-                                                $itemStatus
-                                            ) ?>
-
-                                        </span>
-
-                                    </td>
-
-
-                                    <!-- CREATED -->
-
-                                    <td>
-
-                                        <?= subscription_management_date(
-                                            $item['created_at']
-                                        ) ?>
-
-                                    </td>
-
-
-                                    <!-- ACTIONS -->
-
-                                    <td>
-
-                                        <div class="sm-actions">
-
-
-                                            <!-- VIEW -->
-
-                                            <a
-                                                href="subscriptions/view.php?id=<?= (int)$item['id'] ?>"
-                                                class="sm-action-button"
-                                                title="View Subscription"
-                                            >
-
-                                                <i
-                                                    class="
-                                                        fa-regular
-                                                        fa-eye
-                                                    "
-                                                ></i>
-
-                                            </a>
-
-
-                                            <!-- EDIT -->
-
-                                            <a
-                                                href="subscriptions/edit.php?id=<?= (int)$item['id'] ?>"
-                                                class="sm-action-button"
-                                                title="Edit Subscription"
-                                            >
-
-                                                <i
-                                                    class="
-                                                        fa-solid
-                                                        fa-pen
-                                                    "
-                                                ></i>
-
-                                            </a>
-
-
-                                            <!-- TOGGLE -->
-
-                                            <?php if ($isExpired): ?>
-
-
-                                                <div
-                                                    class="
-                                                        sm-toggle-wrapper
-                                                        sm-toggle-expired
-                                                    "
-                                                    title="Expired subscriptions cannot be toggled."
-                                                >
-
-                                                    <label
-                                                        class="sm-toggle"
-                                                    >
-
-                                                        <input
-                                                            type="checkbox"
-                                                            disabled
-                                                        >
-
-                                                        <span
-                                                            class="sm-toggle-slider"
-                                                        ></span>
-
-                                                    </label>
-
-
-                                                    <span
-                                                        class="
-                                                            sm-toggle-text
-                                                            sm-toggle-off
-                                                        "
-                                                    >
-                                                        OFF
-                                                    </span>
-
-                                                </div>
-
-
-                                            <?php else: ?>
-
-
-                                                <form
-                                                    method="post"
-                                                    action="subscriptions/status.php"
-                                                    class="sm-toggle-form"
-                                                    onsubmit="
-                                                        return confirm(
-                                                            <?= json_encode(
-                                                                $isActive
-                                                                    ? 'Deactivate this subscription?'
-                                                                    : 'Activate this subscription?'
-                                                            ) ?>
-                                                        );
-                                                    "
-                                                >
-
-                                                    <?= csrf_field() ?>
-
-
-                                                    <input
-                                                        type="hidden"
-                                                        name="id"
-                                                        value="<?= (int)$item['id'] ?>"
-                                                    >
-
-
-                                                    <input
-                                                        type="hidden"
-                                                        name="action"
-                                                        value="toggle"
-                                                    >
-
-
-                                                    <div
-                                                        class="
-                                                            sm-toggle-wrapper
-                                                        "
-                                                    >
-
-
-                                                        <label
-                                                            class="sm-toggle"
-                                                            title="
-                                                                <?= $isActive
-                                                                    ? 'Click to deactivate'
-                                                                    : 'Click to activate' ?>
-                                                            "
-                                                        >
-
-                                                            <input
-                                                                type="checkbox"
-                                                                <?= $isActive
-                                                                    ? 'checked'
-                                                                    : '' ?>
-                                                                onchange="
-                                                                    this.form.submit();
-                                                                "
-                                                                aria-label="
-                                                                    <?= $isActive
-                                                                        ? 'Deactivate subscription'
-                                                                        : 'Activate subscription' ?>
-                                                                "
-                                                            >
-
-
-                                                            <span
-                                                                class="sm-toggle-slider"
-                                                            ></span>
-
-                                                        </label>
-
-
-                                                        <span
-                                                            class="
-                                                                sm-toggle-text
-                                                                <?= $isActive
-                                                                    ? 'sm-toggle-on'
-                                                                    : 'sm-toggle-off' ?>
-                                                            "
-                                                        >
-
-                                                            <?= $isActive
-                                                                ? 'ON'
-                                                                : 'OFF' ?>
-
-                                                        </span>
-
-                                                    </div>
-
-                                                </form>
-
-
-                                            <?php endif; ?>
-
-
-                                            <!-- DELETE -->
-
-                                            <a
-                                                href="subscriptions/delete.php?id=<?= (int)$item['id'] ?>"
-                                                class="sm-action-button"
-                                                title="Delete Subscription"
-                                                onclick="
-                                                    return confirm(
-                                                        'Are you sure you want to delete this subscription?'
-                                                    );
-                                                "
-                                            >
-
-                                                <i
-                                                    class="
-                                                        fa-solid
-                                                        fa-trash
-                                                    "
-                                                ></i>
-
-                                            </a>
-
-
-                                        </div>
-
-                                    </td>
-
-
-                                </tr>
-
-                            <?php endforeach; ?>
-
-
-                        <?php endif; ?>
-
-
-                    </tbody>
-
-                </table>
-
-            </section>
-
-
-        </main>
-
-    </div>
+EXAMSPHERE MEMBERSHIP
 
 </div>
 
 
-<?php include 'includes/footer.php'; ?>
+<h1
+    class="
+        plans-hero-title
+    "
+>
+
+Unlock more.
+
+<span>
+    Prepare better.
+</span>
+
+</h1>
+
+
+<p
+    class="
+        plans-hero-text
+    "
+>
+
+Choose the membership that matches your preparation.
+Practice Exams remain free, while eligible Live Exams
+and subscription-only materials require an active plan.
+
+</p>
+
+
+</div>
+
+
+<?php if (
+    $activeSubscription
+): ?>
+
+
+<div
+    class="
+        plans-current-box
+    "
+>
+
+
+<div
+    class="
+        plans-current-top
+    "
+>
+
+
+<span>
+    CURRENT MEMBERSHIP
+</span>
+
+
+<div
+    class="
+        plans-current-status
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-circle
+    "
+></i>
+
+ACTIVE
+
+</div>
+
+
+</div>
+
+
+<div
+    class="
+        plans-current-name
+    "
+>
+
+<?= plans_escape(
+    $activeSubscription[
+        'plan_name'
+    ]
+) ?>
+
+</div>
+
+
+<div
+    class="
+        plans-current-details
+    "
+>
+
+
+<div
+    class="
+        plans-current-detail
+    "
+>
+
+<span>
+    Started
+</span>
+
+<strong>
+
+<?= plans_date(
+    $activeSubscription[
+        'start_date'
+    ]
+) ?>
+
+</strong>
+
+</div>
+
+
+<div
+    class="
+        plans-current-detail
+    "
+>
+
+<span>
+    Valid Until
+</span>
+
+<strong>
+
+<?= plans_date(
+    $activeSubscription[
+        'end_date'
+    ]
+) ?>
+
+</strong>
+
+</div>
+
+
+</div>
+
+
+</div>
+
+
+<?php endif; ?>
+
+
+</section>
+
+
+<!-- =====================================================
+     ALERTS
+====================================================== -->
+
+<?php if (
+    $flashMessage !== ''
+): ?>
+
+
+<div
+    class="
+        plans-alert
+        <?= $flashType === 'success'
+            ? 'success'
+            : 'error' ?>"
+>
+
+<?= plans_escape(
+    $flashMessage
+) ?>
+
+</div>
+
+
+<?php endif; ?>
+
+
+<?php if (
+    $pageError !== ''
+): ?>
+
+
+<div
+    class="
+        plans-alert
+        error
+    "
+>
+
+<?= plans_escape(
+    $pageError
+) ?>
+
+</div>
+
+
+<?php endif; ?>
+
+
+<!-- =====================================================
+     HEADING
+====================================================== -->
+
+<div
+    class="
+        plans-section-heading
+    "
+>
+
+
+<span>
+    CHOOSE YOUR ACCESS
+</span>
+
+
+<h2>
+    Membership plans
+</h2>
+
+
+<p>
+    Select a plan and continue with its activation process.
+</p>
+
+
+</div>
+
+
+<!-- =====================================================
+     PLANS
+====================================================== -->
+
+<section
+    class="
+        plans-grid
+    "
+>
+
+
+<?php
+
+$planCount =
+    count($plans);
+
+
+foreach (
+    $plans
+    as $index => $plan
+):
+
+
+$planId =
+    (int)$plan[
+        'id'
+    ];
+
+
+$price =
+    (float)(
+        $plan[
+            'price'
+        ]
+        ??
+        0
+    );
+
+
+$duration =
+    max(
+        1,
+        (int)(
+            $plan[
+                'duration_months'
+            ]
+            ??
+            1
+        )
+    );
+
+
+$isTrial =
+    $price <= 0;
+
+
+$isCurrent =
+    $activePlanId ===
+    $planId;
+
+
+$bestValue =
+    !$isTrial
+    &&
+    !$isCurrent
+    &&
+    $index ===
+    $planCount - 1;
+
+
+$monthlyRate =
+    $duration > 0
+        ? $price / $duration
+        : $price;
+
+
+$benefits =
+    preg_split(
+        '/[;\r\n]+/',
+        (string)(
+            $plan[
+                'benefits'
+            ]
+            ??
+            ''
+        )
+    );
+
+
+$benefits =
+    array_values(
+        array_filter(
+            array_map(
+                'trim',
+                $benefits
+            )
+        )
+    );
+
+
+$iconClasses = [
+
+    'fa-seedling',
+
+    'fa-rocket',
+
+    'fa-bolt',
+
+    'fa-crown'
+
+];
+
+
+$icon =
+    $iconClasses[
+        $index % count(
+            $iconClasses
+        )
+    ];
+
+?>
+
+
+<article
+    class="
+        plan-card
+        <?= $isTrial
+            ? 'trial'
+            : '' ?>
+        <?= $isCurrent
+            ? 'active'
+            : '' ?>
+    "
+>
+
+
+<?php if (
+    $isCurrent
+): ?>
+
+
+<div
+    class="
+        plan-badge
+        active-badge
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-circle-check
+    "
+></i>
+
+CURRENT
+
+</div>
+
+
+<?php elseif (
+    $isTrial
+): ?>
+
+
+<div
+    class="
+        plan-badge
+        trial-badge
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-gift
+    "
+></i>
+
+FREE TRIAL
+
+</div>
+
+
+<?php elseif (
+    $bestValue
+): ?>
+
+
+<div
+    class="
+        plan-badge
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-crown
+    "
+></i>
+
+BEST VALUE
+
+</div>
+
+
+<?php endif; ?>
+
+
+<div
+    class="
+        plan-number
+    "
+>
+
+<?= str_pad(
+    (string)($index + 1),
+    2,
+    '0',
+    STR_PAD_LEFT
+) ?>
+
+</div>
+
+
+<div
+    class="
+        plan-icon
+    "
+>
+
+<i
+    class="
+        fa-solid
+        <?= $icon ?>
+    "
+></i>
+
+</div>
+
+
+<h3
+    class="
+        plan-title
+    "
+>
+
+<?= plans_escape(
+    $plan[
+        'name'
+    ]
+) ?>
+
+</h3>
+
+
+<div
+    class="
+        plan-price-line
+    "
+>
+
+
+<?php if (
+    $isTrial
+): ?>
+
+
+<span
+    class="
+        plan-free
+    "
+>
+
+FREE
+
+</span>
+
+
+<?php else: ?>
+
+
+<span
+    class="
+        plan-currency
+    "
+>
+
+₹
+
+</span>
+
+
+<span
+    class="
+        plan-price
+    "
+>
+
+<?= number_format(
+    $price,
+    0
+) ?>
+
+</span>
+
+
+<span
+    class="
+        plan-period
+    "
+>
+
+/
+
+<?= $duration ?>
+
+<?= $duration === 1
+    ? 'month'
+    : 'months' ?>
+
+</span>
+
+
+<?php endif; ?>
+
+
+</div>
+
+
+<div
+    class="
+        plan-duration
+    "
+>
+
+<?= $duration ?>
+
+<?= $duration === 1
+    ? 'month'
+    : 'months' ?>
+
+access
+
+</div>
+
+
+<p
+    class="
+        plan-description
+    "
+>
+
+<?= plans_escape(
+    $plan[
+        'description'
+    ]
+    ?:
+    'ExamSphere membership access.'
+) ?>
+
+</p>
+
+
+<?php if (
+    !$isTrial
+): ?>
+
+
+<div
+    class="
+        plan-monthly-rate
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-calculator
+    "
+></i>
+
+Approx.
+₹<?= number_format(
+    $monthlyRate,
+    2
+) ?>
+
+/ month
+
+</div>
+
+
+<?php else: ?>
+
+
+<div
+    class="
+        plan-monthly-rate
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-gift
+    "
+></i>
+
+₹0.00 / month
+
+</div>
+
+
+<?php endif; ?>
+
+
+<div
+    class="
+        plan-divider
+    "
+></div>
+
+
+<ul
+    class="
+        plan-benefits
+    "
+>
+
+
+<?php if (
+    empty(
+        $benefits
+    )
+): ?>
+
+
+<li>
+
+<i
+    class="
+        fa-solid
+        fa-circle-check
+    "
+></i>
+
+<span>
+    ExamSphere membership access
+</span>
+
+</li>
+
+
+<?php else: ?>
+
+
+<?php foreach (
+    $benefits
+    as $benefit
+): ?>
+
+
+<li>
+
+<i
+    class="
+        fa-solid
+        fa-circle-check
+    "
+></i>
+
+<span>
+
+<?= plans_escape(
+    $benefit
+) ?>
+
+</span>
+
+</li>
+
+
+<?php endforeach; ?>
+
+
+<?php endif; ?>
+
+
+</ul>
+
+
+<?php if (
+    $isCurrent
+): ?>
+
+
+<a
+    href="subscriptions.php"
+    class="
+        plan-action
+        active-action
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-circle-check
+    "
+></i>
+
+View Membership
+
+</a>
+
+
+<?php elseif (
+    $isTrial
+): ?>
+
+
+<a
+    href="
+        checkout.php?plan_id=
+        <?= $planId ?>
+    "
+    class="
+        plan-action
+        trial
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-bolt
+    "
+></i>
+
+Start Free Trial
+
+</a>
+
+
+<?php else: ?>
+
+
+<a
+    href="
+        checkout.php?plan_id=
+        <?= $planId ?>
+    "
+    class="
+        plan-action
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-arrow-right
+    "
+></i>
+
+Continue to Checkout
+
+</a>
+
+
+<?php endif; ?>
+
+
+</article>
+
+
+<?php endforeach; ?>
+
+
+</section>
+
+
+<!-- =====================================================
+     NOTE
+====================================================== -->
+
+<div
+    class="
+        plans-foot-note
+    "
+>
+
+<i
+    class="
+        fa-solid
+        fa-shield-halved
+    "
+></i>
+
+
+<span>
+
+<strong>
+    Secure activation:
+</strong>
+
+Practice Exams always remain free.
+
+Paid plans use QR payment + required payment
+screenshot + Admin verification.
+
+A ₹0 plan is treated as a Free Trial and
+activates instantly without payment or approval.
+
+</span>
+
+</div>
+
+
+<!-- =====================================================
+     REQUEST HISTORY
+====================================================== -->
+
+<?php if (
+    !empty($requests)
+): ?>
+
+
+<section
+    class="
+        plans-history
+    "
+>
+
+
+<div
+    class="
+        plans-history-head
+    "
+>
+
+
+<div>
+
+<span>
+    ACTIVATION REQUESTS
+</span>
+
+
+<h3>
+    Recent requests
+</h3>
+
+</div>
+
+
+<span
+    style="
+        color:#968C83;
+        letter-spacing:0;
+        font-weight:600;
+    "
+>
+
+<?= count(
+    $requests
+) ?>
+
+request<?= count(
+    $requests
+) === 1
+    ? ''
+    : 's' ?>
+
+</span>
+
+
+</div>
+
+
+<div
+    class="
+        plans-history-wrap
+    "
+>
+
+
+<table
+    class="
+        plans-history-table
+    "
+>
+
+
+<thead>
+
+<tr>
+
+<th>
+    Plan
+</th>
+
+<th>
+    Type
+</th>
+
+<th>
+    Amount
+</th>
+
+<th>
+    Status
+</th>
+
+<th>
+    Submitted
+</th>
+
+<th>
+    Reviewed
+</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+
+<?php foreach (
+    $requests
+    as $request
+): ?>
+
+
+<tr>
+
+
+<td>
+
+<strong
+    style="
+        color:#3E2723;
+        font-size:7.5px;
+        font-weight:900;
+    "
+>
+
+<?= plans_escape(
+    $request[
+        'plan_name'
+    ]
+) ?>
+
+</strong>
+
+</td>
+
+
+<td>
+
+<?= plans_escape(
+    $request[
+        'request_type'
+    ]
+) ?>
+
+</td>
+
+
+<td>
+
+<?= (
+    (float)$request[
+        'amount'
+    ] <= 0
+)
+
+    ? 'FREE'
+
+    :
+
+    '₹' .
+    number_format(
+        (float)$request[
+            'amount'
+        ],
+        2
+    )
+
+?>
+
+</td>
+
+
+<td>
+
+<span
+    class="
+        request-badge
+        <?= plans_status_class(
+            (string)$request[
+                'status'
+            ]
+        ) ?>
+    "
+>
+
+<?= plans_escape(
+    $request[
+        'status'
+    ]
+) ?>
+
+</span>
+
+</td>
+
+
+<td>
+
+<?= plans_date(
+    $request[
+        'submitted_at'
+    ]
+) ?>
+
+</td>
+
+
+<td>
+
+<?= plans_date(
+    $request[
+        'reviewed_at'
+    ]
+) ?>
+
+</td>
+
+
+</tr>
+
+
+<?php endforeach; ?>
+
+
+</tbody>
+
+
+</table>
+
+
+</div>
+
+
+</section>
+
+
+<?php endif; ?>
+
+
+<!-- =====================================================
+     MEMBERSHIP HISTORY
+====================================================== -->
+
+<?php if (
+    !empty(
+        $subscriptions
+    )
+): ?>
+
+
+<section
+    class="
+        plans-history
+    "
+>
+
+
+<div
+    class="
+        plans-history-head
+    "
+>
+
+
+<div>
+
+<span>
+    MEMBERSHIP HISTORY
+</span>
+
+
+<h3>
+    Your subscriptions
+</h3>
+
+</div>
+
+
+</div>
+
+
+<div
+    class="
+        plans-history-wrap
+    "
+>
+
+
+<table
+    class="
+        plans-history-table
+    "
+>
+
+
+<thead>
+
+<tr>
+
+<th>
+    Plan
+</th>
+
+<th>
+    Started
+</th>
+
+<th>
+    Valid Until
+</th>
+
+<th>
+    Status
+</th>
+
+</tr>
+
+</thead>
+
+
+<tbody>
+
+
+<?php foreach (
+    $subscriptions
+    as $subscription
+): ?>
+
+
+<tr>
+
+
+<td>
+
+<?= plans_escape(
+    $subscription[
+        'plan_name'
+    ]
+) ?>
+
+</td>
+
+
+<td>
+
+<?= plans_date(
+    $subscription[
+        'start_date'
+    ]
+) ?>
+
+</td>
+
+
+<td>
+
+<?= plans_date(
+    $subscription[
+        'end_date'
+    ]
+) ?>
+
+</td>
+
+
+<td>
+
+<span
+    class="
+        request-badge
+        <?= plans_status_class(
+            (string)$subscription[
+                'status'
+            ]
+        ) ?>
+    "
+>
+
+<?= plans_escape(
+    $subscription[
+        'status'
+    ]
+) ?>
+
+</span>
+
+</td>
+
+
+</tr>
+
+
+<?php endforeach; ?>
+
+
+</tbody>
+
+
+</table>
+
+
+</div>
+
+
+</section>
+
+
+<?php endif; ?>
+
+
+</div>
+
+
+</main>
+
+
+</body>
+
+</html>

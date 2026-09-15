@@ -1,0 +1,973 @@
+/* =========================================================
+   ExamSphere
+   Student Materials - Premium Styling
+   Works with the CURRENT materials.php markup
+========================================================= */
+
+:root{
+    --m-cream:#F5F5DC;
+    --m-white:#FFFFFF;
+
+    --m-brown:#5D4037;
+    --m-dark:#3E2723;
+    --m-olive:#556B2F;
+    --m-olive-dark:#465923;
+
+    --m-green:#198754;
+    --m-green-soft:#EAF6EF;
+
+    --m-muted:#766D65;
+    --m-light:#978D84;
+
+    --m-line:#E4DDD3;
+    --m-line-soft:#EEE8E0;
+
+    --m-shadow:
+        0 16px 40px
+        rgba(62,39,35,.055);
+}
+
+
+/* =========================================================
+   PAGE BACKGROUND
+========================================================= */
+
+.student-materials-page{
+    min-height:100vh;
+
+    background:
+        radial-gradient(
+            circle at 5% 3%,
+            rgba(85,107,47,.06),
+            transparent 24%
+        ),
+
+        radial-gradient(
+            circle at 96% 8%,
+            rgba(93,64,55,.05),
+            transparent 23%
+        ),
+
+        linear-gradient(
+            180deg,
+            #FBFAF6 0%,
+            #F5F5DC 65%,
+            #EFEEE6 100%
+        );
+}
+
+
+/* =========================================================
+   CURRENT BOOTSTRAP MAIN
+========================================================= */
+
+.student-materials-page main,
+main.container.py-5{
+
+    width:
+        min(
+            1280px,
+            calc(
+                100% - 30px
+            )
+        ) !important;
+
+    max-width:
+        1280px !important;
+
+    margin:
+        15px auto 0 !important;
+
+    padding:
+        0 0 60px !important;
+}
+
+
+/* =========================================================
+   PAGE TITLE AREA
+========================================================= */
+
+main.container.py-5 > h1{
+
+    position:relative;
+
+    margin:
+        0 0 7px !important;
+
+    padding-top:
+        8px;
+
+    color:
+        var(--m-dark);
+
+    font-size:
+        clamp(
+            34px,
+            4.2vw,
+            49px
+        ) !important;
+
+    line-height:
+        .98;
+
+    letter-spacing:
+        -.055em;
+
+    font-weight:
+        900 !important;
+}
+
+
+main.container.py-5 > h1::before{
+
+    content:
+        'LEARNING LIBRARY';
+
+    display:block;
+
+    margin-bottom:
+        8px;
+
+    color:
+        var(--m-olive);
+
+    font-size:
+        7px;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        1.25px;
+
+    font-weight:
+        900;
+}
+
+
+main.container.py-5 > h1::after{
+
+    content:
+        '';
+
+    display:block;
+
+    width:
+        52px;
+
+    height:
+        4px;
+
+    margin-top:
+        11px;
+
+    border-radius:
+        999px;
+
+    background:
+        var(--m-olive);
+}
+
+
+/* =========================================================
+   SUBTITLE
+========================================================= */
+
+main.container.py-5 > p.text-muted{
+
+    max-width:
+        760px;
+
+    margin:
+        8px 0 16px !important;
+
+    color:
+        var(--m-muted) !important;
+
+    font-size:
+        9px !important;
+
+    line-height:
+        1.75;
+
+    font-weight:
+        500;
+}
+
+
+/* =========================================================
+   MATERIAL GRID
+========================================================= */
+
+main.container.py-5 > .row.g-4{
+
+    --bs-gutter-x:
+        12px;
+
+    --bs-gutter-y:
+        12px;
+
+    margin-top:
+        0 !important;
+}
+
+
+/* =========================================================
+   MATERIAL COLUMN
+========================================================= */
+
+main.container.py-5
+.row.g-4
+> [class*="col-"]{
+
+    display:flex;
+
+}
+
+
+/* =========================================================
+   MATERIAL CARD
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card{
+
+    position:relative;
+
+    width:
+        100%;
+
+    min-height:
+        255px;
+
+    display:flex;
+
+    flex-direction:
+        column;
+
+    padding:
+        16px !important;
+
+    overflow:hidden;
+
+    border:
+        1px solid
+        var(--m-line) !important;
+
+    border-radius:
+        17px !important;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .97
+        ) !important;
+
+    box-shadow:
+        0
+        11px
+        30px
+        rgba(
+            62,
+            39,
+            35,
+            .045
+        ) !important;
+
+    transition:
+        transform .22s ease,
+        box-shadow .22s ease,
+        border-color .22s ease;
+}
+
+
+main.container.py-5
+.row.g-4
+.card::before{
+
+    content:
+        '';
+
+    position:absolute;
+
+    width:
+        130px;
+
+    height:
+        130px;
+
+    right:
+        -70px;
+
+    top:
+        -70px;
+
+    border-radius:
+        50%;
+
+    background:
+        rgba(
+            85,
+            107,
+            47,
+            .045
+        );
+
+    pointer-events:none;
+}
+
+
+main.container.py-5
+.row.g-4
+.card::after{
+
+    content:
+        '';
+
+    position:absolute;
+
+    left:
+        20%;
+
+    right:
+        20%;
+
+    bottom:
+        0;
+
+    height:
+        3px;
+
+    border-radius:
+        999px;
+
+    background:
+        var(--m-olive);
+}
+
+
+/* =========================================================
+   CARD HOVER
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card:hover{
+
+    transform:
+        translateY(
+            -5px
+        );
+
+    border-color:
+        #D4CCC0 !important;
+
+    box-shadow:
+        0
+        22px
+        46px
+        rgba(
+            62,
+            39,
+            35,
+            .085
+        ) !important;
+}
+
+
+/* =========================================================
+   CARD TOP ROW
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+> .d-flex.justify-content-between{
+
+    position:
+        relative;
+
+    z-index:
+        2;
+
+    align-items:
+        flex-start !important;
+
+}
+
+
+/* =========================================================
+   FILE ICON
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+.fa-file-pdf{
+
+    width:
+        44px;
+
+    height:
+        44px;
+
+    display:
+        inline-flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    border-radius:
+        12px;
+
+    color:
+        #D92D3A !important;
+
+    background:
+        #FCEBED;
+
+    font-size:
+        18px !important;
+}
+
+
+/* =========================================================
+   BADGE
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+.badge{
+
+    min-height:
+        24px;
+
+    display:
+        inline-flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    padding:
+        0 9px;
+
+    border-radius:
+        999px;
+
+    font-size:
+        6.5px;
+
+    line-height:
+        1;
+
+    font-weight:
+        900;
+
+    letter-spacing:
+        .15px;
+}
+
+
+main.container.py-5
+.row.g-4
+.card
+.badge.text-bg-success{
+
+    color:
+        #fff !important;
+
+    background:
+        var(--m-green) !important;
+}
+
+
+main.container.py-5
+.row.g-4
+.card
+.badge.text-bg-secondary{
+
+    color:
+        #6E625A !important;
+
+    background:
+        #F0ECE7 !important;
+}
+
+
+/* =========================================================
+   TITLE
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card h5{
+
+    position:
+        relative;
+
+    z-index:
+        2;
+
+    margin:
+        14px 0 5px !important;
+
+    color:
+        var(--m-dark) !important;
+
+    font-size:
+        15px !important;
+
+    line-height:
+        1.3;
+
+    font-weight:
+        900 !important;
+}
+
+
+/* =========================================================
+   DESCRIPTION
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card p.small.text-muted{
+
+    position:
+        relative;
+
+    z-index:
+        2;
+
+    min-height:
+        53px;
+
+    margin:
+        0 !important;
+
+    color:
+        var(--m-muted) !important;
+
+    font-size:
+        7.2px !important;
+
+    line-height:
+        1.65;
+
+}
+
+
+/* =========================================================
+   SUBJECT / DESCRIPTION BREAK
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card p.small.text-muted::first-line{
+
+    color:
+        var(--m-brown);
+}
+
+
+/* =========================================================
+   BUTTON
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+a.btn{
+
+    position:
+        relative;
+
+    z-index:
+        3;
+
+    width:
+        100%;
+
+    min-height:
+        40px;
+
+    display:
+        inline-flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    gap:
+        6px;
+
+    margin-top:
+        auto !important;
+
+    padding:
+        0 12px !important;
+
+    border-radius:
+        9px !important;
+
+    font-size:
+        7px !important;
+
+    font-weight:
+        900 !important;
+
+    text-decoration:
+        none;
+
+    transition:
+        transform .2s ease,
+        background .2s ease,
+        border-color .2s ease;
+}
+
+
+/* =========================================================
+   DOWNLOAD
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+a.btn.btn-primary{
+
+    color:
+        #fff !important;
+
+    border:
+        0 !important;
+
+    background:
+        var(--m-olive) !important;
+
+}
+
+
+main.container.py-5
+.row.g-4
+.card
+a.btn.btn-primary:hover{
+
+    color:
+        #fff !important;
+
+    background:
+        var(--m-olive-dark) !important;
+
+    transform:
+        translateY(
+            -2px
+        );
+}
+
+
+/* =========================================================
+   UNLOCK
+========================================================= */
+
+main.container.py-5
+.row.g-4
+.card
+a.btn.btn-outline-secondary{
+
+    color:
+        var(--m-brown) !important;
+
+    border:
+        1px solid
+        #D8CEC3 !important;
+
+    background:
+        #F7F3ED !important;
+
+}
+
+
+main.container.py-5
+.row.g-4
+.card
+a.btn.btn-outline-secondary:hover{
+
+    color:
+        var(--m-dark) !important;
+
+    border-color:
+        var(--m-olive) !important;
+
+    background:
+        var(--m-olive-soft) !important;
+
+    transform:
+        translateY(
+            -2px
+        );
+}
+
+
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+main.container.py-5
+.alert.alert-light.border{
+
+    min-height:
+        280px;
+
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    flex-direction:
+        column;
+
+    margin-top:
+        12px !important;
+
+    padding:
+        28px !important;
+
+    border:
+        1px solid
+        var(--m-line) !important;
+
+    border-radius:
+        20px !important;
+
+    color:
+        var(--m-muted) !important;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .92
+        ) !important;
+
+    box-shadow:
+        var(--m-shadow);
+
+    font-size:
+        9px;
+
+    text-align:
+        center;
+}
+
+
+main.container.py-5
+.alert.alert-light.border::before{
+
+    content:
+        '📚';
+
+    width:
+        62px;
+
+    height:
+        62px;
+
+    display:
+        grid;
+
+    place-items:
+        center;
+
+    margin-bottom:
+        13px;
+
+    border-radius:
+        18px;
+
+    background:
+        var(--m-olive-soft);
+
+    font-size:
+        24px;
+}
+
+
+/* =========================================================
+   LARGE DESKTOP
+========================================================= */
+
+@media(min-width:1200px){
+
+    main.container.py-5
+    .row.g-4{
+
+        grid-template-columns:
+            repeat(
+                3,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
+    }
+
+
+    main.container.py-5
+    .row.g-4
+    > [class*="col-lg-4"]{
+
+        width:
+            auto !important;
+    }
+
+}
+
+
+/* =========================================================
+   TABLET
+========================================================= */
+
+@media(max-width:991px){
+
+    main.container.py-5{
+
+        width:
+            min(
+                920px,
+                calc(
+                    100% - 24px
+                )
+            ) !important;
+    }
+
+
+    main.container.py-5
+    .row.g-4{
+
+        margin-left:
+            0 !important;
+
+        margin-right:
+            0 !important;
+    }
+
+
+    main.container.py-5
+    .row.g-4
+    > [class*="col-"]{
+
+        padding-left:
+            6px !important;
+
+        padding-right:
+            6px !important;
+    }
+
+}
+
+
+/* =========================================================
+   MOBILE
+========================================================= */
+
+@media(max-width:767px){
+
+    main.container.py-5{
+
+        width:
+            calc(
+                100% - 14px
+            ) !important;
+
+        margin-top:
+            10px !important;
+    }
+
+
+    main.container.py-5
+    > h1{
+
+        font-size:
+            32px !important;
+    }
+
+
+    main.container.py-5
+    > p.text-muted{
+
+        font-size:
+            8px !important;
+    }
+
+
+    main.container.py-5
+    .row.g-4{
+
+        --bs-gutter-x:
+            0;
+
+        --bs-gutter-y:
+            10px;
+    }
+
+
+    main.container.py-5
+    .row.g-4
+    > [class*="col-"]{
+
+        padding:
+            0 !important;
+    }
+
+
+    main.container.py-5
+    .row.g-4
+    .card{
+
+        min-height:
+            255px;
+    }
+
+}
+
+
+/* =========================================================
+   VERY SMALL MOBILE
+========================================================= */
+
+@media(max-width:420px){
+
+    main.container.py-5
+    > h1{
+
+        font-size:
+            28px !important;
+    }
+
+
+    main.container.py-5
+    .row.g-4
+    .card h5{
+
+        font-size:
+            14px !important;
+    }
+
+}

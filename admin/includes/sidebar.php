@@ -488,6 +488,26 @@ function admin_menu_active(
 
             </li>
 
+            <li>
+
+    <a
+        href="/ONLINE_EXAMINATION/admin/subscription_requests.php"
+    >
+
+        <i
+            class="
+                fa-solid
+                fa-file-invoice
+            "
+        ></i>
+
+        <span>
+            Payment Requests
+        </span>
+
+    </a>
+
+</li>
 
             <!-- =================================================
                  RESULTS & REPORTING
