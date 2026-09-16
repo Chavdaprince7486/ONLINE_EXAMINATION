@@ -1,1223 +1,253 @@
 <?php
-
 declare(strict_types=1);
-
 require_once '../config/session.php';
+require_once '../config/config.php';
+require_once '../config/functions.php';
 
-
-/*
-|--------------------------------------------------------------------------
-| RESET AUTHORIZATION
-|--------------------------------------------------------------------------
-*/
-
-if (
-    empty(
-        $_SESSION['forgot_password']
-    )
-    ||
-    empty(
-        $_SESSION['password_reset_verified']
-    )
-    ||
-    empty(
-        $_SESSION['forgot_password']['verified']
-    )
-) {
-
-    header(
-        'Location: forgot_password.php'
-    );
-
-    exit;
+function fp_e(mixed $value): string {
+    return htmlspecialchars((string)($value ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| RESET ERROR
-|--------------------------------------------------------------------------
-*/
-
-$error =
-    (string) (
-        $_SESSION[
-            'reset_password_error'
-        ]
-        ?? ''
-    );
-
-
-unset(
-    $_SESSION[
-        'reset_password_error'
-    ]
-);
-
-
-/*
-|--------------------------------------------------------------------------
-| ACCOUNT EMAIL
-|--------------------------------------------------------------------------
-*/
-
-$email =
-    htmlspecialchars(
-        (string) (
-            $_SESSION[
-                'forgot_password'
-            ]['email']
-            ?? ''
-        ),
-        ENT_QUOTES |
-        ENT_SUBSTITUTE,
-        'UTF-8'
-    );
-
-
-/*
-|--------------------------------------------------------------------------
-| BASIC SESSION INTEGRITY
-|--------------------------------------------------------------------------
-*/
-
-if (
-    $email === ''
-) {
-
-    unset(
-        $_SESSION[
-            'forgot_password'
-        ],
-        $_SESSION[
-            'password_reset_verified'
-        ]
-    );
-
-    $_SESSION[
-        'forgot_error'
-    ] =
-        'Your password reset session is invalid. Please request a new OTP.';
-
-    header(
-        'Location: forgot_password.php'
-    );
-
-    exit;
-}
-
+$error = $_SESSION['forgot_error'] ?? '';
+$success = $_SESSION['forgot_success'] ?? '';
+unset($_SESSION['forgot_error'], $_SESSION['forgot_success']);
+$selectedRole = strtolower(trim((string)($_POST['role'] ?? $_SESSION['forgot_password']['role'] ?? 'student')));
+if (!in_array($selectedRole, ['student','teacher','admin'], true)) $selectedRole = 'student';
 ?>
-
-<!DOCTYPE html>
-
+<!doctype html>
 <html lang="en">
-
 <head>
-
-<meta charset="UTF-8">
-
-
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
-
-
-<meta
-    name="color-scheme"
-    content="light"
->
-
-
-<title>
-    Reset Password | ExamSphere
-</title>
-
-
-<link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
-    rel="stylesheet"
->
-
-
-<link
-    rel="stylesheet"
-    href="../assets/css/login.css"
->
-
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reset Password | ExamSphere</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 <style>
-
-/*
-|--------------------------------------------------------------------------
-| PASSWORD RULE
-|--------------------------------------------------------------------------
-*/
-
-.password-rule {
-
-    margin-top:
-        10px;
-
-    color:
-        #777777;
-
-    font-size:
-        13px;
-
-    line-height:
-        1.6;
-
+:root{
+  --cream:#F5F5DC;
+  --white:#FFFFFF;
+  --brown:#5D4037;
+  --dark:#3E2723;
+  --olive:#556B2F;
+  --olive-dark:#465923;
+  --gold:#A47B29;
+  --muted:#756B63;
+  --line:#E3DCD2;
+  --soft:#FCFAF7;
+  --red:#A84538;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| PASSWORD RULE LIST
-|--------------------------------------------------------------------------
-*/
-
-.password-rules {
-
-    margin:
-        12px 0 0;
-
-    padding:
-        0;
-
-    list-style:
-        none;
-
-    font-size:
-        13px;
-
-    line-height:
-        1.7;
-
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  font-family:Arial,Helvetica,sans-serif;
+  color:var(--dark);
+  background:
+    radial-gradient(circle at 8% 8%, rgba(85,107,47,.10), transparent 30%),
+    radial-gradient(circle at 92% 92%, rgba(93,64,55,.10), transparent 32%),
+    linear-gradient(145deg,#FBFAF6 0%,var(--cream) 58%,#EEF2E8 100%);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:28px 16px;
 }
-
-
-.password-rules li {
-
-    color:
-        #777777;
-
-    transition:
-        color .2s ease;
-
+.auth-wrap{width:min(1080px,100%)}
+.card{
+  display:grid;
+  grid-template-columns:1.02fr .98fr;
+  background:rgba(255,255,255,.92);
+  border:1px solid var(--line);
+  border-radius:28px;
+  overflow:hidden;
+  box-shadow:0 24px 80px rgba(62,39,35,.12);
 }
-
-
-.password-rules li::before {
-
-    content:
-        "○";
-
-    display:
-        inline-block;
-
-    width:
-        20px;
-
-    color:
-        #999999;
-
+.brand-panel{
+  padding:48px 44px;
+  background:linear-gradient(150deg,#5D4037 0%,#4B342D 52%,#556B2F 130%);
+  color:#fff;
+  position:relative;
+  overflow:hidden;
 }
-
-
-.password-rules li.valid {
-
-    color:
-        #2E7D32;
-
+.brand-panel:after{
+  content:"";
+  position:absolute;
+  width:320px;height:320px;
+  right:-150px;top:-120px;
+  border:1px solid rgba(255,255,255,.11);
+  border-radius:50%;
 }
-
-
-.password-rules li.valid::before {
-
-    content:
-        "✓";
-
-    color:
-        #2E7D32;
-
+.brand-panel:before{
+  content:"";
+  position:absolute;
+  width:210px;height:210px;
+  left:-120px;bottom:-100px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:50%;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| PASSWORD INPUT WRAPPER
-|--------------------------------------------------------------------------
-*/
-
-.password-input-box {
-
-    position:
-        relative;
-
+.logo{
+  width:min(270px,80%);
+  display:block;
+  margin:0 auto 28px;
+  background:#fff;
+  border-radius:24px;
+  padding:14px;
 }
-
-
-.password-input-box input {
-
-    padding-right:
-        50px;
-
+.brand-kicker{
+  letter-spacing:2px;
+  font-size:10px;
+  font-weight:900;
+  opacity:.75;
+  text-transform:uppercase;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| PASSWORD VISIBILITY BUTTON
-|--------------------------------------------------------------------------
-*/
-
-.password-toggle {
-
-    position:
-        absolute;
-
-    top:
-        50%;
-
-    right:
-        12px;
-
-    width:
-        36px;
-
-    height:
-        36px;
-
-    padding:
-        0;
-
-    display:
-        flex;
-
-    align-items:
-        center;
-
-    justify-content:
-        center;
-
-    transform:
-        translateY(-50%);
-
-    border:
-        0;
-
-    background:
-        transparent;
-
-    color:
-        #777777;
-
-    cursor:
-        pointer;
-
+.brand-title{
+  font-size:36px;
+  line-height:1.05;
+  font-weight:900;
+  margin:8px 0 12px;
 }
-
-
-.password-toggle:hover {
-
-    color:
-        #5D4037;
-
+.brand-copy{
+  color:rgba(255,255,255,.82);
+  line-height:1.7;
+  font-size:14px;
+  max-width:430px;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| MATCH MESSAGE
-|--------------------------------------------------------------------------
-*/
-
-.password-match {
-
-    min-height:
-        20px;
-
-    margin-top:
-        7px;
-
-    font-size:
-        13px;
-
+.security-row{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:10px;
+  margin-top:30px;
 }
-
-
-.password-match.success {
-
-    color:
-        #2E7D32;
-
+.security-chip{
+  padding:13px 10px;
+  text-align:center;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.06);
+  border-radius:14px;
+  font-size:11px;
+  color:rgba(255,255,255,.88);
 }
-
-
-.password-match.error {
-
-    color:
-        #B3261E;
-
+.security-chip i{display:block;margin-bottom:6px;font-size:15px}
+.form-panel{padding:48px}
+.form-panel h1{margin:0;color:var(--dark);font-size:32px;font-weight:900}
+.form-panel .sub{margin:8px 0 24px;color:var(--muted);font-size:13px;line-height:1.65}
+.alert{
+  padding:12px 14px;
+  border-radius:12px;
+  margin-bottom:18px;
+  font-size:13px;
+  line-height:1.5;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| SUBMIT BUTTON
-|--------------------------------------------------------------------------
-*/
-
-.login-btn:disabled {
-
-    opacity:
-        .55;
-
-    cursor:
-        not-allowed;
-
+.alert.error{background:#FFF1EE;color:#913E34;border:1px solid #F0CDC7}
+.alert.success{background:#EEF5E8;color:#4F672C;border:1px solid #D7E4C8}
+.label{display:block;font-size:12px;font-weight:800;color:var(--brown);margin-bottom:8px}
+.input{
+  width:100%;
+  height:48px;
+  border:1px solid #DAD2C7;
+  border-radius:13px;
+  padding:0 14px;
+  font-size:14px;
+  outline:none;
+  background:#fff;
 }
-
-
+.input:focus{border-color:var(--olive);box-shadow:0 0 0 4px rgba(85,107,47,.10)}
+.role-row{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:20px}
+.role{
+  border:1px solid var(--line);
+  background:var(--soft);
+  color:var(--brown);
+  border-radius:12px;
+  padding:12px 8px;
+  cursor:pointer;
+  font-weight:800;
+  font-size:12px;
+}
+.role.active{background:var(--brown);color:#fff;border-color:var(--brown)}
+.role i{display:block;margin-bottom:5px;font-size:16px}
+.submit{
+  width:100%;
+  height:50px;
+  border:0;
+  border-radius:13px;
+  background:var(--olive);
+  color:#fff;
+  font-weight:900;
+  cursor:pointer;
+  font-size:14px;
+}
+.submit:hover{background:var(--olive-dark)}
+.back{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  margin-top:18px;
+  color:var(--brown);
+  text-decoration:none;
+  font-size:12px;
+  font-weight:800;
+}
+.helper{
+  margin-top:17px;
+  padding:12px 13px;
+  border-radius:12px;
+  background:#FBF8F0;
+  border:1px solid var(--line);
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.6;
+}
+@media(max-width:820px){
+  .card{grid-template-columns:1fr}
+  .brand-panel{padding:34px 28px}
+  .form-panel{padding:34px 28px}
+}
+@media(max-width:520px){
+  .security-row{grid-template-columns:1fr}
+  .form-panel h1{font-size:27px}
+  .role-row{grid-template-columns:1fr}
+  .logo{width:220px}
+}
 </style>
-
 </head>
-
-
 <body>
-
-
-<div class="login-wrapper">
-
-
-<div class="login-card">
-
-
-    <!-- ==========================================================
-         LOGO
-    =========================================================== -->
-
-    <div class="logo-area">
-
-
-        <img
-            src="../assets/images/exam_logo.png"
-            alt="ExamSphere"
-        >
-
-
-        <h2>
-            ExamSphere
-        </h2>
-
-
-        <p>
-            Create New Password
-        </p>
-
-
-    </div>
-
-
-    <!-- ==========================================================
-         PAGE TITLE
-    =========================================================== -->
-
-    <div class="login-title">
-
-
-        <h1>
-            Reset Password
-        </h1>
-
-
-        <p>
-
-            Account:
-            <br>
-
-
-            <strong>
-                <?= $email ?>
-            </strong>
-
-        </p>
-
-
-    </div>
-
-
-    <!-- ==========================================================
-         ERROR
-    =========================================================== -->
-
-    <?php if (
-        $error !== ''
-    ): ?>
-
-
-        <div
-            class="error-box"
-            role="alert"
-        >
-
-            <?= htmlspecialchars(
-                $error,
-                ENT_QUOTES |
-                ENT_SUBSTITUTE,
-                'UTF-8'
-            ) ?>
-
-
-        </div>
-
-
-    <?php endif; ?>
-
-
-    <!-- ==========================================================
-         FORM
-    =========================================================== -->
-
-    <form
-        action="reset_password_process.php"
-        method="POST"
-        autocomplete="off"
-        id="resetPasswordForm"
-        novalidate
-    >
-
-
-        <?= csrf_field() ?>
-
-
-        <!-- ======================================================
-             NEW PASSWORD
-        ======================================================= -->
-
-        <div class="form-group">
-
-
-            <label
-                for="password"
-            >
-
-                New Password
-
-            </label>
-
-
-            <div
-                class="input-box password-input-box"
-            >
-
-
-                <input
-                    id="password"
-                    type="password"
-                    name="password"
-                    minlength="8"
-                    maxlength="72"
-                    autocomplete="new-password"
-                    placeholder="Enter New Password"
-                    required
-                    aria-describedby="passwordRules"
-                >
-
-
-                <button
-                    type="button"
-                    class="password-toggle"
-                    id="togglePassword"
-                    aria-label="Show password"
-                >
-
-                    <span
-                        id="passwordToggleIcon"
-                    >
-                        👁
-                    </span>
-
-                </button>
-
-
-            </div>
-
-
-            <ul
-                class="password-rules"
-                id="passwordRules"
-            >
-
-                <li
-                    id="ruleLength"
-                >
-                    At least 8 characters
-                </li>
-
-
-                <li
-                    id="ruleLetter"
-                >
-                    At least one letter
-                </li>
-
-
-                <li
-                    id="ruleNumber"
-                >
-                    At least one number
-                </li>
-
-            </ul>
-
-
-        </div>
-
-
-        <!-- ======================================================
-             CONFIRM PASSWORD
-        ======================================================= -->
-
-        <div class="form-group">
-
-
-            <label
-                for="confirm_password"
-            >
-
-                Confirm Password
-
-            </label>
-
-
-            <div
-                class="input-box password-input-box"
-            >
-
-
-                <input
-                    id="confirm_password"
-                    type="password"
-                    name="confirm_password"
-                    minlength="8"
-                    maxlength="72"
-                    autocomplete="new-password"
-                    placeholder="Confirm New Password"
-                    required
-                    aria-describedby="passwordMatch"
-                >
-
-
-                <button
-                    type="button"
-                    class="password-toggle"
-                    id="toggleConfirmPassword"
-                    aria-label="Show confirm password"
-                >
-
-                    <span
-                        id="confirmPasswordToggleIcon"
-                    >
-                        👁
-                    </span>
-
-                </button>
-
-
-            </div>
-
-
-            <div
-                id="passwordMatch"
-                class="password-match"
-                aria-live="polite"
-            ></div>
-
-
-        </div>
-
-
-        <!-- ======================================================
-             SUBMIT
-        ======================================================= -->
-
-        <button
-            class="login-btn"
-            id="updatePasswordButton"
-            type="submit"
-            disabled
-        >
-
-            Update Password
-
-        </button>
-
-
-    </form>
-
-
+<div class="auth-wrap">
+<div class="card">
+<section class="brand-panel">
+  <img class="logo" src="../assets/images/exam_logo.png" alt="ExamSphere Logo">
+  <div class="brand-kicker">Secure Account Recovery</div>
+  <div class="brand-title">Reset your ExamSphere password.</div>
+  <div class="brand-copy">Recover your Student, Teacher or Administrator account using a secure one-time password.</div>
+  <div class="security-row">
+    <div class="security-chip"><i class="fa-solid fa-shield-halved"></i>Secure</div>
+    <div class="security-chip"><i class="fa-solid fa-key"></i>OTP Protected</div>
+    <div class="security-chip"><i class="fa-solid fa-envelope"></i>Email Verified</div>
+  </div>
+</section>
+<section class="form-panel">
+
+<h1>Create New Password</h1>
+<p class="sub">Your OTP is verified. Set a strong new password for your account.</p>
+<?php if ($error !== ''): ?><div class="alert error"><i class="fa-solid fa-circle-exclamation"></i> <?= fp_e($error) ?></div><?php endif; ?>
+<?php if ($success !== ''): ?><div class="alert success"><i class="fa-solid fa-circle-check"></i> <?= fp_e($success) ?></div><?php endif; ?>
+
+<?php $fp = $_SESSION['forgot_password'] ?? null; ?>
+<?php if (!is_array($fp) || empty($fp['verified'])): ?>
+  <div class="alert error">Please verify your OTP before changing the password.</div>
+  <a class="back" href="forgot_password.php"><i class="fa-solid fa-arrow-left"></i> Start Again</a>
+<?php else: ?>
+<form action="reset_password_process.php" method="POST" autocomplete="new-password">
+  <label class="label" for="password">New Password</label>
+  <input class="input" type="password" id="password" name="password" placeholder="Enter new password" minlength="8" required>
+  <div style="height:12px"></div>
+  <label class="label" for="confirm_password">Confirm New Password</label>
+  <input class="input" type="password" id="confirm_password" name="confirm_password" placeholder="Re-enter new password" minlength="8" required>
+  <div class="helper"><i class="fa-solid fa-lock"></i> Use at least 8 characters.</div>
+  <button class="submit" type="submit"><i class="fa-solid fa-key"></i> &nbsp;Reset Password</button>
+</form>
+<a class="back" href="login.php"><i class="fa-solid fa-arrow-left"></i> Back to Login</a>
+<?php endif; ?>
+
+</section>
 </div>
-
-
 </div>
-
-
-<script>
-
-(function () {
-
-    'use strict';
-
-
-    const form =
-        document.getElementById(
-            'resetPasswordForm'
-        );
-
-
-    const password =
-        document.getElementById(
-            'password'
-        );
-
-
-    const confirmPassword =
-        document.getElementById(
-            'confirm_password'
-        );
-
-
-    const button =
-        document.getElementById(
-            'updatePasswordButton'
-        );
-
-
-    const matchMessage =
-        document.getElementById(
-            'passwordMatch'
-        );
-
-
-    const ruleLength =
-        document.getElementById(
-            'ruleLength'
-        );
-
-
-    const ruleLetter =
-        document.getElementById(
-            'ruleLetter'
-        );
-
-
-    const ruleNumber =
-        document.getElementById(
-            'ruleNumber'
-        );
-
-
-    const togglePassword =
-        document.getElementById(
-            'togglePassword'
-        );
-
-
-    const toggleConfirmPassword =
-        document.getElementById(
-            'toggleConfirmPassword'
-        );
-
-
-    const passwordToggleIcon =
-        document.getElementById(
-            'passwordToggleIcon'
-        );
-
-
-    const confirmPasswordToggleIcon =
-        document.getElementById(
-            'confirmPasswordToggleIcon'
-        );
-
-
-    let submitted =
-        false;
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | VALIDATE PASSWORD
-    |--------------------------------------------------------------------------
-    */
-
-    function validatePassword(
-        value
-    ) {
-
-        const lengthValid =
-            value.length >= 8
-            &&
-            value.length <= 72;
-
-
-        const letterValid =
-            /[A-Za-z]/.test(
-                value
-            );
-
-
-        const numberValid =
-            /[0-9]/.test(
-                value
-            );
-
-
-        return {
-
-            lengthValid:
-                lengthValid,
-
-            letterValid:
-                letterValid,
-
-            numberValid:
-                numberValid,
-
-            valid:
-                lengthValid
-                &&
-                letterValid
-                &&
-                numberValid
-
-        };
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE RULE UI
-    |--------------------------------------------------------------------------
-    */
-
-    function updateRules(
-        state
-    ) {
-
-        if (
-            ruleLength
-        ) {
-
-            ruleLength.classList.toggle(
-                'valid',
-                state.lengthValid
-            );
-
-        }
-
-
-        if (
-            ruleLetter
-        ) {
-
-            ruleLetter.classList.toggle(
-                'valid',
-                state.letterValid
-            );
-
-        }
-
-
-        if (
-            ruleNumber
-        ) {
-
-            ruleNumber.classList.toggle(
-                'valid',
-                state.numberValid
-            );
-
-        }
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | PASSWORD MATCH
-    |--------------------------------------------------------------------------
-    */
-
-    function updateMatch(
-        passwordValue,
-        confirmValue
-    ) {
-
-        if (
-            !matchMessage
-        ) {
-
-            return false;
-
-        }
-
-
-        matchMessage.className =
-            'password-match';
-
-
-        matchMessage.textContent =
-            '';
-
-
-        if (
-            confirmValue === ''
-        ) {
-
-            return false;
-
-        }
-
-
-        if (
-            passwordValue ===
-            confirmValue
-        ) {
-
-            matchMessage.classList.add(
-                'success'
-            );
-
-
-            matchMessage.textContent =
-                'Passwords match.';
-
-
-            return true;
-
-        }
-
-
-        matchMessage.classList.add(
-            'error'
-        );
-
-
-        matchMessage.textContent =
-            'Passwords do not match.';
-
-
-        return false;
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | FORM STATE
-    |--------------------------------------------------------------------------
-    */
-
-    function updateFormState() {
-
-        const passwordValue =
-            password
-                ? password.value
-                : '';
-
-
-        const confirmValue =
-            confirmPassword
-                ? confirmPassword.value
-                : '';
-
-
-        const state =
-            validatePassword(
-                passwordValue
-            );
-
-
-        updateRules(
-            state
-        );
-
-
-        const passwordsMatch =
-            updateMatch(
-                passwordValue,
-                confirmValue
-            );
-
-
-        const ready =
-            state.valid
-            &&
-            passwordsMatch
-            &&
-            confirmValue.length >= 8
-            &&
-            !submitted;
-
-
-        if (
-            button
-        ) {
-
-            button.disabled =
-                !ready;
-
-        }
-
-
-        return {
-
-            state:
-                state,
-
-            passwordsMatch:
-                passwordsMatch,
-
-            ready:
-                ready
-
-        };
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | TOGGLE PASSWORD
-    |--------------------------------------------------------------------------
-    */
-
-    function setupToggle(
-        toggleButton,
-        input,
-        icon,
-        label
-    ) {
-
-        if (
-            !toggleButton
-            ||
-            !input
-        ) {
-
-            return;
-
-        }
-
-
-        toggleButton.addEventListener(
-            'click',
-            function () {
-
-                const visible =
-                    input.type ===
-                    'text';
-
-
-                input.type =
-                    visible
-                        ? 'password'
-                        : 'text';
-
-
-                if (
-                    icon
-                ) {
-
-                    icon.textContent =
-                        visible
-                            ? '👁'
-                            : '🙈';
-
-                }
-
-
-                toggleButton.setAttribute(
-                    'aria-label',
-                    visible
-                        ? 'Show ' + label
-                        : 'Hide ' + label
-                );
-
-
-                input.focus();
-
-            }
-        );
-
-    }
-
-
-    setupToggle(
-        togglePassword,
-        password,
-        passwordToggleIcon,
-        'password'
-    );
-
-
-    setupToggle(
-        toggleConfirmPassword,
-        confirmPassword,
-        confirmPasswordToggleIcon,
-        'confirm password'
-    );
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | INPUT EVENTS
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-        password
-    ) {
-
-        password.addEventListener(
-            'input',
-            updateFormState
-        );
-
-    }
-
-
-    if (
-        confirmPassword
-    ) {
-
-        confirmPassword.addEventListener(
-            'input',
-            updateFormState
-        );
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | SUBMIT
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-        form
-    ) {
-
-        form.addEventListener(
-            'submit',
-            function (
-                event
-            ) {
-
-                if (
-                    submitted
-                ) {
-
-                    event.preventDefault();
-
-                    return;
-
-                }
-
-
-                const result =
-                    updateFormState();
-
-
-                if (
-                    !result.ready
-                ) {
-
-                    event.preventDefault();
-
-
-                    if (
-                        password &&
-                        !result.state.valid
-                    ) {
-
-                        password.focus();
-
-                    } else if (
-                        confirmPassword
-                    ) {
-
-                        confirmPassword.focus();
-
-                    }
-
-
-                    return;
-
-                }
-
-
-                submitted =
-                    true;
-
-
-                if (
-                    password
-                ) {
-
-                    password.disabled =
-                        true;
-
-                }
-
-
-                if (
-                    confirmPassword
-                ) {
-
-                    confirmPassword.disabled =
-                        true;
-
-                }
-
-
-                if (
-                    button
-                ) {
-
-                    button.disabled =
-                        true;
-
-
-                    button.textContent =
-                        'Updating...';
-
-                }
-
-            }
-        );
-
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | INITIAL STATE
-    |--------------------------------------------------------------------------
-    */
-
-    updateFormState();
-
-})();
-
-</script>
-
-
 </body>
-
 </html>
