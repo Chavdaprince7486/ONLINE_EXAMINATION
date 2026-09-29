@@ -43,29 +43,27 @@ SELECT
 
 e.id,
 
-e.exam_code,
+e.title,
 
-e.exam_title,
-
-e.total_questions,
+e.required_question_count,
 
 e.status,
 
-s.subject_name,
+s.name AS subject_name,
 
-COUNT(q.id) AS added_questions
+COUNT(DISTINCT eq.question_id) AS added_questions
 
 FROM exams e
 
-LEFT JOIN questions q
-ON q.exam_id = e.id
+LEFT JOIN exam_questions eq
+ON eq.exam_id = e.id
 
 LEFT JOIN subjects s
 ON s.id = e.subject_id
 
 WHERE
 
-e.exam_title LIKE :search
+e.title LIKE :search
 
 GROUP BY
 
@@ -123,24 +121,15 @@ Manage all examination questions.
 
 </div>
 
-<div style="display:flex; gap:12px; flex-wrap:wrap;">
+<a
+href="add.php"
+class="btn-add">
 
-    <a href="add.php" class="btn-add">
-        <i class="fa-solid fa-plus"></i>
-        Add Question
-    </a>
+<i class="fa-solid fa-plus"></i>
 
-    <a href="import.php" class="btn-add">
-        <i class="fa-solid fa-file-import"></i>
-        Import CSV
-    </a>
+Add Question
 
-    <a href="export.php" class="btn-add btn-export">
-        <i class="fa-solid fa-file-export"></i>
-        Export CSV
-    </a>
-
-</div>
+</a>
 
 </div>
 
@@ -202,7 +191,7 @@ foreach($examCards as $exam){
 
 $added = (int)$exam['added_questions'];
 
-$total = (int)$exam['total_questions'];
+$total = (int)$exam['required_question_count'];
 
 $remaining = max(0,$total-$added);
 
@@ -218,7 +207,7 @@ $progress = ($total>0)
 
 <h3>
 
-<?= htmlspecialchars($exam['exam_title']); ?>
+<?= htmlspecialchars($exam['title']); ?>
 
 </h3>
 

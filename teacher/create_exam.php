@@ -31,10 +31,24 @@ $description = trim(
     (string) ($_POST['description'] ?? '')
 );
 
+$categoryId = filter_var(
+    $_POST['category_id'] ?? '',
+    FILTER_VALIDATE_INT
+);
+
 $subjectId = filter_var(
     $_POST['subject_id'] ?? '',
     FILTER_VALIDATE_INT
 );
+
+$topicId = filter_var(
+    $_POST['topic_id'] ?? '',
+    FILTER_VALIDATE_INT
+);
+
+$topicId = (
+    $topicId !== false && $topicId !== null
+) ? (int)$topicId : 0;
 
 $examType = trim(
     (string) ($_POST['exam_type'] ?? 'Practice')
@@ -173,14 +187,33 @@ $examFee =
 
 /*
 |--------------------------------------------------------------------------
-| LOAD SUBJECTS + QUESTION BANK
+| LOAD CATEGORIES + SUBJECTS + QUESTION BANK
 |--------------------------------------------------------------------------
 */
 
+$categories = [];
 $subjects = [];
+$topics = [];
 $questions = [];
 
 try {
+
+    $categories =
+        $conn->query(
+            "
+            SELECT
+                id,
+                category_name
+            FROM categories
+            WHERE status = 'Active'
+            ORDER BY
+                category_name ASC,
+                id ASC
+            "
+        )->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
 
     $subjects =
         $conn->query(
@@ -188,8 +221,27 @@ try {
             SELECT
                 id,
                 name,
-                code
+                code,
+                category_id
             FROM subjects
+            WHERE status = 'Active'
+            ORDER BY
+                name ASC,
+                id ASC
+            "
+        )->fetchAll(
+            PDO::FETCH_ASSOC
+        );
+
+
+    $topics =
+        $conn->query(
+            "
+            SELECT
+                id,
+                subject_id,
+                name
+            FROM topics
             WHERE status = 'Active'
             ORDER BY
                 name ASC,
@@ -205,15 +257,19 @@ try {
             "
             SELECT
                 q.id,
+                q.topic_id,
                 q.question_text,
                 q.marks,
                 q.negative_marks,
                 q.difficulty,
-                s.name AS subject_name
+                s.name AS subject_name,
+                t.name AS topic_name
             FROM questions q
             INNER JOIN subjects s
                 ON s.id = q.subject_id
                 AND s.status = 'Active'
+            LEFT JOIN topics t
+                ON t.id = q.topic_id
             WHERE
                 q.created_by_teacher_id = ?
                 AND q.status = 'Active'
@@ -290,12 +346,55 @@ if (
 
 
     elseif (
+        $categoryId === false ||
+        $categoryId < 1
+    ) {
+
+        $error =
+            'Please select a category.';
+    }
+
+
+    elseif (
         $subjectId === false ||
         $subjectId < 1
     ) {
 
         $error =
             'Please select a subject.';
+    }
+
+
+    elseif (!array_filter(
+        $subjects,
+        static function (array $subject) use ($categoryId, $subjectId): bool {
+            return
+                (int)($subject['id'] ?? 0) === (int)$subjectId &&
+                (int)($subject['category_id'] ?? 0) === (int)$categoryId;
+        }
+    )) {
+
+        $error =
+            'Selected subject does not belong to the selected category.';
+    }
+
+
+    elseif (
+        $topicId !== false &&
+        $topicId !== null &&
+        $topicId > 0 &&
+        !array_filter(
+            $topics,
+            static function (array $topic) use ($subjectId): bool {
+                return
+                    (int)($topic['id'] ?? 0) === (int)($_POST['topic_id'] ?? 0) &&
+                    (int)($topic['subject_id'] ?? 0) === (int)$subjectId;
+            }
+        )
+    ) {
+
+        $error =
+            'Selected topic does not belong to the selected subject.';
     }
 
 
@@ -1510,6 +1609,53 @@ Live
 
 <label class="form-label">
 
+Category *
+
+</label>
+
+<select
+    class="form-select"
+    name="category_id"
+    id="categoryId"
+    required
+>
+
+<option value="">
+
+Select category
+
+</option>
+
+<?php foreach (
+    $categories
+    as $category
+): ?>
+
+<option
+    value="<?= (int)$category['id'] ?>"
+    <?= $categoryId ===
+        (int)$category['id']
+        ? 'selected'
+        : '' ?>
+>
+
+<?= exam_builder_e(
+    $category['category_name']
+) ?>
+
+</option>
+
+<?php endforeach; ?>
+
+</select>
+
+</div>
+
+
+<div class="col-lg-4">
+
+<label class="form-label">
+
 Subject *
 
 </label>
@@ -1517,6 +1663,7 @@ Subject *
 <select
     class="form-select"
     name="subject_id"
+    id="subjectId"
     required
 >
 
@@ -1526,14 +1673,14 @@ Select subject
 
 </option>
 
-
 <?php foreach (
     $subjects
     as $subject
 ): ?>
 
 <option
-    value="<?= $subject['id'] ?>"
+    value="<?= (int)$subject['id'] ?>"
+    data-category-id="<?= (int)($subject['category_id'] ?? 0) ?>"
     <?= $subjectId ===
         (int)$subject['id']
         ? 'selected'
@@ -1567,7 +1714,51 @@ Select subject
 </div>
 
 
-<div class="col-lg-8">
+<div class="col-lg-4">
+
+<label class="form-label">
+
+Topic
+
+</label>
+
+<select
+    class="form-select"
+    name="topic_id"
+    id="topicId"
+>
+
+<option value="">
+
+All topics
+
+</option>
+
+<?php foreach (
+    $topics
+    as $topic
+): ?>
+
+<option
+    value="<?= (int)$topic['id'] ?>"
+    data-subject-id="<?= (int)$topic['subject_id'] ?>"
+    <?= $topicId !== false && $topicId !== null && $topicId > 0 && $topicId === (int)$topic['id']
+        ? 'selected'
+        : '' ?>
+>
+
+<?= exam_builder_e($topic['name']) ?>
+
+</option>
+
+<?php endforeach; ?>
+
+</select>
+
+</div>
+
+
+<div class="col-lg-4">
 
 <label class="form-label">
 
@@ -2117,6 +2308,7 @@ Required:
 
 <label
     class="question-row"
+    data-topic-id="<?= (int)($q['topic_id'] ?? 0) ?>"
     data-question-text="<?=
         exam_builder_e(
             strtolower(
@@ -2182,6 +2374,14 @@ Negative:
 <?= exam_builder_e(
     $q['difficulty']
 ) ?>
+
+<?php if (!empty($q['topic_name'])): ?>
+
+·
+
+<?= exam_builder_e($q['topic_name']) ?>
+
+<?php endif; ?>
 
 </small>
 
@@ -2713,7 +2913,7 @@ Publish Exam
                 cards.forEach(
                     function (row) {
 
-                        row.hidden =
+                        row.hiddenBySearch =
                             needle !== '' &&
                             !(
                                 row.dataset
@@ -2724,6 +2924,17 @@ Publish Exam
                                 .includes(
                                     needle
                                 );
+
+                        const selectedTopic =
+                            (document.getElementById('topicId')?.value || '');
+
+                        const topicMatch =
+                            selectedTopic === '' ||
+                            (row.dataset.topicId || '0') === selectedTopic;
+
+                        row.hidden =
+                            row.hiddenBySearch ||
+                            !topicMatch;
                     }
                 );
             }
@@ -3013,6 +3224,94 @@ document.addEventListener('DOMContentLoaded', function () {
     sync();
     const displayType = document.querySelector('[data-mirror=\"exam_type\"]');
     displayType?.addEventListener('change', () => { type.value = displayType.value; sync(); });
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const category = document.getElementById('categoryId');
+    const subject = document.getElementById('subjectId');
+    const topic = document.getElementById('topicId');
+    const questionRows = Array.from(document.querySelectorAll('.question-row'));
+    if (!category || !subject || !topic) return;
+
+    const syncTopics = () => {
+        const selectedSubject = subject.value;
+        let topicStillValid = false;
+
+        Array.from(topic.options).forEach((option, index) => {
+            if (index === 0) {
+                option.hidden = false;
+                option.disabled = false;
+                return;
+            }
+
+            const match =
+                selectedSubject !== '' &&
+                option.dataset.subjectId === selectedSubject;
+
+            option.hidden = !match;
+            option.disabled = !match;
+
+            if (match && option.selected) {
+                topicStillValid = true;
+            }
+        });
+
+        if (!topicStillValid) {
+            topic.value = '';
+        }
+
+        syncQuestionTopicFilter();
+    };
+
+    const syncSubjects = () => {
+        const selectedCategory = category.value;
+        let selectedStillValid = false;
+
+        Array.from(subject.options).forEach((option, index) => {
+            if (index === 0) {
+                option.hidden = false;
+                option.disabled = false;
+                return;
+            }
+
+            const match =
+                selectedCategory !== '' &&
+                option.dataset.categoryId === selectedCategory;
+
+            option.hidden = !match;
+            option.disabled = !match;
+
+            if (match && option.selected) {
+                selectedStillValid = true;
+            }
+        });
+
+        if (!selectedStillValid) {
+            subject.value = '';
+        }
+
+        syncTopics();
+    };
+
+    function syncQuestionTopicFilter() {
+        const selectedTopic = topic.value;
+        questionRows.forEach(row => {
+            const rowTopic = row.dataset.topicId || '0';
+            const matches = selectedTopic === '' || rowTopic === selectedTopic;
+            if (row.hiddenBySearch) {
+                return;
+            }
+            row.hidden = !matches;
+        });
+    }
+
+    category.addEventListener('change', syncSubjects);
+    subject.addEventListener('change', syncTopics);
+    topic.addEventListener('change', syncQuestionTopicFilter);
+    syncSubjects();
+    syncQuestionTopicFilter();
 });
 </script>
 </body>
